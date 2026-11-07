@@ -1,0 +1,34 @@
+name: Native CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  native-and-replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run strict unit tests
+        run: |
+          mkdir -p /tmp/arkernel-build
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -Icore/include \
+            core/src/*.cpp core/tests/core_tests.cpp -pthread \
+            -o /tmp/arkernel-build/arkernel_tests
+          /tmp/arkernel-build/arkernel_tests
+      - name: Address and undefined behavior sanitizers
+        run: |
+          c++ -std=c++17 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -Icore/include core/src/*.cpp core/tests/core_tests.cpp -pthread \
+            -o /tmp/arkernel-build/arkernel_tests_san
+          ASAN_OPTIONS=detect_leaks=1 /tmp/arkernel-build/arkernel_tests_san
+      - name: Deterministic sensor replay
+        run: |
+          python3 tools/replay/generate_synthetic.py /tmp/arkernel-replay
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -Icore/include \
+            core/src/*.cpp tools/replay/main.cpp -pthread \
+            -o /tmp/arkernel-build/arkernel_replay
+          /tmp/arkernel-build/arkernel_replay /tmp/arkernel-replay/manifest.arkr > /tmp/result-1.json
+          /tmp/arkernel-build/arkernel_replay /tmp/arkernel-replay/manifest.arkr > /tmp/result-2.json
+          diff -u /tmp/result-1.json /tmp/result-2.json
+          grep -q '"tracking_frames": 11' /tmp/result-1.json
+          cat /tmp/result-1.json

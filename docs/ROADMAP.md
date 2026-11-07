@@ -6,7 +6,7 @@
 - [x] portable C++17-Modulgrenzen
 - [x] IMU-Vorintegration, Qualitätsgate, Sensor-Orchestrator
 - [x] Unit-Tests ohne Drittanbieterabhängigkeiten
-- [ ] CI-Matrix Linux + Android NDK
+- [x] Linux Native-CI mit Unit-, Sanitizer- und deterministischem Replay; Android-NDK-CI bleibt offen
 - [x] stabile C-ABI und Kotlin/JNI-Wrapper
 - [x] verzerrtes Kameramodell und numerisch geprüfte Projektion
 - [x] robuste Sensor-Uhrenausrichtung
@@ -28,7 +28,7 @@
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - Vision-Frontend inklusive Feature-Lebenszyklus ist nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
 - Sparse Sliding-Window-Gauss-Newton, Bias-Jakobians und Schur-Marginalisierung; ein begrenzter robuster Fixed-Lag-Bootstrap ist implementiert;
-- EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
+- [x] versioniertes synthetisches Kamera-/IMU-Replay; EuroC/TUM-VI/KITTI-Import und ATE/RPE bleiben offen;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.
 
 **Exit:** 30 FPS Midrange, keine unbounded allocations, reproduzierbare Trajektorien und dokumentierte Genauigkeit.

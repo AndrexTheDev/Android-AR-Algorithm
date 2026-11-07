@@ -15,6 +15,46 @@ double rayDistance(const Vec3& center,const Vec3& direction,const Vec3& point){
 }
 std::uint32_t nextRandom(std::uint32_t& state){state^=state<<13;state^=state>>17;state^=state<<5;return state;}
 bool finite(const Vec3& v){return std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z);}
+Vec3 canonicalNormal(Vec3 normal){
+  normal=normalized(normal);
+  const double epsilon=1e-12;
+  if(normal.z<-epsilon||(std::abs(normal.z)<=epsilon&&normal.y<-epsilon)||
+     (std::abs(normal.z)<=epsilon&&std::abs(normal.y)<=epsilon&&normal.x<0))normal=normal*-1.0;
+  return normal;
+}
+std::optional<Vec3> leastSquaresPlaneNormal(const std::vector<Vec3>& points){
+  if(points.size()<3)return std::nullopt;
+  Vec3 center;for(const auto& point:points){if(!finite(point))return std::nullopt;center+=point;}
+  center=center*(1.0/static_cast<double>(points.size()));
+  double matrix[3][3]{};
+  for(const auto& point:points){const Vec3 d=point-center;const double value[3]{d.x,d.y,d.z};
+    for(int row=0;row<3;++row)for(int column=0;column<3;++column)
+      matrix[row][column]+=value[row]*value[column];}
+  double vectors[3][3]{{1,0,0},{0,1,0},{0,0,1}};
+  for(int sweep=0;sweep<24;++sweep){
+    int p=0,q=1;double largest=std::abs(matrix[0][1]);
+    if(std::abs(matrix[0][2])>largest){p=0;q=2;largest=std::abs(matrix[0][2]);}
+    if(std::abs(matrix[1][2])>largest){p=1;q=2;largest=std::abs(matrix[1][2]);}
+    if(largest<1e-15)break;
+    const double app=matrix[p][p],aqq=matrix[q][q],apq=matrix[p][q];
+    const double angle=0.5*std::atan2(2.0*apq,aqq-app);
+    const double cosine=std::cos(angle),sine=std::sin(angle);
+    for(int k=0;k<3;++k)if(k!=p&&k!=q){
+      const double akp=matrix[k][p],akq=matrix[k][q];
+      matrix[k][p]=matrix[p][k]=cosine*akp-sine*akq;
+      matrix[k][q]=matrix[q][k]=sine*akp+cosine*akq;
+    }
+    matrix[p][p]=cosine*cosine*app-2.0*sine*cosine*apq+sine*sine*aqq;
+    matrix[q][q]=sine*sine*app+2.0*sine*cosine*apq+cosine*cosine*aqq;
+    matrix[p][q]=matrix[q][p]=0;
+    for(int k=0;k<3;++k){const double vkp=vectors[k][p],vkq=vectors[k][q];
+      vectors[k][p]=cosine*vkp-sine*vkq;vectors[k][q]=sine*vkp+cosine*vkq;}
+  }
+  int minimum=0;if(matrix[1][1]<matrix[minimum][minimum])minimum=1;
+  if(matrix[2][2]<matrix[minimum][minimum])minimum=2;
+  const Vec3 normal=canonicalNormal({vectors[0][minimum],vectors[1][minimum],vectors[2][minimum]});
+  return normal.norm()>0.9?std::optional<Vec3>(normal):std::nullopt;
+}
 double cross2(const Vec2& origin,const Vec2& a,const Vec2& b){
   return (a.x-origin.x)*(b.y-origin.y)-(a.y-origin.y)*(b.x-origin.x);
 }
@@ -202,6 +242,8 @@ PlaneEstimate SparsePlaneDetector::detect(const std::vector<SparseLandmark>& lan
   for(int iteration=0;iteration<config_.ransac_iterations;++iteration){
     std::size_t a=nextRandom(state)%landmarks.size(),b=nextRandom(state)%landmarks.size(),c=nextRandom(state)%landmarks.size();
     if(a==b||a==c||b==c)continue;
+    if(!finite(landmarks[a].position_world_m)||!finite(landmarks[b].position_world_m)||
+       !finite(landmarks[c].position_world_m))continue;
     Vec3 normal=normalized(cross(landmarks[b].position_world_m-landmarks[a].position_world_m,
                                  landmarks[c].position_world_m-landmarks[a].position_world_m));
     if(normal.norm()<0.9)continue;
@@ -209,19 +251,39 @@ PlaneEstimate SparsePlaneDetector::detect(const std::vector<SparseLandmark>& lan
     for(const auto& point:landmarks){const double residual=std::abs(dot(normal,point.position_world_m)+distance);
       if(residual<=config_.inlier_threshold_m){ids.push_back(point.feature_id);error+=residual;}}
     if(ids.size()>best.inlier_count||(ids.size()==best.inlier_count&&ids.size()&&error/ids.size()<best.mean_absolute_error_m)){
-      if(normal.z<0){normal=normal*-1.0;distance=-distance;}
-      best.normal_world=normal;best.distance_from_origin_m=distance;best.inlier_count=ids.size();
+      const Vec3 canonical=canonicalNormal(normal);
+      if(dot(canonical,normal)<0)distance=-distance;
+      best.normal_world=canonical;best.distance_from_origin_m=distance;best.inlier_count=ids.size();
       best.mean_absolute_error_m=ids.empty()?0:error/ids.size();best.landmark_ids=std::move(ids);
     }
   }
   if(best.inlier_count<config_.min_inliers)return best;
-  std::vector<Vec3> inlier_points;inlier_points.reserve(best.inlier_count);
-  for(const auto& point:landmarks)
-    if(std::abs(dot(best.normal_world,point.position_world_m)+best.distance_from_origin_m)<=
-       config_.inlier_threshold_m)inlier_points.push_back(point.position_world_m);
-  if(inlier_points.size()<config_.min_inliers)return best;
+  auto collectInliers=[&](const Vec3& normal,double distance,std::vector<Vec3>& points,
+                          std::vector<std::uint32_t>& ids,double& error){
+    points.clear();ids.clear();error=0;
+    for(const auto& landmark:landmarks){
+      if(!finite(landmark.position_world_m))continue;
+      const double residual=std::abs(dot(normal,landmark.position_world_m)+distance);
+      if(residual<=config_.inlier_threshold_m){points.push_back(landmark.position_world_m);
+        ids.push_back(landmark.feature_id);error+=residual;}
+    }
+  };
+  std::vector<Vec3> inlier_points;std::vector<std::uint32_t> inlier_ids;double error=0;
+  collectInliers(best.normal_world,best.distance_from_origin_m,inlier_points,inlier_ids,error);
+  for(int refinement=0;refinement<2;++refinement){
+    if(inlier_points.size()<config_.min_inliers)return PlaneEstimate{};
+    const auto fitted_normal=leastSquaresPlaneNormal(inlier_points);
+    if(!fitted_normal)return PlaneEstimate{};
+    Vec3 center;for(const auto& point:inlier_points)center+=point;
+    center=center*(1.0/static_cast<double>(inlier_points.size()));
+    best.normal_world=*fitted_normal;best.distance_from_origin_m=-dot(best.normal_world,center);
+    collectInliers(best.normal_world,best.distance_from_origin_m,inlier_points,inlier_ids,error);
+  }
+  if(inlier_points.size()<config_.min_inliers)return PlaneEstimate{};
+  best.inlier_count=inlier_points.size();best.landmark_ids=std::move(inlier_ids);
+  best.mean_absolute_error_m=error/static_cast<double>(best.inlier_count);best.center_world={};
   for(const auto& point:inlier_points)best.center_world+=point;
-  best.center_world=best.center_world*(1.0/inlier_points.size());
+  best.center_world=best.center_world*(1.0/static_cast<double>(inlier_points.size()));
   best.center_world=best.center_world-best.normal_world*(
       dot(best.normal_world,best.center_world)+best.distance_from_origin_m);
   const Vec3 reference=std::abs(best.normal_world.z)<0.9?Vec3{0,0,1}:Vec3{1,0,0};

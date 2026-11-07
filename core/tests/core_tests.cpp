@@ -305,6 +305,23 @@ int main() {
   CHECK(plane.normal_world.z>0.999);
   CHECK(std::abs(plane.distance_from_origin_m+3.0)<1e-8);
   CHECK(plane.boundary_uv.size()>=3 && plane.observed_area_m2>0.1);
+  std::vector<SparseLandmark> noisy_plane_points;
+  std::uint32_t noisy_id=1;
+  for(int row=0;row<9;++row)for(int column=0;column<9;++column){
+    const double x=-1.0+0.25*column,y=-1.0+0.25*row;
+    const int noise_code=(row*17+column*13)%7-3;
+    const double z=1.0+0.2*x-0.1*y+0.003*noise_code;
+    noisy_plane_points.push_back({noisy_id++,{x,y,z},3,0.005,2200000000LL});
+  }
+  for(int i=0;i<15;++i)
+    noisy_plane_points.push_back({noisy_id++,{-1.0+0.14*i,0.8,1.5+0.05*i},2,0.01,2200000000LL});
+  const auto refined_plane=SparsePlaneDetector({500,0.025,60,456}).detect(noisy_plane_points);
+  const Vec3 expected_plane_normal=Vec3{-0.2,0.1,1.0}*(1.0/Vec3{-0.2,0.1,1.0}.norm());
+  CHECK(refined_plane.valid && refined_plane.inlier_count==81);
+  CHECK(refined_plane.normal_world.x*expected_plane_normal.x+
+        refined_plane.normal_world.y*expected_plane_normal.y+
+        refined_plane.normal_world.z*expected_plane_normal.z>0.9999);
+  CHECK(refined_plane.mean_absolute_error_m<0.007);
   const auto plane_hit=plane.raycast({0,0,0},{0,0,1});
   CHECK(plane_hit.has_value());
   CHECK(std::abs(plane_hit->position_world.z-3.0)<1e-8);

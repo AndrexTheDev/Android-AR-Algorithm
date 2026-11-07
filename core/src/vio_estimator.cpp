@@ -37,7 +37,10 @@ VioEstimator::VioEstimator(VioConfig config):config_(config){
       config_.body_from_camera_rotation.x*config_.body_from_camera_rotation.x+
       config_.body_from_camera_rotation.y*config_.body_from_camera_rotation.y+
       config_.body_from_camera_rotation.z*config_.body_from_camera_rotation.z);
-  if(extrinsic_norm<1e-9)throw std::invalid_argument("Invalid camera-to-body rotation");
+  if(extrinsic_norm<1e-9||!std::isfinite(config_.body_from_camera_translation_m.x)||
+     !std::isfinite(config_.body_from_camera_translation_m.y)||
+     !std::isfinite(config_.body_from_camera_translation_m.z))
+    throw std::invalid_argument("Invalid camera-to-body transform");
   config_.body_from_camera_rotation=config_.body_from_camera_rotation.normalized();
   state_.gravity_world_mps2={0,0,-config_.gravity_magnitude_mps2};
 }
@@ -136,7 +139,11 @@ VisualFusionResult VioEstimator::fuseVisual(TimestampNs timestamp_ns,
   const Vec3 center_direction_previous=visual_body_rotation.inverse().rotate(
       visual_body_translation*-1.0);
   const Vec3 direction_world=anchor.rotation.rotate(center_direction_previous);
-  const Vec3 predicted_displacement=state_.world_from_body.translation-anchor.translation;
+  const Vec3 lever_body=config_.body_from_camera_translation_m;
+  const Vec3 previous_camera_world=anchor.translation+anchor.rotation.rotate(lever_body);
+  const Vec3 predicted_camera_world=state_.world_from_body.translation+
+      state_.world_from_body.rotation.rotate(lever_body);
+  const Vec3 predicted_displacement=predicted_camera_world-previous_camera_world;
   const double predicted_norm=predicted_displacement.norm();
   const double observed_scale=dot(predicted_displacement,direction_world);
   const double direction_cosine=predicted_norm>1e-12?observed_scale/predicted_norm:-1.0;
@@ -147,9 +154,11 @@ VisualFusionResult VioEstimator::fuseVisual(TimestampNs timestamp_ns,
     state_.visual_translation_scale_valid=true;
     // The essential translation is unit length; scale is therefore specific to
     // this frame interval, not a global quantity to average across frame rates.
-    const Vec3 measured_position=anchor.translation+direction_world*observed_scale;
+    const Vec3 measured_camera_position=previous_camera_world+direction_world*observed_scale;
+    const Vec3 measured_body_position=measured_camera_position-
+      state_.world_from_body.rotation.rotate(lever_body);
     state_.world_from_body.translation=state_.world_from_body.translation*
-        (1.0-config_.visual_position_gain)+measured_position*config_.visual_position_gain;
+        (1.0-config_.visual_position_gain)+measured_body_position*config_.visual_position_gain;
     result.position_applied=true;
   }
   state_.status=VioStatus::kVisualInertial;

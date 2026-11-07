@@ -479,6 +479,29 @@ int main() {
   CHECK(vio.state().visual_translation_scale_valid);
   CHECK(vio.state().world_from_body.rotation.rotate({1,0,0}).y>0.03);
 
+  VioConfig lever_config;lever_config.min_scale_displacement_m=0.001;
+  lever_config.visual_position_gain=1.0;lever_config.body_from_camera_translation_m={1,0,0};
+  VioEstimator lever_vio(lever_config);
+  for(int i=0;i<80;++i)
+    lever_vio.submitImu({vio_start+i*10000000LL,{0,0,gravity},{0,0,0}});
+  RelativePoseEstimate lever_reference;lever_reference.valid=true;
+  lever_reference.translation_direction_current={1,0,0};
+  CHECK(!lever_vio.fuseVisual(lever_vio.state().timestamp_ns,lever_reference).rotation_applied);
+  const TimestampNs lever_start=lever_vio.state().timestamp_ns;
+  for(int i=1;i<=10;++i)
+    CHECK(lever_vio.submitImu({lever_start+i*10000000LL,{0,0,gravity},{0,0,1}}));
+  const Vec3 lever{1,0,0};
+  const Vec3 camera_displacement=lever_vio.state().world_from_body.rotation.rotate(lever)-lever;
+  const Vec3 camera_direction=camera_displacement*(1.0/camera_displacement.norm());
+  RelativePoseEstimate lever_visual;lever_visual.valid=true;
+  lever_visual.rotation_current_from_previous=lever_vio.state().world_from_body.rotation.inverse();
+  lever_visual.translation_direction_current=lever_visual.rotation_current_from_previous.rotate(
+      camera_direction)*-1.0;
+  const auto lever_fused=lever_vio.fuseVisual(lever_vio.state().timestamp_ns,lever_visual);
+  CHECK(lever_fused.scale_updated && lever_fused.position_applied);
+  CHECK(std::abs(lever_fused.observed_scale_m-camera_displacement.norm())<1e-6);
+  CHECK(lever_vio.state().world_from_body.translation.norm()<1e-6);
+
   VioEstimator moving_initializer;
   for (int i=0;i<100;++i)
     moving_initializer.submitImu({vio_start+i*10000000LL,{0,0,gravity},
@@ -495,6 +518,12 @@ int main() {
   ark_vio_handle* c_handle=nullptr;
   CHECK(ark_vio_create(&c_config,&c_handle)==ARK_RESULT_OK);
   CHECK(c_handle!=nullptr);
+  ark_vio_handle* c_extrinsic_handle=nullptr;
+  CHECK(ark_vio_create_with_extrinsics(&c_config,0.04,-0.01,0.02,
+                                        &c_extrinsic_handle)==ARK_RESULT_OK);
+  ark_vio_destroy(c_extrinsic_handle);
+  CHECK(ark_vio_create_with_extrinsics(&c_config,std::numeric_limits<double>::quiet_NaN(),0,0,
+                                        &c_extrinsic_handle)==ARK_RESULT_INVALID_ARGUMENT);
   ark_imu_sample_v1 c_sample{};
   c_sample.struct_size=sizeof(c_sample);
   c_sample.acceleration_z_mps2=gravity;

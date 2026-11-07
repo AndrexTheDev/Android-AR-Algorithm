@@ -26,10 +26,13 @@ data class VioSnapshot(
  */
 class ArKernelVio(
     bodyFromCameraRotation: Rotation = Rotation(1.0, 0.0, 0.0, 0.0),
+    bodyFromCameraTranslationMeters: Vector3 = Vector3(0.0, 0.0, 0.0),
 ) : AutoCloseable {
     private var nativeHandle: Long = nativeCreate(
         bodyFromCameraRotation.w, bodyFromCameraRotation.x,
-        bodyFromCameraRotation.y, bodyFromCameraRotation.z).also {
+        bodyFromCameraRotation.y, bodyFromCameraRotation.z,
+        bodyFromCameraTranslationMeters.x, bodyFromCameraTranslationMeters.y,
+        bodyFromCameraTranslationMeters.z).also {
         check(it != 0L) { "Could not create native AR kernel" }
     }
     private var acceptingSamples = true
@@ -94,7 +97,8 @@ class ArKernelVio(
 
     private fun checkOpen() = check(nativeHandle != 0L) { "ArKernelVio is closed" }
 
-    private external fun nativeCreate(rw: Double, rx: Double, ry: Double, rz: Double): Long
+    private external fun nativeCreate(rw: Double, rx: Double, ry: Double, rz: Double,
+        tx: Double, ty: Double, tz: Double): Long
     private external fun nativeDestroy(handle: Long)
     private external fun nativeReset(handle: Long): Int
     private external fun nativeSubmitImu(handle: Long, timestampNs: Long,

@@ -27,6 +27,7 @@ class ArKernelSession(
     private val onResult: (ArKernelSessionResult) -> Unit,
     private val onError: (Throwable) -> Unit = {},
     private val maxQueuedImuSamples: Int = 4096,
+    private val bodyFromCameraTranslationMeters: Vector3 = Vector3(0.0, 0.0, 0.0),
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -36,7 +37,7 @@ class ArKernelSession(
 
     private val lock = Any()
     private val queue = ArrayDeque<ImuPacket>()
-    private val vio = ArKernelVio(bodyFromCameraRotation)
+    private val vio = ArKernelVio(bodyFromCameraRotation, bodyFromCameraTranslationMeters)
     private val visual = ArKernelVisualFrontend(calibration)
     private var droppedSamples = 0L
     private var previousBodyWorldRotation: Rotation? = null
@@ -126,8 +127,12 @@ class ArKernelSession(
             queue.size to droppedSamples
         }
         val spatialMap = snapshot?.let { state ->
+            val cameraOffsetWorld = rotate(state.rotation, bodyFromCameraTranslationMeters)
             val worldFromCamera = WorldPose(result.timestampNs,
-                multiply(state.rotation, bodyFromCameraRotation), state.positionMeters)
+                multiply(state.rotation, bodyFromCameraRotation),
+                Vector3(state.positionMeters.x + cameraOffsetWorld.x,
+                    state.positionMeters.y + cameraOffsetWorld.y,
+                    state.positionMeters.z + cameraOffsetWorld.z))
             visual.integrateMap(worldFromCamera)
         }
         onResult(ArKernelSessionResult(
@@ -190,6 +195,17 @@ class ArKernelSession(
     private fun inverse(q: Rotation): Rotation {
         val norm = q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
         return Rotation(q.w/norm, -q.x/norm, -q.y/norm, -q.z/norm)
+    }
+
+    private fun rotate(q: Rotation, v: Vector3): Vector3 {
+        val inverseNorm = 1.0/sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z)
+        val w = q.w*inverseNorm; val x = q.x*inverseNorm
+        val y = q.y*inverseNorm; val z = q.z*inverseNorm
+        val tx = 2.0*(y*v.z-z*v.y)
+        val ty = 2.0*(z*v.x-x*v.z)
+        val tz = 2.0*(x*v.y-y*v.x)
+        return Vector3(v.x+w*tx+(y*tz-z*ty),
+            v.y+w*ty+(z*tx-x*tz), v.z+w*tz+(x*ty-y*tx))
     }
 
     private fun multiply(a: Rotation, b: Rotation): Rotation {

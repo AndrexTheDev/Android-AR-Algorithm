@@ -385,12 +385,18 @@ ark_result ark_vio_default_config(ark_vio_config_v1* out){
 }
 
 ark_result ark_vio_create(const ark_vio_config_v1* config,ark_vio_handle** out){
+  return ark_vio_create_with_extrinsics(config,0,0,0,out);
+}
+ark_result ark_vio_create_with_extrinsics(const ark_vio_config_v1* config,
+    double tx,double ty,double tz,ark_vio_handle** out){
   if(!out)return ARK_RESULT_INVALID_ARGUMENT;
   *out=nullptr;
   ark_vio_config_v1 defaults{};
   if(!config){ark_vio_default_config(&defaults);config=&defaults;}
-  if(!validConfigHeader(config))return ARK_RESULT_INVALID_ARGUMENT;
-  try{*out=new ark_vio_handle(convert(*config));return ARK_RESULT_OK;}
+  if(!validConfigHeader(config)||!std::isfinite(tx)||!std::isfinite(ty)||!std::isfinite(tz))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{auto converted=convert(*config);converted.body_from_camera_translation_m={tx,ty,tz};
+    *out=new ark_vio_handle(converted);return ARK_RESULT_OK;}
   catch(const std::bad_alloc&){return ARK_RESULT_INTERNAL_ERROR;}
   catch(const std::exception&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(...){return ARK_RESULT_INTERNAL_ERROR;}

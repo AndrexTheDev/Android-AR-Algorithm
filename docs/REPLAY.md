@@ -9,7 +9,7 @@ Text manifest (`.arkr`), paths relative to the manifest:
 ```text
 ARK_REPLAY_V1
 CAMERA width height fx fy cx cy k1 k2 p1 p2 k3
-EXTRINSIC body_from_camera_qw qx qy qz
+EXTRINSIC body_from_camera_qw qx qy qz tx_m ty_m tz_m
 IMU timestamp_ns ax ay az gx gy gz
 FRAME timestamp_ns image.pgm
 ```
@@ -18,7 +18,7 @@ Constraints:
 
 - exactly one `CAMERA`, before events;
 - optional normalized `EXTRINSIC` after `CAMERA`; omission means identity;
-- `body_from_camera` rotates optical-camera vectors into the IMU/body frame;
+- `body_from_camera` rotates optical-camera vectors and translates camera points into the IMU/body frame; legacy manifests without `tx ty tz` remain valid with a zero lever arm;
 - globally monotonic boot-time-like nanosecond timestamps;
 - each IMU and frame stream strictly increasing;
 - at equal timestamps, IMU precedes FRAME;

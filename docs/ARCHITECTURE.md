@@ -76,12 +76,12 @@ Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine ex
 
 ## Android-Session und zeitliche Ordnung
 
-`ArKernelSession` puffert kombinierte IMU-Samples begrenzt. Vor einem Bild mit Capture-Zeit `t` werden ausschließlich Samples mit `timestamp <= t` in VIO propagiert; erst danach entstehen Rotationsvorhersage und visuelle Messung. Eine allgemeine 3D-Relativpose wird anschließend am gleichen Zeitstempel fusioniert. Später eintreffende IMU-Samples bleiben für das nächste Bild sortiert. Queue-Überläufe werden gezählt und im Session-Ergebnis sichtbar. Die kalibrierte Rotation `body_from_camera` ist Pflicht: Android-Body- und optische Kameraachsen dürfen niemals stillschweigend gleichgesetzt werden.
+`ArKernelSession` puffert kombinierte IMU-Samples begrenzt. Vor einem Bild mit Capture-Zeit `t` werden ausschließlich Samples mit `timestamp <= t` in VIO propagiert; erst danach entstehen Rotationsvorhersage und visuelle Messung. Eine allgemeine 3D-Relativpose wird anschließend am gleichen Zeitstempel fusioniert. Später eintreffende IMU-Samples bleiben für das nächste Bild sortiert. Queue-Überläufe werden gezählt und im Session-Ergebnis sichtbar. Die vollständige kalibrierte Pose `body_from_camera` ist Pflicht: Android-Body- und optische Kameraachsen sowie ihre Ursprünge dürfen niemals stillschweigend gleichgesetzt werden. Die rotierte metrische Translation bestimmt den Kameramittelpunkt im Weltframe. Visuelle Skale wird gegen dessen vorhergesagte Bewegung beobachtet; erst danach wird die korrigierte Kameraposition über den Hebelarm zurück auf den Body-Ursprung transformiert.
 
 
 ## Replay als ausführbare Spezifikation
 
-`ReplayDataset` validiert ein versioniertes, monotones Manifest, exakte kalibrierte P5-Graustufenframes und die optionale Kamera-zu-Body-Extrinsik. `ReplayRunner` verwendet dieselben Frontend- und VIO-Klassen sowie dieselbe Regel „IMU bis einschließlich Capture-Zeit vor Frame“. Rotationsvorhersage und visuelle Fusion transformieren über `body_from_camera`; EuRoC `T_BS` wird vom Konverter übernommen. Ergebniszähler und quantisierte Zustände fließen in einen deterministischen FNV-1a-Regressionshash. Replay-Code wird als separates Support-Target gebaut und vergrößert deshalb die Android-Core-Bibliothek nicht.
+`ReplayDataset` validiert ein versioniertes, monotones Manifest, exakte kalibrierte P5-Graustufenframes und die optionale Kamera-zu-Body-Extrinsik. `ReplayRunner` verwendet dieselben Frontend- und VIO-Klassen sowie dieselbe Regel „IMU bis einschließlich Capture-Zeit vor Frame“. Rotationsvorhersage und visuelle Fusion transformieren über `body_from_camera`; Rotation und metrische Translation des EuRoC-`T_BS` werden vom Konverter übernommen. Ergebniszähler und quantisierte Zustände fließen in einen deterministischen FNV-1a-Regressionshash. Replay-Code wird als separates Support-Target gebaut und vergrößert deshalb die Android-Core-Bibliothek nicht.
 
 
 ## Trajektorienmetriken

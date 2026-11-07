@@ -288,6 +288,12 @@ ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out_config);
 ark_result ark_vio_create(const ark_vio_config_v1* config, ark_vio_handle** out_handle);
+// Additive full-extrinsic constructor; the v1 config layout remains unchanged.
+ark_result ark_vio_create_with_extrinsics(const ark_vio_config_v1* config,
+                                          double body_from_camera_tx_m,
+                                          double body_from_camera_ty_m,
+                                          double body_from_camera_tz_m,
+                                          ark_vio_handle** out_handle);
 void ark_vio_destroy(ark_vio_handle* handle);
 ark_result ark_vio_reset(ark_vio_handle* handle);
 ark_result ark_vio_submit_imu(ark_vio_handle* handle, const ark_imu_sample_v1* sample);

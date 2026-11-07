@@ -27,7 +27,7 @@ def yaml_list(name):
         raise SystemExit(f"Missing {name} in cam0/sensor.yaml")
     return [float(value.strip()) for value in match.group(1).split(",")]
 
-def body_from_camera_quaternion():
+def body_from_camera_transform():
     block = re.search(r"T_BS\s*:[\s\S]*?data\s*:\s*\[([^]]+)\]", sensor_yaml)
     if not block:
         raise SystemExit("Missing camera T_BS extrinsic in cam0/sensor.yaml")
@@ -49,7 +49,8 @@ def body_from_camera_quaternion():
     norm = sum(value*value for value in q)**0.5
     if norm < 1e-9:
         raise SystemExit("Invalid camera T_BS rotation")
-    return tuple(value/norm for value in q)
+    translation = (values[3], values[7], values[11])
+    return tuple(value/norm for value in q), translation
 
 intrinsics = yaml_list("intrinsics")
 distortion = yaml_list("distortion_coefficients")
@@ -105,10 +106,10 @@ for row in imu_rows:
 events = sorted(imu_events + frame_events, key=lambda event: (event[0], event[1]))
 fx, fy, cx, cy = intrinsics
 k1, k2, p1, p2 = distortion[:4]
-qw,qx,qy,qz = body_from_camera_quaternion()
+(qw,qx,qy,qz),(tx,ty,tz) = body_from_camera_transform()
 lines = ["ARK_REPLAY_V1",
          f"CAMERA {width} {height} {fx:.17g} {fy:.17g} {cx:.17g} {cy:.17g} {k1:.17g} {k2:.17g} {p1:.17g} {p2:.17g} 0",
-         f"EXTRINSIC {qw:.17g} {qx:.17g} {qy:.17g} {qz:.17g}"]
+         f"EXTRINSIC {qw:.17g} {qx:.17g} {qy:.17g} {qz:.17g} {tx:.17g} {ty:.17g} {tz:.17g}"]
 lines.extend(event[2] for event in events)
 manifest = args.output / "manifest.arkr"
 manifest.write_text("\n".join(lines) + "\n")

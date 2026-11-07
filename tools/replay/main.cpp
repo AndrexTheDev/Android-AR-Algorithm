@@ -17,6 +17,7 @@ int main(int argc,char** argv){
     arkernel::PinholeRadTanCamera camera(dataset.intrinsics,dataset.distortion);
     arkernel::VioConfig vio_config;
     vio_config.body_from_camera_rotation=dataset.body_from_camera_rotation;
+    vio_config.body_from_camera_translation_m=dataset.body_from_camera_translation_m;
     arkernel::ReplayRunner runner(camera,{},vio_config);
     const auto m=runner.run(dataset);
     if(argc==4)arkernel::writeArkTrajectory(argv[3],m.trajectory);

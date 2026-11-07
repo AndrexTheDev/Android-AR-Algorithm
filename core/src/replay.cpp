@@ -86,11 +86,19 @@ ReplayDataset ReplayDataset::loadManifest(const std::string& manifest_path) {
     if(type=="EXTRINSIC"){
       if(!has_camera||has_extrinsic||!result.events.empty())
         throw std::runtime_error("EXTRINSIC must occur once after CAMERA and before events");
-      row>>result.body_from_camera_rotation.w>>result.body_from_camera_rotation.x>>
-          result.body_from_camera_rotation.y>>result.body_from_camera_rotation.z;
+      if(!(row>>result.body_from_camera_rotation.w>>result.body_from_camera_rotation.x>>
+          result.body_from_camera_rotation.y>>result.body_from_camera_rotation.z))
+        throw std::runtime_error("Invalid EXTRINSIC row");
+      if(row>>result.body_from_camera_translation_m.x){
+        if(!(row>>result.body_from_camera_translation_m.y>>result.body_from_camera_translation_m.z))
+          throw std::runtime_error("Incomplete EXTRINSIC translation");
+        std::string trailing;if(row>>trailing)throw std::runtime_error("Unexpected EXTRINSIC field");
+      }
       const auto& q=result.body_from_camera_rotation;
+      const auto& t=result.body_from_camera_translation_m;
       const double norm=std::sqrt(q.w*q.w+q.x*q.x+q.y*q.y+q.z*q.z);
-      if(!row||!std::isfinite(norm)||norm<1e-9)throw std::runtime_error("Invalid EXTRINSIC row");
+      if(!std::isfinite(norm)||norm<1e-9||!std::isfinite(t.x)||!std::isfinite(t.y)||
+         !std::isfinite(t.z))throw std::runtime_error("Invalid EXTRINSIC row");
       result.body_from_camera_rotation=result.body_from_camera_rotation.normalized();
       has_extrinsic=true;continue;
     }

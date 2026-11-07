@@ -18,13 +18,14 @@ jlong toHandle(const void* value) {
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_ArKernelVio_nativeCreate(JNIEnv*,jobject,
-    jdouble rw,jdouble rx,jdouble ry,jdouble rz) {
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble tx,jdouble ty,jdouble tz) {
   ark_vio_config_v1 config{};
   if(ark_vio_default_config(&config)!=ARK_RESULT_OK)return 0;
   config.body_from_camera_w=rw;config.body_from_camera_x=rx;
   config.body_from_camera_y=ry;config.body_from_camera_z=rz;
   ark_vio_handle* handle=nullptr;
-  return ark_vio_create(&config,&handle)==ARK_RESULT_OK?toHandle(handle):0;
+  return ark_vio_create_with_extrinsics(&config,tx,ty,tz,&handle)==ARK_RESULT_OK?
+    toHandle(handle):0;
 }
 
 extern "C" JNIEXPORT void JNICALL

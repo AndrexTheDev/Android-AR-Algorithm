@@ -53,7 +53,7 @@ Run conversion, optimized replay, trajectory export and both evaluations in one 
 tools/benchmarks/run_euroc.sh /data/MH_01_easy/mav0 /tmp/mh01-baseline
 ```
 
-EuRoC images are PNG; conversion uses the free Pillow package when needed. IMU and calibration parsing use only Python's standard library. The converter preserves timestamps, maps EuRoC IMU order `(gyro, accel)` into the kernel's `(accel, gyro)` contract, converts frames to binary PGM, sorts equal-time IMU before camera events, and converts the camera `T_BS` rotation into the required `body_from_camera` quaternion. Ignoring `T_BS` would make visual-inertial fusion and any resulting ATE physically invalid.
+EuRoC images are PNG; conversion uses the free Pillow package when needed. IMU and calibration parsing use only Python's standard library. The converter preserves timestamps, maps EuRoC IMU order `(gyro, accel)` into the kernel's `(accel, gyro)` contract, converts frames to binary PGM, sorts equal-time IMU before camera events, and converts the camera `T_BS` rotation and translation into the required `body_from_camera` transform. Ignoring either the axis rotation or the metric camera lever arm would make visual-inertial fusion and any resulting ATE physically inconsistent.
 
 ## Interpretation limits
 

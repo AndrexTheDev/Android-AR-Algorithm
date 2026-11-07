@@ -35,8 +35,9 @@ struct VioConfig {
   double visual_position_gain{0.2};
   double min_scale_displacement_m{0.005};
   double min_scale_direction_cosine{0.5};
-  // Fixed calibration rotation mapping camera vectors into the IMU/body frame.
+  // Fixed calibrated transform mapping camera coordinates into the IMU/body frame.
   Quaternion body_from_camera_rotation{};
+  Vec3 body_from_camera_translation_m{};
 };
 
 struct VisualFusionResult {

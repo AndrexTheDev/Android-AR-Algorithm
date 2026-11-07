@@ -26,6 +26,9 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 ## Öffentliche Module
 
 - `types.h`: ABI-nahe, einfache Werttypen;
+- `camera_model.h`: kalibrierte Projektion/Rückprojektion ohne OpenCV-Zwang;
+- `clock_aligner.h`: robuste Umrechnung externer Sensoruhren;
+- `feature_detector.h`: FAST-9 und räumlich begrenzte Feature-Auswahl;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;

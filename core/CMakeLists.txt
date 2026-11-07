@@ -1,5 +1,8 @@
 add_library(arkernel STATIC
+    src/camera_model.cpp
+    src/clock_aligner.cpp
     src/core_engine.cpp
+    src/feature_detector.cpp
     src/imu_preintegrator.cpp
     src/tracking_quality.cpp
 )

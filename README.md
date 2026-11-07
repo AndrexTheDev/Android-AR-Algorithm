@@ -33,6 +33,9 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - thread-sichere IMU-Aufnahme und framegenaue Batches;
 - Midpoint-IMU-Vorintegration mit Bias-API und Gap-Rejection;
 - Quaternion-/Pose-/Kamera-Grundtypen ohne Drittbibliothek;
+- kalibriertes Pinhole-/Brown-Conrady-Kameramodell mit Projektion und robuster Rückprojektion;
+- robuste affine Uhrenausrichtung für Sensoren mit fremder Zeitbasis;
+- mobiles FAST-9-Feature-Frontend mit Non-Maximum-Suppression und Grid-Quoten;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

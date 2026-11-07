@@ -8,11 +8,14 @@
 - [x] Unit-Tests ohne Drittanbieterabhängigkeiten
 - [ ] CI-Matrix Linux + Android NDK
 - [ ] stabile C-ABI und Kotlin/JNI-Wrapper
+- [x] verzerrtes Kameramodell und numerisch geprüfte Projektion
+- [x] robuste Sensor-Uhrenausrichtung
+- [x] dependency-free FAST-9/Grid-Feature-Detektor als portabler Fallback
 
 ## Phase 1 – messbares VIO-MVP
 
 - Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
-- Kalibrierdatei, Verzerrungsmodell und Timestamp-Offset-Schätzer;
+- Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - OpenCV-Frontend: FAST/ORB + KLT + Grid-Auswahl + RANSAC;
 - Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
 - EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;

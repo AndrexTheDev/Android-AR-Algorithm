@@ -54,12 +54,13 @@ double FixedLagSmoother::calculateCost(std::size_t* downweighted) const{
   const Vec3 gravity=config_.gravity_world_mps2;
   for(std::size_t i=0;i<edges_.size();++i){
     const auto& a=keyframes_[i];const auto& b=keyframes_[i+1];const auto& edge=edges_[i];
-    const double dt=edge.imu.duration_s;
-    const Quaternion predicted_rotation=(a.world_from_body.rotation*edge.imu.delta_rotation).normalized();
+    const auto imu=edge.imu.corrected({a.accelerometer_bias_mps2,a.gyroscope_bias_rps});
+    const double dt=imu.duration_s;
+    const Quaternion predicted_rotation=(a.world_from_body.rotation*imu.delta_rotation).normalized();
     const Vec3 predicted_velocity=a.velocity_world_mps+
-        a.world_from_body.rotation.rotate(edge.imu.delta_velocity)+gravity*dt;
+        a.world_from_body.rotation.rotate(imu.delta_velocity)+gravity*dt;
     const Vec3 predicted_position=a.world_from_body.translation+a.velocity_world_mps*dt+
-        a.world_from_body.rotation.rotate(edge.imu.delta_position)+gravity*(0.5*dt*dt);
+        a.world_from_body.rotation.rotate(imu.delta_position)+gravity*(0.5*dt*dt);
     const double position_norm=(b.world_from_body.translation-predicted_position).norm();
     const double velocity_norm=(b.velocity_world_mps-predicted_velocity).norm();
     const double rotation_norm=rotationResidual(predicted_rotation,b.world_from_body.rotation).norm();
@@ -103,12 +104,13 @@ SmootherDiagnostics FixedLagSmoother::optimize(){
     // converge for this adjacent-factor bootstrap without a dense Hessian.
     for(std::size_t i=0;i<edges_.size();++i){
       const auto& a=keyframes_[i];auto& b=keyframes_[i+1];const auto& edge=edges_[i];
-      const double dt=edge.imu.duration_s;
-      const Quaternion imu_rotation=(a.world_from_body.rotation*edge.imu.delta_rotation).normalized();
+      const auto imu=edge.imu.corrected({a.accelerometer_bias_mps2,a.gyroscope_bias_rps});
+      const double dt=imu.duration_s;
+      const Quaternion imu_rotation=(a.world_from_body.rotation*imu.delta_rotation).normalized();
       const Vec3 imu_velocity=a.velocity_world_mps+
-          a.world_from_body.rotation.rotate(edge.imu.delta_velocity)+gravity*dt;
+          a.world_from_body.rotation.rotate(imu.delta_velocity)+gravity*dt;
       const Vec3 imu_position=a.world_from_body.translation+a.velocity_world_mps*dt+
-          a.world_from_body.rotation.rotate(edge.imu.delta_position)+gravity*(0.5*dt*dt);
+          a.world_from_body.rotation.rotate(imu.delta_position)+gravity*(0.5*dt*dt);
       const Vec3 position_error=b.world_from_body.translation-imu_position;
       const Vec3 velocity_error=b.velocity_world_mps-imu_velocity;
       const double position_gain=config_.update_gain*config_.imu_position_weight*

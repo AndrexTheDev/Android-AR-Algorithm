@@ -40,7 +40,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
 - `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO- und Visual-Handles;
 - `modules.h`: Backend-Schnittstellen;
-- `imu_preintegrator.h`: erste echte Schätzkomponente;
+- `imu_preintegrator.h`: Midpoint-Vorintegration, Referenz-Bias und First-Order-Bias-Jakobians;
 - `tracking_quality.h`: stabiler Zustandsautomat;
 - `core_engine.h`: deterministischer Orchestrator.
 
@@ -85,3 +85,8 @@ Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine ex
 ## Trajektorienmetriken
 
 Der Evaluator assoziiert Zeitstempel unter einer harten Toleranz, richtet geschätzte Positionen per Horn-Verfahren optional in SE(3) oder Sim(3) aus und berechnet ATE sowie lokale SE(3)-RPE. Sim(3) ist nur Diagnose für monokulare Skalenambiguität; der primäre VIO-Benchmark bleibt SE(3). EuRoC-Ground-Truth und das versionierte ARK-Trajektorienformat werden ohne Laufzeitabhängigkeiten gelesen.
+
+
+## Bias-linearisierte IMU-Vorintegration
+
+Jeder IMU-Faktor speichert den Bias seines Linearisierungspunkts sowie 3×3-Jakobians für Rotation gegen Gyro-Bias, Geschwindigkeit gegen Accelerometer-/Gyro-Bias und Position gegen beide Biasarten. `corrected(new_bias)` aktualisiert Delta-Rotation, -Geschwindigkeit und -Position erster Ordnung, ohne Rohsamples erneut zu integrieren. Der Fixed-Lag-Smoother fordert vor jeder Residuenberechnung eine Korrektur am Bias des Start-Keyframes an. Bei großen Biasänderungen bleibt vollständige Repropagation notwendig; die First-Order-Korrektur ist bewusst kein Ersatz dafür.

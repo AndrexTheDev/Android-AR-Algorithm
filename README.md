@@ -43,6 +43,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - normalisierter Homographie-RANSAC und konservative Homographie-/Epipolar-Modellwahl für planare oder rotationsdominierte Szenen;
 - zustandsbehaftetes Visual-Frontend mit stabilen Feature-IDs, Geometriefilterung, Feature-Nachfüllung, Keyframes und kontrollierter Wiederinitialisierung;
 - VIO-Bootstrap mit stationärer Schwerkraft-/Gyro-Bias-Initialisierung, Strapdown-Propagation und konservativer visueller Korrektur;
+- bias-linearisierte IMU-Vorintegration mit Rotations-, Geschwindigkeits- und Positions-Jakobians;
 - speicherbegrenztes Fixed-Lag-Fenster mit IMU-/Vision-Faktoren, Huber-Gewichtung und Prior-Promotion;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;

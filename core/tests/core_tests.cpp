@@ -387,6 +387,22 @@ int main() {
   CHECK(se3_metrics.valid);
   CHECK(se3_metrics.ate_rmse_m>0.5);
 
+  ImuBias changed_bias{{0.01,-0.015,0.005},{0.001,-0.0015,0.002}};
+  ImuPreintegrator linearized_imu;
+  ImuPreintegrator reintegrated_imu(changed_bias);
+  for(int i=0;i<=100;++i){
+    const ImuSample sample{9000000000LL+i*10000000LL,
+                           {0.2,-0.1,9.81},{0.01,-0.02,0.03}};
+    CHECK(linearized_imu.add(sample));
+    CHECK(reintegrated_imu.add(sample));
+  }
+  const auto bias_corrected=linearized_imu.value().corrected(changed_bias);
+  CHECK((bias_corrected.delta_velocity-reintegrated_imu.value().delta_velocity).norm()<0.002);
+  CHECK((bias_corrected.delta_position-reintegrated_imu.value().delta_position).norm()<0.001);
+  const Vec3 corrected_axis=bias_corrected.delta_rotation.rotate({1,0,0});
+  const Vec3 exact_axis=reintegrated_imu.value().delta_rotation.rotate({1,0,0});
+  CHECK((corrected_axis-exact_axis).norm()<0.0001);
+
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));
   CHECK(p.add({1010000000, {1,0,0}, {0,0,0}}));

@@ -5,16 +5,34 @@ on:
 
 jobs:
   native-and-replay:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Build and run strict unit tests
+      - uses: actions/checkout@v5
+      - name: Show native toolchain
         run: |
+          c++ --version
+          python3 --version
+      - name: Build strict unit tests
+        shell: bash
+        run: |
+          set -o pipefail
           mkdir -p /tmp/arkernel-build
-          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -Icore/include \
+          if ! c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -Icore/include \
             core/src/*.cpp core/tests/core_tests.cpp -pthread \
-            -o /tmp/arkernel-build/arkernel_tests
-          /tmp/arkernel-build/arkernel_tests
+            -o /tmp/arkernel-build/arkernel_tests 2>&1 | tee /tmp/native-build.log; then
+            message=$(tail -20 /tmp/native-build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Strict native build failed::$message"
+            exit 1
+          fi
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! /tmp/arkernel-build/arkernel_tests 2>&1 | tee /tmp/native-tests.log; then
+            message=$(tail -20 /tmp/native-tests.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Native unit tests failed::$message"
+            exit 1
+          fi
       - name: Address and undefined behavior sanitizers
         run: |
           c++ -std=c++17 -g -fsanitize=address,undefined -fno-omit-frame-pointer \

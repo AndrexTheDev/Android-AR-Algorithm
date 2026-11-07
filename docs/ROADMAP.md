@@ -61,10 +61,10 @@
 
 ## Phase 4 – Semantik
 
-- LiteRT/ONNX Runtime Backend SPI;
-- Detektion + Tracking + Segmentierung mit Geräteprofilen;
+- [x] backend-unabhängiges Android-Inferenz-SPI und begrenzter Single-Flight-Scheduler; konkrete LiteRT-/ONNX-Runtime-Adapter bleiben offen;
+- Detektion + Tracking + Segmentierung mit gemessenen Geräteprofilen;
 - [x] begrenzte semantische 3D-Objektfusion, Unknown-Klasse und kalibrierte Boden-/Wandprojektion; konkrete Inferenzadapter bleiben offen;
-- Modellmanifest: Hash, Lizenz, Labels, Quantisierung, Benchmark.
+- [x] validiertes Modellmanifest für Hash, Lizenz, Labels, Quantisierung, metrische Tiefe und Geräteprofile; Paketierung muss Modellbytes/Notices weiterhin verifizieren.
 
 ## Phase 5 – Outdoor und Produktreife
 

@@ -49,6 +49,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - metrische Sparse-Landmark-Karte mit Drei-Sicht-Bestätigung und dynamischer Inkonsistenzfilterung, mehrere stabil verfolgte und als Boden/Decke/Wand/Schräge klassifizierte Ebenen mit konservativer Raumhöhen-/Flächenzusammenfassung, sichere Nächster-Treffer-Raycasts und persistente Weltanker;
 - versionierte, größenbegrenzte und CRC-geprüfte Spatial Snapshots mit Android-Keystore-AES-GCM- und AtomicFile-Speicher sowie lokalem BRIEF/Hamming-Matching und robust gegateter metrischer 3D–3D-Relokalisierung;
 - kalibrierte native Tiefenbild-Unprojektion, voxelbegrenzte Surfel-Fusion und hart begrenzter metrischer CPU-Occlusion-Depthbuffer ohne LiDAR-Pflicht;
+- validiertes Modellmanifest, backend-unabhängiges Android-Inferenz-SPI und Single-Flight-Scheduler ohne unbegrenzte Queue;
 - modellunabhängige, begrenzte semantische 3D-Objektfusion mit Unknown-Klasse, Konfidenz-, Track-, Distanz- und Dynamik-Gates;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
@@ -78,7 +79,7 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 /tmp/arkernel_tests
 ```
 
-Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md) und [`docs/SEMANTICS.md`](docs/SEMANTICS.md).
+Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/INFERENCE.md`](docs/INFERENCE.md) und [`docs/SEMANTICS.md`](docs/SEMANTICS.md).
 
 ## Lizenz
 

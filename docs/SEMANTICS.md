@@ -36,6 +36,6 @@ Dynamic and static instances never merge. Dynamic objects expire quickly and are
 
 ## Labels, models and privacy
 
-The kernel stores numeric class IDs, not a hard-coded taxonomy. Every inference adapter must ship a manifest with model hash, license, label mapping, quantization, expected input normalization and measured device profile. Unknown or unsupported content remains class `0`; applications must not imply broader recognition than their model provides.
+The kernel stores numeric class IDs, not a hard-coded taxonomy. Every inference adapter must expose the validated Android `ModelManifest` with model hash, license, label mapping, quantization, expected input normalization and measured device profile; scheduling and result validation are defined in `INFERENCE.md`. Unknown or unsupported content remains class `0`; applications must not imply broader recognition than their model provides.
 
 Semantic objects are currently transient and are deliberately excluded from `ARKMAP01`. Persisting labels can reveal sensitive room contents and requires a versioned schema, explicit product policy and the same authenticated storage controls as geometry. No semantic data is uploaded by this core.

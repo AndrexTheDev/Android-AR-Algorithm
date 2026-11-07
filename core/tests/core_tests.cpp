@@ -358,6 +358,14 @@ int main() {
   CHECK(smoothing.visual_factor_count==3);
   CHECK(smoothing.final_cost<smoothing.initial_cost*0.2);
   CHECK(smoothing.marginalized_keyframe_count==2);
+  FixedLagSmoother uncertain_smoother;
+  VioState uncertainty_a;uncertainty_a.timestamp_ns=6000000000LL;
+  VioState uncertainty_b=uncertainty_a;uncertainty_b.timestamp_ns+=100000000LL;
+  auto uncertain_factor=constant_velocity_imu;
+  uncertain_factor.covariance_diagonal.fill(1.0);
+  CHECK(uncertain_smoother.addKeyframe(uncertainty_a));
+  CHECK(uncertain_smoother.addKeyframe(uncertainty_b,uncertain_factor));
+  CHECK(uncertain_smoother.optimize().covariance_downweighted_factor_count==1);
 
   // Sim(3) trajectory alignment recovers known scale, rigid transform and RPE.
   std::vector<TrajectorySample> estimated_trajectory,ground_truth_trajectory;
@@ -402,6 +410,17 @@ int main() {
   const Vec3 corrected_axis=bias_corrected.delta_rotation.rotate({1,0,0});
   const Vec3 exact_axis=reintegrated_imu.value().delta_rotation.rotate({1,0,0});
   CHECK((corrected_axis-exact_axis).norm()<0.0001);
+  CHECK(linearized_imu.value().covariance_diagonal[0]>0.0);
+  CHECK(linearized_imu.value().covariance_diagonal[3]>0.0);
+  CHECK(linearized_imu.value().covariance_diagonal[6]>0.0);
+  CHECK(bias_corrected.covariance_diagonal==linearized_imu.value().covariance_diagonal);
+  ImuPreintegrator noisy_imu({}, {0.30,0.030});
+  for(int i=0;i<=100;++i)
+    CHECK(noisy_imu.add({10000000000LL+i*10000000LL,{0.2,-0.1,9.81},{0.01,-0.02,0.03}}));
+  CHECK(noisy_imu.value().covariance_diagonal[0]>
+        linearized_imu.value().covariance_diagonal[0]*3.9);
+  CHECK(noisy_imu.value().covariance_diagonal[3]>
+        linearized_imu.value().covariance_diagonal[3]*3.9);
 
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));

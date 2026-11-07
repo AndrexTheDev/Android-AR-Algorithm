@@ -20,6 +20,10 @@ struct FixedLagConfig {
   double huber_delta_position_m{0.15};
   double huber_delta_rotation_rad{0.12};
   double update_gain{0.35};
+  bool use_imu_covariance{true};
+  double rotation_variance_floor{1e-5};
+  double velocity_variance_floor{1e-3};
+  double position_variance_floor{1e-4};
   Vec3 gravity_world_mps2{0.0,0.0,-9.80665};
 };
 
@@ -38,6 +42,7 @@ struct SmootherDiagnostics {
   std::size_t imu_factor_count{0};
   std::size_t visual_factor_count{0};
   std::size_t downweighted_residual_count{0};
+  std::size_t covariance_downweighted_factor_count{0};
   std::size_t marginalized_keyframe_count{0};
 };
 

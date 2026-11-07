@@ -18,6 +18,7 @@
 - [x] Homographie-RANSAC und Homographie-/Epipolar-Modellentscheidung
 - [x] zustandsbehaftetes Visual-Frontend, ID-Erhalt, Replenishment und Keyframe-Gate
 - [x] stationäre VIO-Initialisierung, Gravity/Bias-Seed und Strapdown-Propagation
+- [x] IMU-Weißrauschmodell, diagonale Preintegrationsvarianz und kovarianzabhängige Faktorabschwächung
 - [x] konservative visuelle Rotation sowie inertial beobachtbare Intervallskalierung
 - [x] begrenztes Fixed-Lag-Keyframefenster mit IMU-/Vision-Faktoren und Huber-Verlust
 

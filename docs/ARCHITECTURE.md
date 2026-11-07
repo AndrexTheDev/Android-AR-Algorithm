@@ -40,7 +40,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
 - `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO- und Visual-Handles;
 - `modules.h`: Backend-Schnittstellen;
-- `imu_preintegrator.h`: Midpoint-Vorintegration, Referenz-Bias und First-Order-Bias-Jakobians;
+- `imu_preintegrator.h`: Midpoint-Vorintegration, Referenz-Bias, First-Order-Bias-Jakobians und diagonale Unsicherheitspropagation;
 - `tracking_quality.h`: stabiler Zustandsautomat;
 - `core_engine.h`: deterministischer Orchestrator.
 
@@ -90,3 +90,8 @@ Der Evaluator assoziiert Zeitstempel unter einer harten Toleranz, richtet gesch�
 ## Bias-linearisierte IMU-Vorintegration
 
 Jeder IMU-Faktor speichert den Bias seines Linearisierungspunkts sowie 3×3-Jakobians für Rotation gegen Gyro-Bias, Geschwindigkeit gegen Accelerometer-/Gyro-Bias und Position gegen beide Biasarten. `corrected(new_bias)` aktualisiert Delta-Rotation, -Geschwindigkeit und -Position erster Ordnung, ohne Rohsamples erneut zu integrieren. Der Fixed-Lag-Smoother fordert vor jeder Residuenberechnung eine Korrektur am Bias des Start-Keyframes an. Bei großen Biasänderungen bleibt vollständige Repropagation notwendig; die First-Order-Korrektur ist bewusst kein Ersatz dafür.
+
+
+## IMU-Rauschen und Faktorvertrauen
+
+`ImuNoise` beschreibt kontinuierliche Accelerometer- und Gyroskop-Weißrauschdichten in SI-Einheiten pro √Hz. Die Vorintegration propagiert konservative diagonale Varianzen für Rotation, Geschwindigkeit und Position; längere Intervalle und starke spezifische Beschleunigung erhöhen die Unsicherheit. Der Fixed-Lag-Smoother bildet daraus ein auf `[0,1]` begrenztes Vertrauen relativ zu konfigurierbaren Varianzböden. Unsichere Faktoren werden nur herunter-, niemals über ihre manuelle Basisgewichtung hochgewichtet. Die Diagonalnäherung modelliert noch keine vollständigen Kreuzkovarianzen oder Bias-Random-Walks.

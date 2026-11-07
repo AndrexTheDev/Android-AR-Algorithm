@@ -17,6 +17,12 @@ Vec3 rotationResidual(const Quaternion& target,const Quaternion& actual){
 }
 double huberCost(double norm,double delta){return norm<=delta?0.5*norm*norm:delta*(norm-0.5*delta);}
 double huberWeight(double norm,double delta){return norm<=delta||norm<1e-12?1.0:delta/norm;}
+double covarianceConfidence(const std::array<double,9>& diagonal,int offset,double floor,bool enabled){
+  if(!enabled)return 1.0;
+  const double variance=(diagonal[offset]+diagonal[offset+1]+diagonal[offset+2])/3.0;
+  if(!std::isfinite(variance)||variance<0)return 0.0;
+  return variance<=floor?1.0:floor/variance;
+}
 }  // namespace
 
 FixedLagSmoother::FixedLagSmoother(FixedLagConfig config):config_(config){
@@ -25,6 +31,8 @@ FixedLagSmoother::FixedLagSmoother(FixedLagConfig config):config_(config){
      config_.imu_rotation_weight<0||config_.visual_rotation_weight<0||
      config_.visual_direction_weight<0||config_.huber_delta_position_m<=0||
      config_.huber_delta_rotation_rad<=0||config_.update_gain<=0||config_.update_gain>1||
+     config_.rotation_variance_floor<=0||config_.velocity_variance_floor<=0||
+     config_.position_variance_floor<=0||
      !std::isfinite(config_.gravity_world_mps2.x)||!std::isfinite(config_.gravity_world_mps2.y)||
      !std::isfinite(config_.gravity_world_mps2.z))
     throw std::invalid_argument("Invalid fixed-lag smoother configuration");
@@ -64,9 +72,18 @@ double FixedLagSmoother::calculateCost(std::size_t* downweighted) const{
     const double position_norm=(b.world_from_body.translation-predicted_position).norm();
     const double velocity_norm=(b.velocity_world_mps-predicted_velocity).norm();
     const double rotation_norm=rotationResidual(predicted_rotation,b.world_from_body.rotation).norm();
-    cost+=config_.imu_position_weight*huberCost(position_norm,config_.huber_delta_position_m);
-    cost+=config_.imu_velocity_weight*huberCost(velocity_norm,config_.huber_delta_position_m);
-    cost+=config_.imu_rotation_weight*huberCost(rotation_norm,config_.huber_delta_rotation_rad);
+    const double rotation_confidence=covarianceConfidence(
+        imu.covariance_diagonal,0,config_.rotation_variance_floor,config_.use_imu_covariance);
+    const double velocity_confidence=covarianceConfidence(
+        imu.covariance_diagonal,3,config_.velocity_variance_floor,config_.use_imu_covariance);
+    const double position_confidence=covarianceConfidence(
+        imu.covariance_diagonal,6,config_.position_variance_floor,config_.use_imu_covariance);
+    cost+=config_.imu_position_weight*position_confidence*
+          huberCost(position_norm,config_.huber_delta_position_m);
+    cost+=config_.imu_velocity_weight*velocity_confidence*
+          huberCost(velocity_norm,config_.huber_delta_position_m);
+    cost+=config_.imu_rotation_weight*rotation_confidence*
+          huberCost(rotation_norm,config_.huber_delta_rotation_rad);
     if(downweighted){
       *downweighted+=position_norm>config_.huber_delta_position_m;
       *downweighted+=velocity_norm>config_.huber_delta_position_m;
@@ -96,7 +113,17 @@ double FixedLagSmoother::calculateCost(std::size_t* downweighted) const{
 SmootherDiagnostics FixedLagSmoother::optimize(){
   SmootherDiagnostics diagnostics;diagnostics.keyframe_count=keyframes_.size();
   diagnostics.imu_factor_count=edges_.size();diagnostics.marginalized_keyframe_count=marginalized_count_;
-  for(const auto& edge:edges_)diagnostics.visual_factor_count+=edge.visual.has_value();
+  for(const auto& edge:edges_){
+    diagnostics.visual_factor_count+=edge.visual.has_value();
+    const bool covariance_downweighted=
+        covarianceConfidence(edge.imu.covariance_diagonal,0,config_.rotation_variance_floor,
+                             config_.use_imu_covariance)<0.999999||
+        covarianceConfidence(edge.imu.covariance_diagonal,3,config_.velocity_variance_floor,
+                             config_.use_imu_covariance)<0.999999||
+        covarianceConfidence(edge.imu.covariance_diagonal,6,config_.position_variance_floor,
+                             config_.use_imu_covariance)<0.999999;
+    diagnostics.covariance_downweighted_factor_count+=covariance_downweighted;
+  }
   diagnostics.initial_cost=calculateCost();
   const Vec3 gravity=config_.gravity_world_mps2;
   for(int iteration=0;iteration<config_.optimization_iterations;++iteration){
@@ -113,15 +140,21 @@ SmootherDiagnostics FixedLagSmoother::optimize(){
           a.world_from_body.rotation.rotate(imu.delta_position)+gravity*(0.5*dt*dt);
       const Vec3 position_error=b.world_from_body.translation-imu_position;
       const Vec3 velocity_error=b.velocity_world_mps-imu_velocity;
+      const double rotation_confidence=covarianceConfidence(
+          imu.covariance_diagonal,0,config_.rotation_variance_floor,config_.use_imu_covariance);
+      const double velocity_confidence=covarianceConfidence(
+          imu.covariance_diagonal,3,config_.velocity_variance_floor,config_.use_imu_covariance);
+      const double position_confidence=covarianceConfidence(
+          imu.covariance_diagonal,6,config_.position_variance_floor,config_.use_imu_covariance);
       const double position_gain=config_.update_gain*config_.imu_position_weight*
-          huberWeight(position_error.norm(),config_.huber_delta_position_m);
+          position_confidence*huberWeight(position_error.norm(),config_.huber_delta_position_m);
       const double velocity_gain=config_.update_gain*config_.imu_velocity_weight*
-          huberWeight(velocity_error.norm(),config_.huber_delta_position_m);
+          velocity_confidence*huberWeight(velocity_error.norm(),config_.huber_delta_position_m);
       b.world_from_body.translation+=position_error*(-std::min(1.0,position_gain));
       b.velocity_world_mps+=velocity_error*(-std::min(1.0,velocity_gain));
       const double imu_angle=rotationResidual(imu_rotation,b.world_from_body.rotation).norm();
       const double imu_gain=std::min(1.0,config_.update_gain*config_.imu_rotation_weight*
-          huberWeight(imu_angle,config_.huber_delta_rotation_rad));
+          rotation_confidence*huberWeight(imu_angle,config_.huber_delta_rotation_rad));
       b.world_from_body.rotation=Quaternion::slerp(b.world_from_body.rotation,imu_rotation,imu_gain);
       if(edge.visual){
         const auto& visual=*edge.visual;

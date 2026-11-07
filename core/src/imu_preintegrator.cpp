@@ -1,4 +1,6 @@
 #include "arkernel/imu_preintegrator.h"
+#include <cmath>
+#include <stdexcept>
 
 namespace arkernel {
 namespace {
@@ -29,6 +31,15 @@ Matrix3 rotationMatrix(const Quaternion& q) {
 }
 Matrix3 skew(const Vec3& v) { return {0,-v.z,v.y,v.z,0,-v.x,-v.y,v.x,0}; }
 }  // namespace
+
+ImuPreintegrator::ImuPreintegrator(ImuBias bias,ImuNoise noise)
+    :bias_(bias),noise_(noise){
+  if(!std::isfinite(noise_.accelerometer_mps2_sqrt_hz)||
+     !std::isfinite(noise_.gyroscope_rps_sqrt_hz)||
+     noise_.accelerometer_mps2_sqrt_hz<0||noise_.gyroscope_rps_sqrt_hz<0)
+    throw std::invalid_argument("Invalid IMU noise density");
+  value_.reference_bias=bias_;
+}
 
 PreintegratedImu PreintegratedImu::corrected(const ImuBias& bias) const {
   PreintegratedImu result=*this;
@@ -67,6 +78,20 @@ bool ImuPreintegrator::add(const ImuSample& sample) {
                     - bias_.gyroscope;
   const Vec3 accel = (previous_.acceleration_mps2 + sample.acceleration_mps2) * 0.5
                      - bias_.accelerometer;
+  const double gyro_noise2=noise_.gyroscope_rps_sqrt_hz*
+                            noise_.gyroscope_rps_sqrt_hz;
+  const double accel_noise2=noise_.accelerometer_mps2_sqrt_hz*
+                            noise_.accelerometer_mps2_sqrt_hz;
+  const double accel_norm2=accel.x*accel.x+accel.y*accel.y+accel.z*accel.z;
+  for(int axis=0;axis<3;++axis){
+    const double rotation_variance=value_.covariance_diagonal[axis];
+    const double velocity_variance=value_.covariance_diagonal[3+axis];
+    value_.covariance_diagonal[6+axis]+=velocity_variance*dt*dt+
+        accel_noise2*dt*dt*dt/3.0+0.25*accel_norm2*rotation_variance*dt*dt*dt*dt;
+    value_.covariance_diagonal[3+axis]+=accel_noise2*dt+
+        accel_norm2*rotation_variance*dt*dt;
+    value_.covariance_diagonal[axis]+=gyro_noise2*dt;
+  }
   const Matrix3 rotation=rotationMatrix(value_.delta_rotation);
   const Matrix3 negative_rotation=scaled(rotation,-1.0);
   Matrix3 midpoint_rotation_jacobian=value_.rotation_wrt_gyro_bias;

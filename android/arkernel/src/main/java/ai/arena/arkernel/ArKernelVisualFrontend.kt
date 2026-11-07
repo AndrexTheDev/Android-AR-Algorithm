@@ -58,6 +58,17 @@ data class PlaneRaycastHit(
     val planeCoordinatesMeters: Pair<Double, Double>,
 )
 data class WorldAnchorSnapshot(val id: Long, val worldPose: WorldPose)
+data class RelocalizationCorrespondence(
+    val savedWorldPointMeters: Vector3,
+    val currentWorldPointMeters: Vector3,
+)
+data class RelocalizationResult(
+    val correspondenceCount: Long,
+    val inlierCount: Long,
+    val rmseMeters: Double,
+    val currentFromSaved: WorldPose,
+)
+
 enum class SemanticProjectionSurface { ANY, FLOOR, WALL }
 data class SemanticPixelProjection(
     val classId: Long,
@@ -344,6 +355,37 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         check(result == RESULT_OK) { "Native snapshot restore error: $result" }
     }
 
+    /** Returns null when robust geometry does not pass the relocalization gates. */
+    @Synchronized fun restoreRelocalizedSpatialSnapshot(
+        snapshot: ByteArray,
+        correspondences: List<RelocalizationCorrespondence>,
+        restoreNowNs: Long,
+    ): RelocalizationResult? {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(snapshot.isNotEmpty()) { "Spatial snapshot must not be empty" }
+        require(correspondences.size in 6..4096) { "Relocalization requires 6..4096 correspondences" }
+        require(restoreNowNs > 0) { "Restore timestamp must be positive" }
+        val saved = DoubleArray(correspondences.size * 3)
+        val current = DoubleArray(correspondences.size * 3)
+        correspondences.forEachIndexed { index, value ->
+            saved[index * 3] = value.savedWorldPointMeters.x
+            saved[index * 3 + 1] = value.savedWorldPointMeters.y
+            saved[index * 3 + 2] = value.savedWorldPointMeters.z
+            current[index * 3] = value.currentWorldPointMeters.x
+            current[index * 3 + 1] = value.currentWorldPointMeters.y
+            current[index * 3 + 2] = value.currentWorldPointMeters.z
+        }
+        val output = DoubleArray(10)
+        val status = nativeRestoreRelocalizedSpatialSnapshot(nativeHandle, snapshot, saved,
+            current, restoreNowNs, output)
+        if (status == RESULT_NOT_READY) return null
+        require(status != RESULT_INVALID_ARGUMENT) { "Invalid snapshot or correspondences" }
+        check(status == RESULT_OK) { "Native relocalized restore error: $status" }
+        return RelocalizationResult(output[0].toLong(), output[1].toLong(), output[2],
+            WorldPose(restoreNowNs, Rotation(output[3], output[4], output[5], output[6]),
+                Vector3(output[7], output[8], output[9])))
+    }
+
     @Synchronized fun reset() { check(nativeHandle != 0L); nativeReset(nativeHandle) }
     @Synchronized override fun close() {
         if (nativeHandle != 0L) { nativeDestroy(nativeHandle); nativeHandle = 0L }
@@ -395,6 +437,9 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeExportSpatialSnapshot(handle: Long, createdNs: Long): ByteArray?
     private external fun nativeRestoreSpatialSnapshot(handle: Long, snapshot: ByteArray,
         restoreNowNs: Long): Int
+    private external fun nativeRestoreRelocalizedSpatialSnapshot(handle: Long,
+        snapshot: ByteArray, savedPoints: DoubleArray, currentPoints: DoubleArray,
+        restoreNowNs: Long, output: DoubleArray): Int
 
     private companion object {
         const val RESULT_OK = 0

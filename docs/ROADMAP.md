@@ -50,7 +50,7 @@
 - [x] Runtime-, C-ABI-, JNI- und Kotlin-Integration für Map-Updates, Plane-Raycasts und Weltanker;
 - [x] versioniertes Spatial-Snapshot-Format, CRC, harte Decode-Limits und atomarer Restore;
 - [x] Android-Keystore-AES-GCM-Envelope mit `AtomicFile`, No-Backup-Speicher und Löschpfad;
-- [ ] visuelle Relokalisierung zur sicheren automatischen Wiederverwendung persistierter Weltframes.
+- [ ] visuelle Relokalisierung zur sicheren automatischen Wiederverwendung persistierter Weltframes; robuster metrischer 3D–3D-RANSAC, Qualitätsgates und transformierter atomarer Restore sind implementiert, Deskriptor-Kandidatensuche bleibt offen.
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 

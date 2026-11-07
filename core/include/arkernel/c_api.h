@@ -254,6 +254,30 @@ typedef struct ark_plane_hit_v1 {
   double plane_v_m;
 } ark_plane_hit_v1;
 
+typedef struct ark_relocalization_correspondence_v1 {
+  uint32_t struct_size;
+  double saved_x_m;
+  double saved_y_m;
+  double saved_z_m;
+  double current_x_m;
+  double current_y_m;
+  double current_z_m;
+} ark_relocalization_correspondence_v1;
+
+typedef struct ark_relocalization_result_v1 {
+  uint32_t struct_size;
+  uint64_t correspondence_count;
+  uint64_t inlier_count;
+  double rmse_m;
+  double rotation_w;
+  double rotation_x;
+  double rotation_y;
+  double rotation_z;
+  double translation_x_m;
+  double translation_y_m;
+  double translation_z_m;
+} ark_relocalization_result_v1;
+
 typedef struct ark_semantic_projection_v1 {
   uint32_t struct_size;
   uint32_t class_id;
@@ -402,6 +426,13 @@ ark_result ark_visual_export_snapshot(ark_visual_handle* handle, int64_t created
 ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,
                                        const uint8_t* buffer, size_t size,
                                        int64_t restore_now_ns);
+// Estimates current_from_saved from robust metric correspondences and restores
+// only when the geometric quality gates pass.
+ark_result ark_visual_restore_snapshot_relocalized(
+    ark_visual_handle* handle, const uint8_t* buffer, size_t size,
+    const ark_relocalization_correspondence_v1* correspondences,
+    size_t correspondence_count, int64_t restore_now_ns,
+    ark_relocalization_result_v1* out_result);
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out_config);
 ark_result ark_vio_create(const ark_vio_config_v1* config, ark_vio_handle** out_handle);

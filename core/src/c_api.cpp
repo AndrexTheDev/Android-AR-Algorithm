@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
@@ -110,6 +111,21 @@ size_t copyError(Handle* handle,char* buffer,size_t buffer_size) {
   if(buffer&&buffer_size){const size_t count=std::min(buffer_size-1,value.size());
     std::memcpy(buffer,value.data(),count);buffer[count]='\0';}
   return required;
+}
+bool installSnapshot(ark_visual_handle* handle,arkernel::SpatialSnapshot snapshot,
+                     int64_t restore_now_ns,std::string& error){
+  std::uint32_t maximum_feature_id=0;
+  for(auto& landmark:snapshot.landmarks){landmark.last_seen_ns=restore_now_ns;
+    maximum_feature_id=std::max(maximum_feature_id,landmark.feature_id);}
+  if(maximum_feature_id==std::numeric_limits<std::uint32_t>::max()){
+    error="Snapshot feature ID range is exhausted";return false;}
+  if(!arkernel::restoreSpatialSnapshot(snapshot,handle->map,handle->anchors)){
+    error="Snapshot exceeds runtime map limits";return false;}
+  handle->frontend.reset();handle->frontend.reserveFeatureIdsAbove(maximum_feature_id);
+  handle->last_result.reset();handle->plane_tracker.reset();
+  const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
+  handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
+  handle->room_layout=arkernel::estimateRoomLayout(planes);return true;
 }
 }  // namespace
 
@@ -452,26 +468,51 @@ ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,const uint8_t* 
     const std::vector<std::uint8_t> bytes(buffer,buffer+size);
     auto decoded=arkernel::SpatialSnapshotCodec::decode(bytes);
     if(!decoded.valid)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,decoded.error.c_str());
-    std::uint32_t maximum_feature_id=0;
-    for(auto& landmark:decoded.snapshot.landmarks){
-      landmark.last_seen_ns=restore_now_ns;
-      maximum_feature_id=std::max(maximum_feature_id,landmark.feature_id);
-    }
-    if(maximum_feature_id==std::numeric_limits<std::uint32_t>::max())
-      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Snapshot feature ID range is exhausted");
-    if(!arkernel::restoreSpatialSnapshot(decoded.snapshot,handle->map,handle->anchors))
-      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Snapshot exceeds runtime map limits");
-    handle->frontend.reset();
-    handle->frontend.reserveFeatureIdsAbove(maximum_feature_id);
-    handle->last_result.reset();
-    handle->plane_tracker.reset();
-    const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
-    handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
-    handle->room_layout=arkernel::estimateRoomLayout(planes);
+    std::string error;
+    if(!installSnapshot(handle,std::move(decoded.snapshot),restore_now_ns,error))
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,error.c_str());
     handle->error.clear();return ARK_RESULT_OK;
   }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
   catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
   catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown snapshot restore error");}
+}
+
+ark_result ark_visual_restore_snapshot_relocalized(ark_visual_handle* handle,
+    const uint8_t* buffer,size_t size,const ark_relocalization_correspondence_v1* values,
+    size_t count,int64_t restore_now_ns,ark_relocalization_result_v1* out){
+  if(!handle||!buffer||size==0||!values||count<3||count>4096||restore_now_ns<=0||
+     !validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  try{
+    std::vector<arkernel::RelocalizationCorrespondence> correspondences;correspondences.reserve(count);
+    for(size_t i=0;i<count;++i){
+      if(!validStruct(&values[i]))return fail(handle,ARK_RESULT_INVALID_ARGUMENT,
+        "Relocalization correspondence struct is invalid");
+      correspondences.push_back({{values[i].saved_x_m,values[i].saved_y_m,values[i].saved_z_m},
+        {values[i].current_x_m,values[i].current_y_m,values[i].current_z_m}});
+    }
+    const auto alignment=arkernel::estimateRelocalization(correspondences);
+    const uint32_t output_size=out->struct_size;*out={};out->struct_size=output_size;
+    out->correspondence_count=alignment.correspondence_count;out->inlier_count=alignment.inlier_count;
+    out->rmse_m=alignment.rmse_m;
+    if(!alignment.valid)return fail(handle,ARK_RESULT_NOT_READY,
+      "Relocalization geometry did not pass inlier and residual gates");
+    const std::vector<std::uint8_t> bytes(buffer,buffer+size);
+    auto decoded=arkernel::SpatialSnapshotCodec::decode(bytes);
+    if(!decoded.valid)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,decoded.error.c_str());
+    auto transformed=arkernel::transformSpatialSnapshot(decoded.snapshot,alignment.current_from_saved);
+    std::string error;
+    if(!installSnapshot(handle,std::move(transformed),restore_now_ns,error))
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,error.c_str());
+    const auto& pose=alignment.current_from_saved;
+    out->rotation_w=pose.rotation.w;out->rotation_x=pose.rotation.x;
+    out->rotation_y=pose.rotation.y;out->rotation_z=pose.rotation.z;
+    out->translation_x_m=pose.translation.x;out->translation_y_m=pose.translation.y;
+    out->translation_z_m=pose.translation.z;handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown relocalized restore error");}
 }
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out){

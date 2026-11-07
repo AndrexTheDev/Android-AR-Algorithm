@@ -243,6 +243,21 @@ class ArKernelSession(
         return true
     }
 
+    /**
+     * Robustly aligns a persisted saved world to the running current world and
+     * atomically restores only when the native inlier/residual gates pass.
+     */
+    fun restoreSpatialMapRelocalized(
+        store: ArKernelMapStore,
+        correspondences: List<RelocalizationCorrespondence>,
+    ): RelocalizationResult? {
+        check(!closed) { "AR kernel session is closed" }
+        check(running) { "Start the session before relocalized map restore" }
+        val snapshot = store.load() ?: return null
+        return visual.restoreRelocalizedSpatialSnapshot(snapshot, correspondences,
+            SystemClock.elapsedRealtimeNanos())
+    }
+
     override fun close() {
         if (closed) return
         stop()

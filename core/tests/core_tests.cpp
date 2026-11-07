@@ -15,6 +15,7 @@
 #include "arkernel/homography_ransac.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
+#include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
@@ -339,6 +340,20 @@ int main() {
   CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_NOT_READY);
   CHECK(ark_visual_restore_snapshot(visual_c_handle,c_snapshot.data(),c_snapshot.size(),c_frame.timestamp_ns+2)==ARK_RESULT_OK);
   CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_OK);
+  std::vector<ark_relocalization_correspondence_v1> c_correspondences;
+  for(const auto& point:std::vector<Vec3>{{0,0,0},{1,0,0},{0,1,0},{0,0,1},
+      {1,1,0},{1,0,1},{0,1,1},{1,1,1}}){
+    ark_relocalization_correspondence_v1 value{};value.struct_size=sizeof(value);
+    value.saved_x_m=point.x;value.saved_y_m=point.y;value.saved_z_m=point.z;
+    value.current_x_m=point.x;value.current_y_m=point.y;value.current_z_m=point.z;
+    c_correspondences.push_back(value);
+  }
+  ark_relocalization_result_v1 c_relocalization{};
+  c_relocalization.struct_size=sizeof(c_relocalization);
+  CHECK(ark_visual_restore_snapshot_relocalized(visual_c_handle,c_snapshot.data(),c_snapshot.size(),
+      c_correspondences.data(),c_correspondences.size(),c_frame.timestamp_ns+3,
+      &c_relocalization)==ARK_RESULT_OK);
+  CHECK(c_relocalization.inlier_count==c_correspondences.size()&&c_relocalization.rmse_m<1e-8);
   c_snapshot[12]^=0x01;
   CHECK(ark_visual_restore_snapshot(visual_c_handle,c_snapshot.data(),c_snapshot.size(),c_frame.timestamp_ns+2)==
         ARK_RESULT_INVALID_ARGUMENT);
@@ -518,6 +533,25 @@ int main() {
   CHECK(anchors.remove(anchor_id));
   CHECK(!anchors.find(anchor_id).has_value());
   const AnchorId persisted_anchor=anchors.create({{},plane_hit->position_world},2300000000LL);
+  const Pose expected_current_from_saved{
+    Quaternion::fromRotationVector({0,0,1.5707963267948966}),{2,-1,0.5}};
+  const std::vector<Vec3> saved_points{{0,0,0},{1,0,0},{0,1,0},{0,0,1},
+    {1,1,0},{1,0,1},{0,1,1},{1,1,1}};
+  std::vector<RelocalizationCorrespondence> relocalization_correspondences;
+  for(const auto& point:saved_points)relocalization_correspondences.push_back(
+    {point,expected_current_from_saved.rotation.rotate(point)+expected_current_from_saved.translation});
+  relocalization_correspondences.push_back({{2,2,2},{-9,4,1}});
+  relocalization_correspondences.push_back({{-1,2,0},{8,-3,2}});
+  const auto relocalization=estimateRelocalization(relocalization_correspondences);
+  CHECK(relocalization.valid && relocalization.inlier_count==saved_points.size());
+  CHECK(relocalization.rmse_m<1e-8);
+  CHECK((relocalization.current_from_saved.translation-
+         expected_current_from_saved.translation).norm()<1e-8);
+  std::vector<RelocalizationCorrespondence> degenerate_relocalization;
+  for(int i=0;i<8;++i)degenerate_relocalization.push_back(
+    {{static_cast<double>(i),0,0},{static_cast<double>(i)+1,0,0}});
+  CHECK(!estimateRelocalization(degenerate_relocalization).valid);
+
   SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot()};
   const auto encoded_snapshot=SpatialSnapshotCodec::encode(spatial_snapshot);
   CHECK(encoded_snapshot==SpatialSnapshotCodec::encode(spatial_snapshot));
@@ -525,6 +559,16 @@ int main() {
   CHECK(decoded_snapshot.valid);
   CHECK(decoded_snapshot.snapshot.landmarks.size()==20);
   CHECK(decoded_snapshot.snapshot.anchors.size()==1);
+  const auto transformed_snapshot=transformSpatialSnapshot(
+      decoded_snapshot.snapshot,expected_current_from_saved);
+  CHECK((transformed_snapshot.landmarks.front().position_world_m-
+      (expected_current_from_saved.rotation.rotate(
+        decoded_snapshot.snapshot.landmarks.front().position_world_m)+
+       expected_current_from_saved.translation)).norm()<1e-8);
+  SparseLandmarkMap relocalized_map;AnchorStore relocalized_anchors;
+  CHECK(restoreRelocalizedSpatialSnapshot(decoded_snapshot.snapshot,
+      relocalization.current_from_saved,relocalized_map,relocalized_anchors));
+  CHECK(relocalized_map.size()==20&&relocalized_anchors.find(persisted_anchor).has_value());
   SparseLandmarkMap restored_map;
   AnchorStore restored_anchors;
   CHECK(restoreSpatialSnapshot(decoded_snapshot.snapshot,restored_map,restored_anchors));

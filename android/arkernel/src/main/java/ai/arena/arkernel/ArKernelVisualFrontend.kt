@@ -1,6 +1,8 @@
 package ai.arena.arkernel
 
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
 
 data class CameraCalibration(
     val width: Int, val height: Int,
@@ -88,6 +90,15 @@ data class MetricDepthImage(
     val rowStrideElements: Int,
     val depthMeters: FloatArray,
     val confidence: FloatArray? = null,
+    val confidenceRowStrideElements: Int = if (confidence == null) 0 else rowStrideElements,
+    val timestampNs: Long,
+)
+data class MetricDepthBuffer(
+    val width: Int,
+    val height: Int,
+    val rowStrideElements: Int,
+    val depthMeters: FloatBuffer,
+    val confidence: FloatBuffer? = null,
     val confidenceRowStrideElements: Int = if (confidence == null) 0 else rowStrideElements,
     val timestampNs: Long,
 )
@@ -302,6 +313,7 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         val requiredDepth = (image.height.toLong() - 1L) * image.rowStrideElements.toLong() +
             image.width.toLong()
         require(requiredDepth <= image.depthMeters.size.toLong()) { "Depth image storage is truncated" }
+        if (image.confidence == null) require(image.confidenceRowStrideElements == 0)
         image.confidence?.let {
             require(image.confidenceRowStrideElements >= image.width)
             val requiredConfidence = (image.height.toLong() - 1L) *
@@ -319,6 +331,58 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
             position.x, position.y, position.z, output)
         require(result != RESULT_INVALID_ARGUMENT) { "Invalid or unaligned metric depth image" }
         check(result == RESULT_OK) { "Native depth image integration error: $result" }
+        return SurfelMapUpdate(output[0], output[1], output[2], output[3], output[4])
+    }
+
+    /** Zero-copy input path; buffers must stay valid until this synchronous call returns. */
+    @Synchronized
+    fun integrateDepthBuffer(
+        image: MetricDepthBuffer,
+        frameWorldFromCamera: WorldPose,
+        options: DepthSamplingOptions = DepthSamplingOptions(),
+        nowNs: Long = image.timestampNs,
+    ): SurfelMapUpdate {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(image.timestampNs == frameWorldFromCamera.timestampNs) {
+            "Depth buffer and camera pose timestamps must match"
+        }
+        require(image.width > 0 && image.height > 0 && image.rowStrideElements >= image.width)
+        require(image.depthMeters.isDirect) { "Depth FloatBuffer must be direct" }
+        require(image.depthMeters.order() == ByteOrder.nativeOrder()) {
+            "Depth FloatBuffer must use native byte order"
+        }
+        val requiredDepth = (image.height.toLong() - 1L) * image.rowStrideElements.toLong() +
+            image.width.toLong()
+        require(requiredDepth <= image.depthMeters.remaining().toLong()) {
+            "Depth buffer storage is truncated from its current position"
+        }
+        if (image.confidence == null) require(image.confidenceRowStrideElements == 0)
+        image.confidence?.let {
+            require(it.isDirect) { "Confidence FloatBuffer must be direct" }
+            require(it.order() == ByteOrder.nativeOrder()) {
+                "Confidence FloatBuffer must use native byte order"
+            }
+            require(image.confidenceRowStrideElements >= image.width)
+            val requiredConfidence = (image.height.toLong() - 1L) *
+                image.confidenceRowStrideElements.toLong() + image.width.toLong()
+            require(requiredConfidence <= it.remaining().toLong()) {
+                "Confidence buffer storage is truncated from its current position"
+            }
+        }
+        val rotation = frameWorldFromCamera.rotation
+        val position = frameWorldFromCamera.positionMeters
+        val output = LongArray(5)
+        val result = nativeIntegrateDepthBuffer(nativeHandle,
+            image.depthMeters, image.depthMeters.position(), image.depthMeters.remaining(),
+            image.confidence, image.confidence?.position() ?: 0,
+            image.confidence?.remaining() ?: 0, image.width, image.height,
+            image.rowStrideElements, image.confidenceRowStrideElements,
+            image.timestampNs, nowNs, options.pixelStride, options.minDepthMeters,
+            options.maxDepthMeters, options.minConfidence, options.estimateNormals,
+            rotation.w, rotation.x, rotation.y, rotation.z,
+            position.x, position.y, position.z, output)
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid or unaligned direct metric depth buffer" }
+        check(result == RESULT_OK) { "Native direct depth integration error: $result" }
         return SurfelMapUpdate(output[0], output[1], output[2], output[3], output[4])
     }
 
@@ -625,6 +689,14 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeIntegrateDepthImage(handle: Long, depth: FloatArray,
         confidence: FloatArray?, width: Int, height: Int, rowStride: Int,
         confidenceStride: Int, timestampNs: Long, nowNs: Long, pixelStride: Int,
+        minDepth: Double, maxDepth: Double, minConfidence: Double, estimateNormals: Boolean,
+        rw: Double, rx: Double, ry: Double, rz: Double,
+        px: Double, py: Double, pz: Double, output: LongArray): Int
+    private external fun nativeIntegrateDepthBuffer(handle: Long,
+        depth: FloatBuffer, depthOffset: Int, depthCount: Int,
+        confidence: FloatBuffer?, confidenceOffset: Int, confidenceCount: Int,
+        width: Int, height: Int, rowStride: Int, confidenceStride: Int,
+        timestampNs: Long, nowNs: Long, pixelStride: Int,
         minDepth: Double, maxDepth: Double, minConfidence: Double, estimateNormals: Boolean,
         rw: Double, rx: Double, ry: Double, rz: Double,
         px: Double, py: Double, pz: Double, output: LongArray): Int

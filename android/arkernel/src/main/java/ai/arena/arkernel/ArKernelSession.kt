@@ -183,6 +183,18 @@ class ArKernelSession(
             SystemClock.elapsedRealtimeNanos())
     }
 
+    /** Zero-copy direct FloatBuffer variant for sustained dense inference pipelines. */
+    fun integrateMetricDepthBuffer(
+        image: MetricDepthBuffer,
+        frameWorldFromCamera: WorldPose,
+        options: DepthSamplingOptions = DepthSamplingOptions(),
+    ): SurfelMapUpdate? {
+        check(!closed) { "AR kernel session is closed" }
+        if (!running || !latestMappingGate.integrate) return null
+        return visual.integrateDepthBuffer(image, frameWorldFromCamera, options,
+            SystemClock.elapsedRealtimeNanos())
+    }
+
     /** Fuses model-independent camera-space depth samples only while mapping is stable. */
     fun integrateSurfelObservations(
         observations: List<SurfelObservationCamera>,

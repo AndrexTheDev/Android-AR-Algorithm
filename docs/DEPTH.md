@@ -12,6 +12,8 @@ Adapters must establish metric scale and calibration. Relative monocular depth v
 
 `sampleMetricDepthImage` and Android `integrateMetricDepthImage` provide the efficient dense path. Input is an optical-axis Z-depth `FloatArray` in metres, aligned to the exact calibrated camera width and height, with an explicit row stride and optional equally aligned confidence plane. Invalid, non-finite, out-of-range, or low-confidence pixels are skipped and never filled. Configurable pixel-stride sampling bounds CPU and memory before JNI creates surfel records.
 
+Android provides both `MetricDepthImage` (`FloatArray`, convenient but copied at JNI) and `MetricDepthBuffer` (direct native-order `FloatBuffer`). The direct path passes the buffer's current element position and remaining element count to JNI, validates native capacity, offset, alignment, stride, and optional confidence storage, then samples synchronously without a full depth-array copy. The host must keep both direct buffers alive and immutable until the call returns; positions are not advanced by the core.
+
 Each accepted pixel is distortion-aware unprojected. Radius is derived from depth, focal length, and sampling stride. A local normal is estimated from right/down sampled neighbours only when both depths remain within a 10% discontinuity gate; depth edges therefore remain points without fabricated cross-edge normals. Output is capped at 100,000 samples and then follows the same frame-pose transform and SurfelMap fusion path.
 
 ## Fusion and publication

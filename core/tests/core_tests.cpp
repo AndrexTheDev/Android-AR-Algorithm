@@ -6,8 +6,10 @@
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
 #include "arkernel/feature_detector.h"
+#include "arkernel/epipolar_ransac.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
+#include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 
 using namespace arkernel;
@@ -61,6 +63,47 @@ int main() {
   bool left = false, right = false;
   for (const auto& f : features) { left |= f.x < 40; right |= f.x >= 40; }
   CHECK(left && right);
+
+  // IMU rotation prediction supplies LK with physically meaningful initial guesses.
+  const std::vector<ImageFeature> prediction_features{{320,240,10,1},{420,260,9,2}};
+  const auto identity_predictions = predictRotationFlow(prediction_features, camera, {});
+  CHECK(std::abs(identity_predictions[0].x-320.0) < 1e-7);
+  CHECK(std::abs(identity_predictions[0].y-240.0) < 1e-7);
+  const auto rotated_predictions = predictRotationFlow(
+      prediction_features, camera, Quaternion::fromRotationVector({0,0.04,0}));
+  CHECK(rotated_predictions[0].x > identity_predictions[0].x+15.0);
+
+  // Calibrated epipolar RANSAC recovers static-scene matches despite outliers.
+  std::vector<NormalizedCorrespondence> epipolar_matches;
+  for (int i=0; i<80; ++i) {
+    const Vec3 world{-1.2+0.17*(i%15), -0.7+0.14*((i*7)%11), 3.0+0.11*(i%17)};
+    const Vec3 moved = Quaternion::fromRotationVector({0.01,-0.025,0.008}).rotate(world) +
+                       Vec3{0.12,-0.015,0.025};
+    NormalizedCorrespondence match{{world.x/world.z,world.y/world.z},
+                                    {moved.x/moved.z,moved.y/moved.z}};
+    if (i >= 60) {
+      match.current = {-0.45+0.047*(i-60), 0.38-0.031*((i*3)%17)};
+    }
+    epipolar_matches.push_back(match);
+  }
+  EpipolarRansac epipolar({500,0.0005,40,12345});
+  const auto verified = epipolar.verify(epipolar_matches);
+  CHECK(verified.valid);
+  CHECK(verified.inlier_count >= 58);
+  CHECK(verified.inlier_count <= 64);
+  std::size_t true_inliers = 0, rejected_outliers = 0;
+  for (std::size_t i=0; i<verified.inliers.size(); ++i) {
+    if (i < 60 && verified.inliers[i]) ++true_inliers;
+    if (i >= 60 && !verified.inliers[i]) ++rejected_outliers;
+  }
+  CHECK(true_inliers >= 58);
+  CHECK(rejected_outliers >= 18);
+  std::vector<NormalizedCorrespondence> collinear(20);
+  for (int i=0; i<20; ++i) {
+    const double x=-0.4+i*0.04;
+    collinear[i]={{x,2.0*x+0.1},{x+0.02,2.0*(x+0.02)+0.1}};
+  }
+  CHECK(!epipolar.verify(collinear).valid);
 
   // Coarse-to-fine replay: a textured frame is translated by (3,2) pixels.
   constexpr int flow_width = 128, flow_height = 96;

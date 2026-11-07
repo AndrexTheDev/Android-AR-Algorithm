@@ -37,6 +37,8 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - robuste affine Uhrenausrichtung für Sensoren mit fremder Zeitbasis;
 - mobiles FAST-9-Feature-Frontend mit Non-Maximum-Suppression und Grid-Quoten;
 - pyramidenbasiertes Lucas-Kanade-Tracking mit Subpixel-Interpolation, Texturprüfung und Vorwärts-Rückwärts-Kontrolle;
+- IMU-Rotationsvorhersage als Initialisierung für große Kameradrehungen;
+- deterministischer kalibrierter 8-Punkt-RANSAC mit Hartley-Normalisierung, Sampson-Fehler und Degenerationsprüfung;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

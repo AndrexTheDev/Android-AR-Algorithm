@@ -30,6 +30,8 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `clock_aligner.h`: robuste Umrechnung externer Sensoruhren;
 - `feature_detector.h`: FAST-9 und räumlich begrenzte Feature-Auswahl;
 - `optical_flow.h`: coarse-to-fine Sparse Optical Flow mit expliziten Fehlerstatus;
+- `motion_prediction.h`: IMU-Rotation in erwartete Featurepositionen umrechnen;
+- `epipolar_ransac.h`: robuste statische Szenenkonsistenz in normalisierten Kamerakoordinaten;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;

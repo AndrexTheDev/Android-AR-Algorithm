@@ -12,12 +12,14 @@
 - [x] robuste Sensor-Uhrenausrichtung
 - [x] dependency-free FAST-9/Grid-Feature-Detektor als portabler Fallback
 - [x] pyramidenbasiertes Sparse Optical Flow mit Forward/Backward-Gate
+- [x] IMU-gestützte Rotationsvorhersage für Optical-Flow-Initialwerte
+- [x] kalibrierter Epipolar-RANSAC und Sampson-Inlier-Gate
 
 ## Phase 1 – messbares VIO-MVP
 
 - Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
-- Vision-Frontend: FAST/Grid und pyramidenbasiertes KLT sind nativ implementiert; ORB-Deskriptor und geometrisches RANSAC folgen;
+- Vision-Frontend: FAST/Grid, pyramidenbasiertes KLT und Epipolar-RANSAC sind nativ implementiert; ORB-Deskriptor, Essential-Rangprojektion und Homographie-Modellwahl folgen;
 - Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
 - EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.

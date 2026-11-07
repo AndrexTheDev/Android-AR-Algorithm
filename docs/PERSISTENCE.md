@@ -35,6 +35,10 @@ Encoding and decoding enforce:
 
 CRC32 detects accidental corruption only. It does **not** authenticate hostile bytes.
 
-## Android storage requirement
+## Android authenticated storage
 
-Before writing snapshot bytes to disk, the Android adapter must encrypt and authenticate them with an app-specific AES-GCM key held by Android Keystore. Store nonce, ciphertext and GCM tag in a host-owned envelope; never reuse a nonce with the same key. Decode only after successful GCM authentication. User-controlled maps should be deletable and should not be uploaded by default.
+`ArKernelMapStore` implements the Android storage boundary. It generates a non-exportable 256-bit AES key in Android Keystore, requests a fresh provider-generated 96-bit GCM nonce for every write, authenticates the envelope header as AAD, and writes nonce, ciphertext and 128-bit tag through `AtomicFile`. Files live under `noBackupFilesDir`, are limited to the same 64 MiB plaintext budget, and can be deleted together with their key. Decryption happens only after strict magic/version/length checks; a bad GCM tag is surfaced as a security failure.
+
+The native visual runtime exposes bounded two-pass snapshot export and atomic restore through the C ABI/JNI. Restore rebases landmark freshness timestamps into the current Android boot-time clock, clears active frontend tracks, and reserves subsequent feature IDs above all imported IDs. This one-frame tracking reinitialization prevents current session-local IDs from colliding with imported landmarks.
+
+Encryption does not solve spatial relocalization. A snapshot may be restored into `ArKernelSession` only after the running session has been relocalized into the same world frame. The current project does not yet provide that relocalizer; `restoreSpatialMapInCurrentWorld` names this precondition explicitly. Loading an old map into a fresh unrelated VIO origin would produce geometrically valid but wrongly placed anchors and is therefore not an automatic lifecycle action. User-controlled maps are not uploaded by default.

@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include "arkernel/c_api.h"
 #include "arkernel/camera_model.h"
@@ -239,6 +240,13 @@ int main() {
   const auto frontend_collapse=frontend.process(flat_view,2033000000LL);
   CHECK(frontend_collapse.state==FrontendState::kReinitialized);
   CHECK(frontend_collapse.accepted_track_count<frontend_config.min_tracked_features);
+  frontend.reset();
+  CHECK(frontend.reserveFeatureIdsAbove(5000));
+  const auto reserved_ids_frame=frontend.process(frontend_view_a,3000000000LL);
+  CHECK(reserved_ids_frame.state==FrontendState::kInitializing);
+  CHECK(!frontend.activeFeatures().empty());
+  CHECK(frontend.activeFeatures().front().id>5000);
+  CHECK(!frontend.reserveFeatureIdsAbove(std::numeric_limits<std::uint32_t>::max()));
 
   ark_visual_config_v1 visual_c_config{};
   CHECK(ark_visual_default_config(flow_width,flow_height,110,110,64,48,
@@ -274,9 +282,28 @@ int main() {
   ark_anchor_v1 c_anchor{};c_anchor.struct_size=sizeof(c_anchor);
   CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_OK);
   CHECK(c_anchor.created_ns==c_world_pose.timestamp_ns);
+  std::size_t c_snapshot_size=0;
+  CHECK(ark_visual_export_snapshot(visual_c_handle,c_frame.timestamp_ns+1,nullptr,0,
+                                   &c_snapshot_size)==ARK_RESULT_OK);
+  CHECK(c_snapshot_size>32);
+  std::vector<std::uint8_t> c_snapshot(c_snapshot_size);
+  CHECK(ark_visual_export_snapshot(visual_c_handle,c_frame.timestamp_ns+1,c_snapshot.data(),
+                                   c_snapshot.size()-1,&c_snapshot_size)==ARK_RESULT_INVALID_ARGUMENT);
+  CHECK(ark_visual_export_snapshot(visual_c_handle,c_frame.timestamp_ns+1,c_snapshot.data(),
+                                   c_snapshot.size(),&c_snapshot_size)==ARK_RESULT_OK);
   CHECK(ark_visual_remove_anchor(visual_c_handle,c_anchor_id)==ARK_RESULT_OK);
   CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_NOT_READY);
+  CHECK(ark_visual_restore_snapshot(visual_c_handle,c_snapshot.data(),c_snapshot.size(),c_frame.timestamp_ns+2)==ARK_RESULT_OK);
+  CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_OK);
+  c_snapshot[12]^=0x01;
+  CHECK(ark_visual_restore_snapshot(visual_c_handle,c_snapshot.data(),c_snapshot.size(),c_frame.timestamp_ns+2)==
+        ARK_RESULT_INVALID_ARGUMENT);
+  CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_OK);
+  c_frame.timestamp_ns+=33000000LL;c_frame.data=frontend_a.data();
+  CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OK);
+  CHECK(c_visual_result.state==ARK_FRONTEND_INITIALIZING);
   CHECK(ark_visual_reset(visual_c_handle)==ARK_RESULT_OK);
+  CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_NOT_READY);
   ark_visual_destroy(visual_c_handle);
 
   // VIO starts only from a stationary window, propagates metric inertial state,

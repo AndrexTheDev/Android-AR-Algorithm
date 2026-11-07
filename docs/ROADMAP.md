@@ -46,7 +46,8 @@
 - [x] Drei-Sicht-Landmark-Bestätigung und Entfernung wiederholt inkonsistenter dynamischer Tracks;
 - [x] Runtime-, C-ABI-, JNI- und Kotlin-Integration für Map-Updates, Plane-Raycasts und Weltanker;
 - [x] versioniertes Spatial-Snapshot-Format, CRC, harte Decode-Limits und atomarer Restore;
-- [ ] Android-Keystore-AES-GCM-Envelope für verschlüsselte lokale Persistenz.
+- [x] Android-Keystore-AES-GCM-Envelope mit `AtomicFile`, No-Backup-Speicher und Löschpfad;
+- [ ] visuelle Relokalisierung zur sicheren automatischen Wiederverwendung persistierter Weltframes.
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cmath>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -10,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include "arkernel/sparse_map.h"
+#include "arkernel/spatial_snapshot.h"
 #include "arkernel/vio_estimator.h"
 #include "arkernel/visual_frontend.h"
 
@@ -282,6 +284,51 @@ ark_result ark_visual_get_anchor(ark_visual_handle* handle,uint64_t id,ark_ancho
   out->position_y_m=anchor->world_from_anchor.translation.y;
   out->position_z_m=anchor->world_from_anchor.translation.z;
   handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_export_snapshot(ark_visual_handle* handle,int64_t created_ns,
+                                      uint8_t* buffer,size_t capacity,size_t* out_size){
+  if(!handle||!out_size||created_ns<=0)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  try{
+    const arkernel::SpatialSnapshot snapshot{created_ns,handle->map.snapshot(),
+                                             handle->anchors.snapshot()};
+    const auto encoded=arkernel::SpatialSnapshotCodec::encode(snapshot);
+    *out_size=encoded.size();
+    if(!buffer){handle->error.clear();return ARK_RESULT_OK;}
+    if(capacity<encoded.size())
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Snapshot output buffer is too small");
+    std::memcpy(buffer,encoded.data(),encoded.size());handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown snapshot export error");}
+}
+
+ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,const uint8_t* buffer,size_t size,
+                                       int64_t restore_now_ns){
+  if(!handle||!buffer||size==0||restore_now_ns<=0)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  try{
+    const std::vector<std::uint8_t> bytes(buffer,buffer+size);
+    auto decoded=arkernel::SpatialSnapshotCodec::decode(bytes);
+    if(!decoded.valid)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,decoded.error.c_str());
+    std::uint32_t maximum_feature_id=0;
+    for(auto& landmark:decoded.snapshot.landmarks){
+      landmark.last_seen_ns=restore_now_ns;
+      maximum_feature_id=std::max(maximum_feature_id,landmark.feature_id);
+    }
+    if(maximum_feature_id==std::numeric_limits<std::uint32_t>::max())
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Snapshot feature ID range is exhausted");
+    if(!arkernel::restoreSpatialSnapshot(decoded.snapshot,handle->map,handle->anchors))
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Snapshot exceeds runtime map limits");
+    handle->frontend.reset();
+    handle->frontend.reserveFeatureIdsAbove(maximum_feature_id);
+    handle->last_result.reset();
+    handle->plane=handle->plane_detector.detect(handle->map.snapshot());
+    handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown snapshot restore error");}
 }
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out){

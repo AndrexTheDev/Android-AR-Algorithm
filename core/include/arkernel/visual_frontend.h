@@ -51,6 +51,7 @@ class VisualFrontend {
       TimestampNs timestamp_ns,
       const std::optional<Quaternion>& rotation_current_from_previous = std::nullopt);
   void reset();
+  bool reserveFeatureIdsAbove(std::uint32_t feature_id);
   const std::vector<ImageFeature>& activeFeatures() const { return active_features_; }
 
  private:

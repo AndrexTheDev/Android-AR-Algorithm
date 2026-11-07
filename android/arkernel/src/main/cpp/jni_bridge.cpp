@@ -1,5 +1,7 @@
 #include <jni.h>
 #include <cstdint>
+#include <limits>
+#include <vector>
 #include "arkernel/c_api.h"
 
 namespace {
@@ -192,4 +194,32 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetAnchor(JNIEnv* env,jobjec
   const jdouble data[7]={anchor.rotation_w,anchor.rotation_x,anchor.rotation_y,anchor.rotation_z,
     anchor.position_x_m,anchor.position_y_m,anchor.position_z_m};
   env->SetLongArrayRegion(metadata,0,2,meta);env->SetDoubleArrayRegion(values,0,7,data);return status;
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeExportSpatialSnapshot(
+    JNIEnv* env,jobject,jlong handle,jlong created_ns) {
+  size_t required=0;
+  if(ark_visual_export_snapshot(fromVisualHandle(handle),created_ns,nullptr,0,&required)!=ARK_RESULT_OK||
+     required>static_cast<size_t>(std::numeric_limits<jsize>::max()))return nullptr;
+  std::vector<uint8_t> bytes(required);
+  if(ark_visual_export_snapshot(fromVisualHandle(handle),created_ns,bytes.data(),bytes.size(),
+                                &required)!=ARK_RESULT_OK)return nullptr;
+  jbyteArray result=env->NewByteArray(static_cast<jsize>(required));
+  if(!result)return nullptr;
+  env->SetByteArrayRegion(result,0,static_cast<jsize>(required),
+                          reinterpret_cast<const jbyte*>(bytes.data()));
+  return env->ExceptionCheck()?nullptr:result;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRestoreSpatialSnapshot(
+    JNIEnv* env,jobject,jlong handle,jbyteArray snapshot,jlong restore_now_ns) {
+  if(!snapshot)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize size=env->GetArrayLength(snapshot);
+  if(size<=0)return ARK_RESULT_INVALID_ARGUMENT;
+  std::vector<uint8_t> bytes(static_cast<size_t>(size));
+  env->GetByteArrayRegion(snapshot,0,size,reinterpret_cast<jbyte*>(bytes.data()));
+  if(env->ExceptionCheck())return ARK_RESULT_INTERNAL_ERROR;
+  return ark_visual_restore_snapshot(fromVisualHandle(handle),bytes.data(),bytes.size(),restore_now_ns);
 }

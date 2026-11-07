@@ -1,6 +1,7 @@
 #include "arkernel/visual_frontend.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 namespace arkernel {
@@ -134,6 +135,10 @@ VisualFrontendResult VisualFrontend::process(
 void VisualFrontend::reset() {
   previous_pixels_.clear();active_features_.clear();previous_width_=previous_height_=0;
   previous_timestamp_=0;next_feature_id_=1;frames_since_keyframe_=0;
+}
+bool VisualFrontend::reserveFeatureIdsAbove(std::uint32_t feature_id){
+  if(feature_id==std::numeric_limits<std::uint32_t>::max())return false;
+  next_feature_id_=std::max(next_feature_id_,feature_id+1);return true;
 }
 
 }  // namespace arkernel

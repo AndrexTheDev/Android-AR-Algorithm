@@ -1,6 +1,7 @@
 package ai.arena.arkernel
 
 import android.content.Context
+import android.os.SystemClock
 import java.util.ArrayDeque
 import kotlin.math.sqrt
 
@@ -155,6 +156,23 @@ class ArKernelSession(
     fun anchor(id: Long): WorldAnchorSnapshot? {
         check(!closed) { "AR kernel session is closed" }
         return visual.anchor(id)
+    }
+
+    fun saveSpatialMap(store: ArKernelMapStore, createdNs: Long) {
+        check(!closed) { "AR kernel session is closed" }
+        store.save(visual.exportSpatialSnapshot(createdNs))
+    }
+
+    /**
+     * Restores bytes only when they are already expressed in this session's
+     * current world frame. Cross-session use requires relocalization first.
+     */
+    fun restoreSpatialMapInCurrentWorld(store: ArKernelMapStore): Boolean {
+        check(!closed) { "AR kernel session is closed" }
+        check(running) { "Start and relocalize the session before restoring its world map" }
+        val snapshot = store.load() ?: return false
+        visual.restoreSpatialSnapshot(snapshot, SystemClock.elapsedRealtimeNanos())
+        return true
     }
 
     override fun close() {

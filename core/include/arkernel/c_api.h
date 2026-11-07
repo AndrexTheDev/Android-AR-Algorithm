@@ -248,6 +248,15 @@ ark_result ark_visual_create_anchor(ark_visual_handle* handle,
 ark_result ark_visual_remove_anchor(ark_visual_handle* handle, uint64_t anchor_id);
 ark_result ark_visual_get_anchor(ark_visual_handle* handle, uint64_t anchor_id,
                                  ark_anchor_v1* out_anchor);
+// With buffer == NULL, returns the required byte count through out_size.
+// Otherwise capacity must be at least that size.
+ark_result ark_visual_export_snapshot(ark_visual_handle* handle, int64_t created_ns,
+                                      uint8_t* buffer, size_t capacity, size_t* out_size);
+// restore_now_ns must be the current monotonic timestamp; persisted landmark
+// freshness is rebased to it. The caller must establish world-frame alignment.
+ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,
+                                       const uint8_t* buffer, size_t size,
+                                       int64_t restore_now_ns);
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out_config);
 ark_result ark_vio_create(const ark_vio_config_v1* config, ark_vio_handle** out_handle);

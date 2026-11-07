@@ -145,6 +145,25 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
             Vector3(values[4], values[5], values[6])))
     }
 
+    /** Exports ARKMAP01 plaintext. Encrypt before writing it to persistent storage. */
+    @Synchronized fun exportSpatialSnapshot(createdNs: Long): ByteArray {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(createdNs > 0) { "Snapshot timestamp must be positive" }
+        return checkNotNull(nativeExportSpatialSnapshot(nativeHandle, createdNs)) {
+            "Could not export native spatial snapshot"
+        }
+    }
+
+    /** Restores only after the caller has authenticated and decrypted the bytes. */
+    @Synchronized fun restoreSpatialSnapshot(snapshot: ByteArray, restoreNowNs: Long) {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(snapshot.isNotEmpty()) { "Spatial snapshot must not be empty" }
+        require(restoreNowNs > 0) { "Restore timestamp must be positive" }
+        val result = nativeRestoreSpatialSnapshot(nativeHandle, snapshot, restoreNowNs)
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid or corrupted spatial snapshot" }
+        check(result == RESULT_OK) { "Native snapshot restore error: $result" }
+    }
+
     @Synchronized fun reset() { check(nativeHandle != 0L); nativeReset(nativeHandle) }
     @Synchronized override fun close() {
         if (nativeHandle != 0L) { nativeDestroy(nativeHandle); nativeHandle = 0L }
@@ -171,6 +190,9 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeRemoveAnchor(handle: Long, id: Long): Boolean
     private external fun nativeGetAnchor(handle: Long, id: Long,
         metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeExportSpatialSnapshot(handle: Long, createdNs: Long): ByteArray?
+    private external fun nativeRestoreSpatialSnapshot(handle: Long, snapshot: ByteArray,
+        restoreNowNs: Long): Int
 
     private companion object {
         const val RESULT_OK = 0

@@ -46,7 +46,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - bias-linearisierte IMU-Vorintegration mit Rotations-, Geschwindigkeits- und Positions-Jakobians;
 - propagierte IMU-Unsicherheit aus konfigurierbaren Rauschdichten und kovarianzabhängige Faktorgewichtung;
 - speicherbegrenztes Fixed-Lag-Fenster mit IMU-/Vision-Faktoren, Huber-Gewichtung und Prior-Promotion;
-- metrische Sparse-Landmark-Karte mit Drei-Sicht-Bestätigung und dynamischer Inkonsistenzfilterung, mehrere stabil verfolgte begrenzte Ebenen, sichere Nächster-Treffer-Raycasts und persistente Weltanker;
+- metrische Sparse-Landmark-Karte mit Drei-Sicht-Bestätigung und dynamischer Inkonsistenzfilterung, mehrere stabil verfolgte und als Boden/Decke/Wand/Schräge klassifizierte Ebenen, sichere Nächster-Treffer-Raycasts und persistente Weltanker;
 - versionierte, größenbegrenzte und CRC-geprüfte Spatial Snapshots mit Android-Keystore-AES-GCM- und AtomicFile-Speicher;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;

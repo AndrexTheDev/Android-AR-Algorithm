@@ -41,6 +41,14 @@ typedef enum ark_scene_geometry {
   ARK_GEOMETRY_PLANAR_OR_ROTATION = 2
 } ark_scene_geometry;
 
+typedef enum ark_plane_semantic {
+  ARK_PLANE_UNKNOWN = 0,
+  ARK_PLANE_FLOOR = 1,
+  ARK_PLANE_CEILING = 2,
+  ARK_PLANE_WALL = 3,
+  ARK_PLANE_SLOPED = 4
+} ark_plane_semantic;
+
 typedef struct ark_vio_config_v1 {
   uint32_t struct_size;
   uint32_t api_version;
@@ -255,6 +263,8 @@ ark_result ark_visual_integrate_map(ark_visual_handle* handle,
 ark_result ark_visual_get_plane_count(ark_visual_handle* handle, size_t* out_count);
 ark_result ark_visual_get_plane(ark_visual_handle* handle, size_t index,
                                 ark_plane_v1* out_plane);
+ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle, size_t index,
+                                         uint32_t* out_semantic);
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,
                                     double origin_x_m, double origin_y_m, double origin_z_m,
                                     double direction_x, double direction_y, double direction_z,

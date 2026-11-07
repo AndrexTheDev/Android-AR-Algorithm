@@ -278,6 +278,8 @@ int main() {
   CHECK(c_plane_count==0);
   ark_plane_v1 c_plane{};c_plane.struct_size=sizeof(c_plane);
   CHECK(ark_visual_get_plane(visual_c_handle,0,&c_plane)==ARK_RESULT_NOT_READY);
+  std::uint32_t c_plane_semantic=99;
+  CHECK(ark_visual_get_plane_semantic(visual_c_handle,0,&c_plane_semantic)==ARK_RESULT_NOT_READY);
   ark_plane_hit_v1 c_plane_hit{};c_plane_hit.struct_size=sizeof(c_plane_hit);
   CHECK(ark_visual_raycast_plane(visual_c_handle,0,0,0,0,0,1,0.05,10,
                                   &c_plane_hit)==ARK_RESULT_NOT_READY);
@@ -363,6 +365,15 @@ int main() {
   CHECK(plane.normal_world.z>0.999);
   CHECK(std::abs(plane.distance_from_origin_m+3.0)<1e-8);
   CHECK(plane.boundary_uv.size()>=3 && plane.observed_area_m2>0.1);
+  CHECK(classifyPlane(plane,{0,0,1},Vec3{0,0,4})==PlaneSemantic::kFloor);
+  CHECK(classifyPlane(plane,{0,0,1},Vec3{0,0,1})==PlaneSemantic::kCeiling);
+  PlaneEstimate inverted_plane=plane;inverted_plane.normal_world=inverted_plane.normal_world*-1.0;
+  inverted_plane.distance_from_origin_m=-inverted_plane.distance_from_origin_m;
+  CHECK(classifyPlane(inverted_plane,{0,0,1},Vec3{0,0,4})==PlaneSemantic::kFloor);
+  CHECK(classifyPlane(plane,{0,0,1},std::nullopt)==PlaneSemantic::kUnknown);
+  PlaneEstimate sloped_plane;sloped_plane.valid=true;
+  sloped_plane.normal_world=Vec3{1,0,1}*(1.0/std::sqrt(2.0));
+  CHECK(classifyPlane(sloped_plane,{0,0,1},Vec3{})==PlaneSemantic::kSloped);
   std::vector<SparseLandmark> noisy_plane_points;
   std::uint32_t noisy_id=1;
   for(int row=0;row<9;++row)for(int column=0;column<9;++column){
@@ -391,12 +402,16 @@ int main() {
   CHECK(multiple_planes.size()==2);
   CHECK(multiple_planes[0].inlier_count>=20 && multiple_planes[1].inlier_count>=20);
   CHECK(multiple_planes[0].inlier_count+multiple_planes[1].inlier_count==50);
-  SparsePlaneTracker plane_tracker({500,0.01,12,789},{4,8.0,0.1,0.5});
-  const auto tracked_first=plane_tracker.update(room_planes);
+  SparsePlaneTracker plane_tracker({500,0.01,12,789},{4,8.0,0.1,0.5,{}});
+  const auto tracked_first=plane_tracker.update(room_planes,{0,0,1},Vec3{0,0,1});
   CHECK(tracked_first.size()==2 && tracked_first[0].id!=tracked_first[1].id);
+  CHECK(std::count_if(tracked_first.begin(),tracked_first.end(),[](const auto& tracked){
+    return tracked.semantic==PlaneSemantic::kCeiling;})==1);
+  CHECK(std::count_if(tracked_first.begin(),tracked_first.end(),[](const auto& tracked){
+    return tracked.semantic==PlaneSemantic::kWall;})==1);
   const PlaneId first_plane_id=tracked_first[0].id,second_plane_id=tracked_first[1].id;
   for(auto& point:room_planes)point.position_world_m.y+=0.001;
-  const auto tracked_second=plane_tracker.update(room_planes);
+  const auto tracked_second=plane_tracker.update(room_planes,{0,0,1},Vec3{0,0,1});
   CHECK(tracked_second.size()==2);
   CHECK(tracked_second[0].id==first_plane_id && tracked_second[1].id==second_plane_id);
   plane_tracker.reset();

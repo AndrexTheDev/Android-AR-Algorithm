@@ -371,15 +371,44 @@ std::vector<PlaneEstimate> SparsePlaneDetector::detectMultiple(
   return result;
 }
 
+PlaneSemantic classifyPlane(const PlaneEstimate& plane,const Vec3& world_up,
+                            const std::optional<Vec3>& observer_world,
+                            PlaneClassificationConfig config){
+  if(config.horizontal_tolerance_degrees<=0||config.horizontal_tolerance_degrees>=45||
+     config.vertical_tolerance_degrees<=0||config.vertical_tolerance_degrees>=45||
+     config.min_observer_separation_m<0)
+    throw std::invalid_argument("Invalid plane classification configuration");
+  const Vec3 up=normalized(world_up);
+  if(!plane.valid||up.norm()<0.9||!finite(plane.normal_world))return PlaneSemantic::kUnknown;
+  const double alignment=dot(plane.normal_world,up);
+  const double absolute_alignment=std::abs(alignment);
+  const double horizontal_cosine=std::cos(config.horizontal_tolerance_degrees*
+                                           3.14159265358979323846/180.0);
+  if(absolute_alignment>=horizontal_cosine){
+    if(!observer_world||!finite(*observer_world))return PlaneSemantic::kUnknown;
+    const double orientation=alignment>=0?1.0:-1.0;
+    const double signed_separation=orientation*(dot(plane.normal_world,*observer_world)+
+                                                plane.distance_from_origin_m);
+    if(signed_separation>config.min_observer_separation_m)return PlaneSemantic::kFloor;
+    if(signed_separation<-config.min_observer_separation_m)return PlaneSemantic::kCeiling;
+    return PlaneSemantic::kUnknown;
+  }
+  const double vertical_sine=std::sin(config.vertical_tolerance_degrees*
+                                      3.14159265358979323846/180.0);
+  return absolute_alignment<=vertical_sine?PlaneSemantic::kWall:PlaneSemantic::kSloped;
+}
+
 SparsePlaneTracker::SparsePlaneTracker(PlaneDetectorConfig detector_config,
                                        PlaneTrackerConfig tracker_config)
     :detector_(detector_config),config_(tracker_config){
   if(config_.max_planes<1||config_.max_normal_angle_degrees<=0||
      config_.max_normal_angle_degrees>=90||config_.max_offset_change_m<=0||
      config_.max_center_shift_m<=0)throw std::invalid_argument("Invalid plane tracker configuration");
+  classifyPlane({}, {0,0,1}, std::nullopt, config_.classification);
 }
 const std::vector<TrackedPlane>& SparsePlaneTracker::update(
-    const std::vector<SparseLandmark>& landmarks){
+    const std::vector<SparseLandmark>& landmarks,const Vec3& world_up,
+    const std::optional<Vec3>& observer_world){
   auto detected=detector_.detectMultiple(landmarks,config_.max_planes);
   std::vector<TrackedPlane> tracked;tracked.reserve(detected.size());
   std::vector<bool> matched(planes_.size(),false);
@@ -409,7 +438,8 @@ const std::vector<TrackedPlane>& SparsePlaneTracker::update(
         throw std::overflow_error("Plane ID range exhausted");
       id=next_id_++;
     }
-    tracked.push_back({id,std::move(estimate)});
+    const auto semantic=classifyPlane(estimate,world_up,observer_world,config_.classification);
+    tracked.push_back({id,std::move(estimate),semantic});
   }
   planes_=std::move(tracked);return planes_;
 }

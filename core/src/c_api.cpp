@@ -217,7 +217,8 @@ ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_po
     const auto observations=arkernel::makeLandmarkObservations(
       *handle->last_result,handle->camera,world_from_camera);
     const auto update=handle->map.integrate(observations,pose->timestamp_ns);
-    const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
+    const auto& planes=handle->plane_tracker.update(
+      handle->map.snapshot(),{0,0,1},world_from_camera.translation);
     handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
     const uint32_t size=out->struct_size;*out={};out->struct_size=size;
     out->timestamp_ns=pose->timestamp_ns;out->created=update.created;out->updated=update.updated;
@@ -252,6 +253,13 @@ ark_result ark_visual_get_plane(ark_visual_handle* handle,size_t index,ark_plane
   out->center_y_m=plane.center_world.y;out->center_z_m=plane.center_world.z;
   out->observed_area_m2=plane.observed_area_m2;out->mean_absolute_error_m=plane.mean_absolute_error_m;
   out->inlier_count=plane.inlier_count;handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle,size_t index,uint32_t* out){
+  if(!handle||!out)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);const auto& planes=handle->plane_tracker.planes();
+  if(index>=planes.size())return fail(handle,ARK_RESULT_NOT_READY,"Plane index does not exist");
+  *out=static_cast<uint32_t>(planes[index].semantic);handle->error.clear();return ARK_RESULT_OK;
 }
 
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,double ox,double oy,double oz,

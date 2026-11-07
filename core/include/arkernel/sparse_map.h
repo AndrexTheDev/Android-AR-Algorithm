@@ -122,9 +122,23 @@ class SparsePlaneDetector {
 };
 
 using PlaneId = std::uint64_t;
+enum class PlaneSemantic : std::uint32_t { kUnknown, kFloor, kCeiling, kWall, kSloped };
+
+struct PlaneClassificationConfig {
+  double horizontal_tolerance_degrees{15.0};
+  double vertical_tolerance_degrees{15.0};
+  double min_observer_separation_m{0.20};
+};
+
+PlaneSemantic classifyPlane(const PlaneEstimate& plane,
+                            const Vec3& world_up,
+                            const std::optional<Vec3>& observer_world,
+                            PlaneClassificationConfig config = {});
+
 struct TrackedPlane {
   PlaneId id{0};
   PlaneEstimate estimate{};
+  PlaneSemantic semantic{PlaneSemantic::kUnknown};
 };
 
 struct PlaneTrackerConfig {
@@ -132,13 +146,17 @@ struct PlaneTrackerConfig {
   double max_normal_angle_degrees{12.0};
   double max_offset_change_m{0.20};
   double max_center_shift_m{2.0};
+  PlaneClassificationConfig classification{};
 };
 
 class SparsePlaneTracker {
  public:
   SparsePlaneTracker(PlaneDetectorConfig detector_config = {},
                      PlaneTrackerConfig tracker_config = {});
-  const std::vector<TrackedPlane>& update(const std::vector<SparseLandmark>& landmarks);
+  const std::vector<TrackedPlane>& update(
+      const std::vector<SparseLandmark>& landmarks,
+      const Vec3& world_up = {0,0,1},
+      const std::optional<Vec3>& observer_world = std::nullopt);
   const std::vector<TrackedPlane>& planes() const { return planes_; }
   void reset();
  private:

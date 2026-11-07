@@ -41,7 +41,7 @@
 - [x] metrischer Sparse-Landmark-Store mit Parallaxen-/Residual-Gates und hartem Budget;
 - DBoW-/Embedding-basierte Kandidatensuche;
 - geometrische Loop-Verifikation, Pose Graph, Map merge;
-- [x] deterministische Plane- und World-Anchor-API; Raycast und verschlüsselte lokale Persistenz folgen.
+- [x] deterministische Plane-, begrenzte Raycast- und World-Anchor-API; verschlüsselte lokale Persistenz folgt.
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 

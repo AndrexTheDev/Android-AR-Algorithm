@@ -68,13 +68,30 @@ class SparseLandmarkMap {
   std::unordered_map<std::uint32_t,SparseLandmark> landmarks_;
 };
 
+struct PlaneHit {
+  Vec3 position_world{};
+  Vec3 normal_world{};
+  double distance_m{0.0};
+  Vec2 plane_uv{};
+};
+
 struct PlaneEstimate {
   Vec3 normal_world{};
   double distance_from_origin_m{0.0};
+  Vec3 center_world{};
+  Vec3 basis_u_world{};
+  Vec3 basis_v_world{};
+  std::vector<Vec2> boundary_uv;
+  double observed_area_m2{0.0};
   std::size_t inlier_count{0};
   double mean_absolute_error_m{0.0};
   std::vector<std::uint32_t> landmark_ids;
   bool valid{false};
+
+  std::optional<PlaneHit> raycast(const Vec3& ray_origin_world,
+                                  const Vec3& ray_direction_world,
+                                  double min_distance_m = 0.05,
+                                  double max_distance_m = 20.0) const;
 };
 
 struct PlaneDetectorConfig {

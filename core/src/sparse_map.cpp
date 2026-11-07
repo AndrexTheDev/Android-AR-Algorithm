@@ -15,6 +15,43 @@ double rayDistance(const Vec3& center,const Vec3& direction,const Vec3& point){
 }
 std::uint32_t nextRandom(std::uint32_t& state){state^=state<<13;state^=state>>17;state^=state<<5;return state;}
 bool finite(const Vec3& v){return std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z);}
+double cross2(const Vec2& origin,const Vec2& a,const Vec2& b){
+  return (a.x-origin.x)*(b.y-origin.y)-(a.y-origin.y)*(b.x-origin.x);
+}
+std::vector<Vec2> convexHull(std::vector<Vec2> points){
+  std::sort(points.begin(),points.end(),[](const Vec2& a,const Vec2& b){
+    return a.x!=b.x?a.x<b.x:a.y<b.y;
+  });
+  points.erase(std::unique(points.begin(),points.end(),[](const Vec2& a,const Vec2& b){
+    return std::abs(a.x-b.x)<1e-9&&std::abs(a.y-b.y)<1e-9;
+  }),points.end());
+  if(points.size()<3)return {};
+  std::vector<Vec2> hull(points.size()*2);std::size_t count=0;
+  for(const auto& point:points){
+    while(count>=2&&cross2(hull[count-2],hull[count-1],point)<=0)--count;
+    hull[count++]=point;
+  }
+  const std::size_t lower_end=count+1;
+  for(std::size_t i=points.size()-1;i>0;--i){const auto& point=points[i-1];
+    while(count>=lower_end&&cross2(hull[count-2],hull[count-1],point)<=0)--count;
+    hull[count++]=point;
+  }
+  if(count>1)--count;
+  hull.resize(count);
+  return hull.size()>=3?hull:std::vector<Vec2>{};
+}
+double polygonArea(const std::vector<Vec2>& polygon){
+  double twice_area=0;
+  for(std::size_t i=0;i<polygon.size();++i){const auto& a=polygon[i];const auto& b=polygon[(i+1)%polygon.size()];
+    twice_area+=a.x*b.y-a.y*b.x;}
+  return std::abs(twice_area)*0.5;
+}
+bool insideConvex(const std::vector<Vec2>& polygon,const Vec2& point){
+  if(polygon.size()<3)return false;
+  for(std::size_t i=0;i<polygon.size();++i)
+    if(cross2(polygon[i],polygon[(i+1)%polygon.size()],point)<-1e-8)return false;
+  return true;
+}
 }  // namespace
 
 std::vector<LandmarkObservation> makeLandmarkObservations(
@@ -132,6 +169,20 @@ std::vector<SparseLandmark> SparseLandmarkMap::snapshot() const{
 }
 void SparseLandmarkMap::reset(){pending_.clear();landmarks_.clear();}
 
+std::optional<PlaneHit> PlaneEstimate::raycast(const Vec3& origin,const Vec3& direction,
+                                                double minimum,double maximum) const{
+  if(!valid||minimum<0||maximum<=minimum||!finite(origin)||!finite(direction))return std::nullopt;
+  const Vec3 ray=normalized(direction);if(ray.norm()<0.9)return std::nullopt;
+  const double denominator=dot(normal_world,ray);
+  if(std::abs(denominator)<1e-9)return std::nullopt;
+  const double distance=-(dot(normal_world,origin)+distance_from_origin_m)/denominator;
+  if(distance<minimum||distance>maximum)return std::nullopt;
+  const Vec3 position=origin+ray*distance,offset=position-center_world;
+  const Vec2 uv{dot(offset,basis_u_world),dot(offset,basis_v_world)};
+  if(!insideConvex(boundary_uv,uv))return std::nullopt;
+  return PlaneHit{position,normal_world,distance,uv};
+}
+
 SparsePlaneDetector::SparsePlaneDetector(PlaneDetectorConfig config):config_(config){
   if(config_.ransac_iterations<1||config_.inlier_threshold_m<=0||config_.min_inliers<3)
     throw std::invalid_argument("Invalid plane detector configuration");
@@ -153,7 +204,26 @@ PlaneEstimate SparsePlaneDetector::detect(const std::vector<SparseLandmark>& lan
       best.mean_absolute_error_m=ids.empty()?0:error/ids.size();best.landmark_ids=std::move(ids);
     }
   }
-  best.valid=best.inlier_count>=config_.min_inliers;return best;
+  if(best.inlier_count<config_.min_inliers)return best;
+  std::vector<Vec3> inlier_points;inlier_points.reserve(best.inlier_count);
+  for(const auto& point:landmarks)
+    if(std::abs(dot(best.normal_world,point.position_world_m)+best.distance_from_origin_m)<=
+       config_.inlier_threshold_m)inlier_points.push_back(point.position_world_m);
+  if(inlier_points.size()<config_.min_inliers)return best;
+  for(const auto& point:inlier_points)best.center_world+=point;
+  best.center_world=best.center_world*(1.0/inlier_points.size());
+  best.center_world=best.center_world-best.normal_world*(
+      dot(best.normal_world,best.center_world)+best.distance_from_origin_m);
+  const Vec3 reference=std::abs(best.normal_world.z)<0.9?Vec3{0,0,1}:Vec3{1,0,0};
+  best.basis_u_world=normalized(cross(reference,best.normal_world));
+  best.basis_v_world=normalized(cross(best.normal_world,best.basis_u_world));
+  std::vector<Vec2> projected;projected.reserve(inlier_points.size());
+  for(const auto& point:inlier_points){const Vec3 offset=point-best.center_world;
+    projected.push_back({dot(offset,best.basis_u_world),dot(offset,best.basis_v_world)});}
+  best.boundary_uv=convexHull(std::move(projected));
+  best.observed_area_m2=polygonArea(best.boundary_uv);
+  best.valid=best.boundary_uv.size()>=3&&best.observed_area_m2>1e-8;
+  return best;
 }
 
 AnchorId AnchorStore::create(const Pose& pose,TimestampNs timestamp){

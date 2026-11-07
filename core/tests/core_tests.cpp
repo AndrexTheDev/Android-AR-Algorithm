@@ -285,8 +285,14 @@ int main() {
   CHECK(plane.valid && plane.inlier_count==20);
   CHECK(plane.normal_world.z>0.999);
   CHECK(std::abs(plane.distance_from_origin_m+3.0)<1e-8);
+  CHECK(plane.boundary_uv.size()>=3 && plane.observed_area_m2>0.1);
+  const auto plane_hit=plane.raycast({0,0,0},{0,0,1});
+  CHECK(plane_hit.has_value());
+  CHECK(std::abs(plane_hit->position_world.z-3.0)<1e-8);
+  CHECK(!plane.raycast({5,0,0},{0,0,1}).has_value());
+  CHECK(!plane.raycast({0,0,0},{1,0,0}).has_value());
   AnchorStore anchors;
-  const AnchorId anchor_id=anchors.create({{},landmark->position_world_m},2200000000LL);
+  const AnchorId anchor_id=anchors.create({{},plane_hit->position_world},2200000000LL);
   CHECK(anchor_id==1 && anchors.find(anchor_id).has_value());
   CHECK(anchors.remove(anchor_id));
   CHECK(!anchors.find(anchor_id).has_value());

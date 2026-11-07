@@ -47,6 +47,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - propagierte IMU-Unsicherheit aus konfigurierbaren Rauschdichten und kovarianzabhängige Faktorgewichtung;
 - speicherbegrenztes Fixed-Lag-Fenster mit IMU-/Vision-Faktoren, Huber-Gewichtung und Prior-Promotion;
 - metrische Sparse-Landmark-Karte, begrenzte Ebenenhüllen, sichere Raycasts und persistente Weltanker;
+- versionierte, größenbegrenzte und CRC-geprüfte Spatial-Snapshot-Persistenz;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
 - gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation und visueller Rückkopplung;
@@ -75,7 +76,7 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 /tmp/arkernel_tests
 ```
 
-Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) und [`docs/ROADMAP.md`](docs/ROADMAP.md) und [`docs/REPLAY.md`](docs/REPLAY.md) und [`docs/EVALUATION.md`](docs/EVALUATION.md).
+Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) und [`docs/ROADMAP.md`](docs/ROADMAP.md) und [`docs/REPLAY.md`](docs/REPLAY.md) und [`docs/EVALUATION.md`](docs/EVALUATION.md) und [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md).
 
 ## Lizenz
 

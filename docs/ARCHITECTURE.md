@@ -39,6 +39,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `vio_estimator.h`: metrischer IMU-Zustand, stationäre Initialisierung und visueller Bootstrap;
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
 - `sparse_map.h`: Feature-ID-basierte Triangulation, begrenzte Landmark-Karte, Ebenen und Weltanker;
+- `spatial_snapshot.h`: portable, versionierte und integritätsgeprüfte Kartenbytes;
 - `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO- und Visual-Handles;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: Midpoint-Vorintegration, Referenz-Bias, First-Order-Bias-Jakobians und diagonale Unsicherheitspropagation;
@@ -101,3 +102,8 @@ Jeder IMU-Faktor speichert den Bias seines Linearisierungspunkts sowie 3×3-Jako
 ## Sparse Map und AR-Anker
 
 Geometrisch akzeptierte Frontend-Tracks werden über ihre stabilen IDs und das kalibrierte Kameramodell in Einheitsstrahlen umgewandelt. Eine Landmark entsteht erst nach ausreichender metrischer Baseline, Parallaxe, positiver Tiefe und kleinem Abstand der beiden Sichtstrahlen. Folgebeobachtungen müssen ein Ray-Residual-Gate bestehen. Pending-Beobachtungen und Landmarken besitzen Zeitbudgets; bei Kapazitätsgrenze werden deterministisch schwach beobachtete und alte Punkte entfernt. Ein deterministischer RANSAC erkennt dominante Ebenen aus dem Snapshot. Inlier werden in eine stabile 2D-Ebenenbasis projiziert und per monotoner konvexer Hülle auf die tatsächlich beobachtete Fläche begrenzt. Raycasts normalisieren den Strahl, prüfen Parallelität, Vorwärtsdistanz, Maximaldistanz und Polygonzugehörigkeit; eine unendliche mathematische Ebene erzeugt daher außerhalb beobachteter Geometrie keinen Treffer. `AnchorStore` hält normalisierte Posen im Weltframe unabhängig vom Rendering. Dynamische Objektmasken und persistente Map-Serialisierung folgen später.
+
+
+## Spatial Snapshot
+
+Persistiert werden nur primäre Landmark- und Anchor-Zustände; Ebenen bleiben ableitbar und werden nach dem Laden neu geschätzt. `ARKMAP01` kodiert Zahlen explizit Little Endian, begrenzt Counts und Gesamtbytes, validiert eindeutige IDs und schützt gegen zufällige Korruption mit CRC32. Restore baut zunächst einen vollständigen temporären Zustand und tauscht ihn erst nach erfolgreicher Validierung ein. CRC32 ist keine Authentisierung; Android muss die Bytes vor Dateispeicherung mit einem Keystore-gebundenen AEAD-Verfahren schützen.

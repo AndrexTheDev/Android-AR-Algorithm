@@ -56,6 +56,7 @@ class SparseLandmarkMap {
   std::optional<SparseLandmark> find(std::uint32_t feature_id) const;
   std::vector<SparseLandmark> snapshot() const;
   std::size_t size() const { return landmarks_.size(); }
+  bool restore(const std::vector<SparseLandmark>& landmarks);
   void reset();
 
  private:
@@ -122,6 +123,7 @@ class AnchorStore {
   bool remove(AnchorId id);
   std::optional<WorldAnchor> find(AnchorId id) const;
   std::vector<WorldAnchor> snapshot() const;
+  bool restore(const std::vector<WorldAnchor>& anchors);
   void reset();
  private:
   AnchorId next_id_{1};

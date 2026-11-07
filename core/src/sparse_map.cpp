@@ -167,6 +167,16 @@ std::vector<SparseLandmark> SparseLandmarkMap::snapshot() const{
   for(const auto& entry:landmarks_)result.push_back(entry.second);
   std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.feature_id<b.feature_id;});return result;
 }
+bool SparseLandmarkMap::restore(const std::vector<SparseLandmark>& values){
+  if(values.size()>config_.max_landmarks)return false;
+  std::unordered_map<std::uint32_t,SparseLandmark> restored;
+  for(const auto& value:values){
+    if(!finite(value.position_world_m)||value.observation_count<2||
+       !std::isfinite(value.mean_ray_residual_m)||value.mean_ray_residual_m<0||
+       value.last_seen_ns<=0||!restored.emplace(value.feature_id,value).second)return false;
+  }
+  landmarks_=std::move(restored);pending_.clear();return true;
+}
 void SparseLandmarkMap::reset(){pending_.clear();landmarks_.clear();}
 
 std::optional<PlaneHit> PlaneEstimate::raycast(const Vec3& origin,const Vec3& direction,
@@ -241,6 +251,21 @@ std::optional<WorldAnchor> AnchorStore::find(AnchorId id) const{
 std::vector<WorldAnchor> AnchorStore::snapshot() const{
   std::vector<WorldAnchor> result;for(const auto& entry:anchors_)result.push_back(entry.second);
   std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.id<b.id;});return result;
+}
+bool AnchorStore::restore(const std::vector<WorldAnchor>& values){
+  std::unordered_map<AnchorId,WorldAnchor> restored;AnchorId next=1;
+  for(const auto& value:values){
+    const double norm=std::sqrt(value.world_from_anchor.rotation.w*value.world_from_anchor.rotation.w+
+        value.world_from_anchor.rotation.x*value.world_from_anchor.rotation.x+
+        value.world_from_anchor.rotation.y*value.world_from_anchor.rotation.y+
+        value.world_from_anchor.rotation.z*value.world_from_anchor.rotation.z);
+    if(value.id==0||value.created_ns<=0||!finite(value.world_from_anchor.translation)||
+       !std::isfinite(norm)||norm<1e-9||!restored.emplace(value.id,value).second)return false;
+    restored[value.id].world_from_anchor.rotation=restored[value.id].world_from_anchor.rotation.normalized();
+    if(value.id==std::numeric_limits<AnchorId>::max())return false;
+    next=std::max(next,value.id+1);
+  }
+  anchors_=std::move(restored);next_id_=next;return true;
 }
 void AnchorStore::reset(){anchors_.clear();next_id_=1;}
 

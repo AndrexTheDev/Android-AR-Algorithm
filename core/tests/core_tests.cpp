@@ -15,6 +15,7 @@
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/sparse_map.h"
+#include "arkernel/spatial_snapshot.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
@@ -296,6 +297,30 @@ int main() {
   CHECK(anchor_id==1 && anchors.find(anchor_id).has_value());
   CHECK(anchors.remove(anchor_id));
   CHECK(!anchors.find(anchor_id).has_value());
+  const AnchorId persisted_anchor=anchors.create({{},plane_hit->position_world},2300000000LL);
+  SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot()};
+  const auto encoded_snapshot=SpatialSnapshotCodec::encode(spatial_snapshot);
+  CHECK(encoded_snapshot==SpatialSnapshotCodec::encode(spatial_snapshot));
+  const auto decoded_snapshot=SpatialSnapshotCodec::decode(encoded_snapshot);
+  CHECK(decoded_snapshot.valid);
+  CHECK(decoded_snapshot.snapshot.landmarks.size()==20);
+  CHECK(decoded_snapshot.snapshot.anchors.size()==1);
+  SparseLandmarkMap restored_map;
+  AnchorStore restored_anchors;
+  CHECK(restoreSpatialSnapshot(decoded_snapshot.snapshot,restored_map,restored_anchors));
+  CHECK(restored_map.size()==20);
+  CHECK(restored_anchors.find(persisted_anchor).has_value());
+  CHECK(restored_anchors.create({{},{}},2500000000LL)==persisted_anchor+1);
+  SpatialSnapshot invalid_restore=decoded_snapshot.snapshot;
+  invalid_restore.landmarks.clear();
+  invalid_restore.anchors.push_back(invalid_restore.anchors.front());
+  CHECK(!restoreSpatialSnapshot(invalid_restore,restored_map,restored_anchors));
+  CHECK(restored_map.size()==20);
+  auto corrupted_snapshot=encoded_snapshot;
+  corrupted_snapshot[20]^=0x40;
+  CHECK(!SpatialSnapshotCodec::decode(corrupted_snapshot).valid);
+  corrupted_snapshot.pop_back();
+  CHECK(!SpatialSnapshotCodec::decode(corrupted_snapshot).valid);
 
   VioConfig vio_config;
   vio_config.min_scale_displacement_m=0.001;

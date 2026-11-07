@@ -82,6 +82,23 @@ data class SemanticPixelProjection(
     val minDistanceMeters: Double = 0.05,
     val maxDistanceMeters: Double = 20.0,
 )
+data class MetricDepthImage(
+    val width: Int,
+    val height: Int,
+    val rowStrideElements: Int,
+    val depthMeters: FloatArray,
+    val confidence: FloatArray? = null,
+    val confidenceRowStrideElements: Int = if (confidence == null) 0 else rowStrideElements,
+    val timestampNs: Long,
+)
+data class DepthSamplingOptions(
+    val pixelStride: Int = 4,
+    val minDepthMeters: Double = 0.15,
+    val maxDepthMeters: Double = 20.0,
+    val minConfidence: Double = 0.20,
+    val estimateNormals: Boolean = true,
+)
+
 data class SurfelObservationCamera(
     val positionCameraMeters: Vector3,
     val normalCamera: Vector3 = Vector3(0.0, 0.0, 0.0),
@@ -246,6 +263,41 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
             if (metadata[1] != 0L) values[1] else null,
             if (metadata[2] != 0L) values[2] else null,
             values[3], values[4], values[5], metadata[5])
+    }
+
+    @Synchronized
+    fun integrateDepthImage(
+        image: MetricDepthImage,
+        frameWorldFromCamera: WorldPose,
+        options: DepthSamplingOptions = DepthSamplingOptions(),
+        nowNs: Long = image.timestampNs,
+    ): SurfelMapUpdate {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(image.timestampNs == frameWorldFromCamera.timestampNs) {
+            "Depth image and camera pose timestamps must match"
+        }
+        require(image.width > 0 && image.height > 0 && image.rowStrideElements >= image.width)
+        val requiredDepth = (image.height.toLong() - 1L) * image.rowStrideElements.toLong() +
+            image.width.toLong()
+        require(requiredDepth <= image.depthMeters.size.toLong()) { "Depth image storage is truncated" }
+        image.confidence?.let {
+            require(image.confidenceRowStrideElements >= image.width)
+            val requiredConfidence = (image.height.toLong() - 1L) *
+                image.confidenceRowStrideElements.toLong() + image.width.toLong()
+            require(requiredConfidence <= it.size.toLong()) { "Confidence image storage is truncated" }
+        }
+        val rotation = frameWorldFromCamera.rotation
+        val position = frameWorldFromCamera.positionMeters
+        val output = LongArray(5)
+        val result = nativeIntegrateDepthImage(nativeHandle, image.depthMeters, image.confidence,
+            image.width, image.height, image.rowStrideElements,
+            image.confidenceRowStrideElements, image.timestampNs, nowNs, options.pixelStride,
+            options.minDepthMeters, options.maxDepthMeters, options.minConfidence,
+            options.estimateNormals, rotation.w, rotation.x, rotation.y, rotation.z,
+            position.x, position.y, position.z, output)
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid or unaligned metric depth image" }
+        check(result == RESULT_OK) { "Native depth image integration error: $result" }
+        return SurfelMapUpdate(output[0], output[1], output[2], output[3], output[4])
     }
 
     @Synchronized
@@ -503,6 +555,12 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeGetRoomLayout(handle: Long,
         metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeIntegrateDepthImage(handle: Long, depth: FloatArray,
+        confidence: FloatArray?, width: Int, height: Int, rowStride: Int,
+        confidenceStride: Int, timestampNs: Long, nowNs: Long, pixelStride: Int,
+        minDepth: Double, maxDepth: Double, minConfidence: Double, estimateNormals: Boolean,
+        rw: Double, rx: Double, ry: Double, rz: Double,
+        px: Double, py: Double, pz: Double, output: LongArray): Int
     private external fun nativeIntegrateSurfels(handle: Long, timestampNs: Long, nowNs: Long,
         observations: DoubleArray, rw: Double, rx: Double, ry: Double, rz: Double,
         px: Double, py: Double, pz: Double, output: LongArray): Int

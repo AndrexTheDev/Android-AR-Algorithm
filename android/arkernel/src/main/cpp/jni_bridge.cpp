@@ -488,3 +488,38 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetSurfel(JNIEnv* env,jobjec
   env->SetLongArrayRegion(metadata,0,5,meta);env->SetDoubleArrayRegion(values,0,8,data);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeIntegrateDepthImage(JNIEnv* env,jobject,
+    jlong handle,jfloatArray depth,jfloatArray confidence,jint width,jint height,jint row_stride,
+    jint confidence_stride,jlong timestamp,jlong now_ns,jint pixel_stride,jdouble min_depth,
+    jdouble max_depth,jdouble min_confidence,jboolean estimate_normals,jdouble rw,jdouble rx,
+    jdouble ry,jdouble rz,jdouble px,jdouble py,jdouble pz,jlongArray output) {
+  if(!depth||!output||env->GetArrayLength(output)<5)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize depth_count=env->GetArrayLength(depth);
+  const jsize confidence_count=confidence?env->GetArrayLength(confidence):0;
+  std::vector<jfloat> depth_values(static_cast<size_t>(depth_count));
+  std::vector<jfloat> confidence_values(static_cast<size_t>(confidence_count));
+  env->GetFloatArrayRegion(depth,0,depth_count,depth_values.data());
+  if(confidence)env->GetFloatArrayRegion(confidence,0,confidence_count,confidence_values.data());
+  if(env->ExceptionCheck())return ARK_RESULT_INTERNAL_ERROR;
+  ark_metric_depth_image_v1 image{};image.struct_size=sizeof(image);image.width=width;image.height=height;
+  image.row_stride_elements=row_stride;image.depth_m=depth_values.data();
+  image.depth_element_count=depth_values.size();
+  image.confidence=confidence?confidence_values.data():nullptr;
+  image.confidence_row_stride_elements=confidence?confidence_stride:0;
+  image.confidence_element_count=confidence_values.size();image.timestamp_ns=timestamp;
+  image.pixel_stride=pixel_stride;image.min_depth_m=min_depth;image.max_depth_m=max_depth;
+  image.min_confidence=min_confidence;image.estimate_normals=estimate_normals?1u:0u;
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;
+  ark_surfel_update_v1 update{};update.struct_size=sizeof(update);
+  const auto status=ark_visual_integrate_depth_image(fromVisualHandle(handle),&image,&pose,now_ns,&update);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong result[5]={static_cast<jlong>(update.created),static_cast<jlong>(update.updated),
+    static_cast<jlong>(update.rejected),static_cast<jlong>(update.pruned),
+    static_cast<jlong>(update.surfel_count)};
+  env->SetLongArrayRegion(output,0,5,result);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

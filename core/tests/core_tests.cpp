@@ -7,6 +7,7 @@
 #include "arkernel/camera_model.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
+#include "arkernel/depth_sampling.h"
 #include "arkernel/feature_detector.h"
 #include "arkernel/fixed_lag_smoother.h"
 #include "arkernel/epipolar_ransac.h"
@@ -80,6 +81,22 @@ int main() {
   bool left = false, right = false;
   for (const auto& f : features) { left |= f.x < 40; right |= f.x >= 40; }
   CHECK(left && right);
+
+  const PinholeRadTanCamera depth_camera({8,8,8,8,3.5,3.5});
+  std::vector<float> metric_depth(8*8,2.0F),depth_confidence(8*8,0.9F);
+  metric_depth[0]=std::numeric_limits<float>::quiet_NaN();
+  const MetricDepthImageView depth_view{8,8,8,metric_depth.data(),metric_depth.size(),
+    depth_confidence.data(),8,depth_confidence.size()};
+  DepthSamplingConfig depth_sampling_config;depth_sampling_config.pixel_stride=2;
+  const auto sampled_depth=sampleMetricDepthImage(
+      depth_view,depth_camera,2000000000LL,depth_sampling_config);
+  CHECK(sampled_depth.size()==15);
+  CHECK(std::abs(sampled_depth.front().position_world_m.z-2.0)<1e-9);
+  CHECK(sampled_depth.front().radius_m>=depth_sampling_config.min_radius_m);
+  CHECK(std::any_of(sampled_depth.begin(),sampled_depth.end(),
+                    [](const auto& value){return value.normal_valid;}));
+  auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
+  CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
 
   std::vector<std::uint8_t> descriptor_image(96*80);
   for(int y=0;y<80;++y)for(int x=0;x<96;++x)
@@ -341,6 +358,18 @@ int main() {
   ark_surfel_v1 c_surfel_snapshot{};c_surfel_snapshot.struct_size=sizeof(c_surfel_snapshot);
   CHECK(ark_visual_get_surfel(visual_c_handle,0,&c_surfel_snapshot)==ARK_RESULT_OK);
   CHECK(c_surfel_snapshot.observation_count==2&&c_surfel_snapshot.normal_valid);
+  std::vector<float> c_depth(static_cast<std::size_t>(flow_width*flow_height),2.0F);
+  ark_metric_depth_image_v1 c_depth_image{};c_depth_image.struct_size=sizeof(c_depth_image);
+  c_depth_image.width=flow_width;c_depth_image.height=flow_height;
+  c_depth_image.row_stride_elements=flow_width;c_depth_image.depth_m=c_depth.data();
+  c_depth_image.depth_element_count=c_depth.size();c_depth_image.timestamp_ns=c_world_pose.timestamp_ns;
+  c_depth_image.pixel_stride=32;c_depth_image.min_depth_m=0.15;c_depth_image.max_depth_m=20;
+  c_depth_image.min_confidence=0.2;c_depth_image.estimate_normals=1;
+  CHECK(ark_visual_integrate_depth_image(visual_c_handle,&c_depth_image,&c_world_pose,
+      c_depth_image.timestamp_ns,&c_surfel_update)==ARK_RESULT_OK);
+  CHECK(ark_visual_integrate_depth_image(visual_c_handle,&c_depth_image,&c_world_pose,
+      c_depth_image.timestamp_ns,&c_surfel_update)==ARK_RESULT_OK);
+  CHECK(c_surfel_update.created>0&&c_surfel_update.surfel_count>1);
   ark_semantic_projection_v1 c_projection{};c_projection.struct_size=sizeof(c_projection);
   c_projection.class_id=5;c_projection.source_track_id=77;c_projection.timestamp_ns=c_frame.timestamp_ns;
   c_projection.pixel_x=64;c_projection.pixel_y=48;c_projection.confidence=0.9;

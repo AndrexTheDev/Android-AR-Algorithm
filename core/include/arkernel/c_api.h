@@ -278,6 +278,24 @@ typedef struct ark_relocalization_result_v1 {
   double translation_z_m;
 } ark_relocalization_result_v1;
 
+typedef struct ark_metric_depth_image_v1 {
+  uint32_t struct_size;
+  int32_t width;
+  int32_t height;
+  int32_t row_stride_elements;
+  const float* depth_m;
+  size_t depth_element_count;
+  const float* confidence;
+  int32_t confidence_row_stride_elements;
+  size_t confidence_element_count;
+  int64_t timestamp_ns;
+  int32_t pixel_stride;
+  double min_depth_m;
+  double max_depth_m;
+  double min_confidence;
+  uint32_t estimate_normals;
+} ark_metric_depth_image_v1;
+
 typedef struct ark_surfel_observation_v1 {
   uint32_t struct_size;
   int64_t timestamp_ns;
@@ -433,6 +451,11 @@ ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle, size_t index
                                          uint32_t* out_semantic);
 ark_result ark_visual_get_room_layout(ark_visual_handle* handle,
                                       ark_room_layout_v1* out_layout);
+ark_result ark_visual_integrate_depth_image(ark_visual_handle* handle,
+                                            const ark_metric_depth_image_v1* image,
+                                            const ark_world_pose_v1* world_from_camera,
+                                            int64_t now_ns,
+                                            ark_surfel_update_v1* out_update);
 ark_result ark_visual_integrate_surfels(ark_visual_handle* handle,
                                         const ark_surfel_observation_v1* observations,
                                         size_t observation_count,

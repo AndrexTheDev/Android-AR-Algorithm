@@ -48,7 +48,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - speicherbegrenztes Fixed-Lag-Fenster mit IMU-/Vision-Faktoren, Huber-Gewichtung und Prior-Promotion;
 - metrische Sparse-Landmark-Karte mit Drei-Sicht-Bestätigung und dynamischer Inkonsistenzfilterung, mehrere stabil verfolgte und als Boden/Decke/Wand/Schräge klassifizierte Ebenen mit konservativer Raumhöhen-/Flächenzusammenfassung, sichere Nächster-Treffer-Raycasts und persistente Weltanker;
 - versionierte, größenbegrenzte und CRC-geprüfte Spatial Snapshots mit Android-Keystore-AES-GCM- und AtomicFile-Speicher sowie lokalem BRIEF/Hamming-Matching und robust gegateter metrischer 3D–3D-Relokalisierung;
-- modellunabhängige, voxelbegrenzte Surfel-Fusion für metrische Stereo-, Monokular- oder Sensortiefe ohne LiDAR-Pflicht;
+- kalibrierte native Tiefenbild-Unprojektion und modellunabhängige, voxelbegrenzte Surfel-Fusion für metrische Stereo-, Monokular- oder Sensortiefe ohne LiDAR-Pflicht;
 - modellunabhängige, begrenzte semantische 3D-Objektfusion mit Unknown-Klasse, Konfidenz-, Track-, Distanz- und Dynamik-Gates;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;

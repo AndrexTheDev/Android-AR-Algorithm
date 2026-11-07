@@ -23,11 +23,13 @@ std::size_t SurfelMap::VoxelHash::operator()(const VoxelKey& key) const {
 
 SurfelMap::SurfelMap(SurfelMapConfig config):config_(config){
   if(config_.max_surfels==0||config_.max_observations_per_update==0||
-     config_.min_confirming_observations==0||config_.voxel_size_m<=0||
+     config_.min_confirming_observations==0||!std::isfinite(config_.voxel_size_m)||
+     config_.voxel_size_m<=0||!std::isfinite(config_.min_observation_confidence)||
      config_.min_observation_confidence<0||config_.min_observation_confidence>1||
-     config_.max_position_norm_m<=0||
+     !std::isfinite(config_.max_position_norm_m)||config_.max_position_norm_m<=0||
      config_.max_position_norm_m/config_.voxel_size_m>
        static_cast<double>(std::numeric_limits<std::int32_t>::max()-1)||
+     !std::isfinite(config_.min_radius_m)||!std::isfinite(config_.max_radius_m)||
      config_.min_radius_m<=0||config_.max_radius_m<config_.min_radius_m||
      config_.lifetime_ns<=0)
     throw std::invalid_argument("Invalid surfel map configuration");

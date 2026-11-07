@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include "arkernel/depth_sampling.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
@@ -325,6 +326,44 @@ ark_result ark_visual_get_room_layout(ark_visual_handle* handle,ark_room_layout_
   out->observed_ceiling_area_m2=layout.observed_ceiling_area_m2;
   out->observed_wall_area_m2=layout.observed_wall_area_m2;out->wall_count=layout.wall_count;
   handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_integrate_depth_image(ark_visual_handle* handle,
+    const ark_metric_depth_image_v1* image,const ark_world_pose_v1* pose,
+    int64_t now_ns,ark_surfel_update_v1* out){
+  if(!handle||!validStruct(image)||!validStruct(pose)||!validStruct(out)||now_ns<=0||
+     image->timestamp_ns!=pose->timestamp_ns)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);arkernel::Pose world_from_camera;
+  if(!convertPose(*pose,world_from_camera))
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"World-from-camera pose is invalid");
+  if(image->width!=handle->camera.intrinsics().width||
+     image->height!=handle->camera.intrinsics().height)
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Depth image is not aligned to camera calibration");
+  try{
+    const arkernel::MetricDepthImageView view{image->width,image->height,
+      image->row_stride_elements,image->depth_m,image->depth_element_count,image->confidence,
+      image->confidence_row_stride_elements,image->confidence_element_count};
+    arkernel::DepthSamplingConfig config;config.pixel_stride=image->pixel_stride;
+    config.min_depth_m=image->min_depth_m;config.max_depth_m=image->max_depth_m;
+    config.min_confidence=image->min_confidence;config.estimate_normals=image->estimate_normals!=0;
+    auto values=arkernel::sampleMetricDepthImage(view,handle->camera,image->timestamp_ns,config);
+    if(values.empty()&&!arkernel::validMetricDepthImage(view))
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Metric depth image layout is invalid");
+    for(auto& value:values){
+      value.position_world_m=world_from_camera.rotation.rotate(value.position_world_m)+
+                             world_from_camera.translation;
+      if(value.normal_valid)value.normal_world=world_from_camera.rotation.rotate(value.normal_world);
+    }
+    const auto update=handle->surfel_map.integrate(values,now_ns);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->created=update.created;out->updated=update.updated;out->rejected=update.rejected;
+    out->pruned=update.pruned;out->surfel_count=handle->surfel_map.size();
+    handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown depth-image integration error");}
 }
 
 ark_result ark_visual_integrate_surfels(ark_visual_handle* handle,

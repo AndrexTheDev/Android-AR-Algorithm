@@ -171,6 +171,18 @@ class ArKernelSession(
         return visual.roomLayout()
     }
 
+    /** Samples and fuses an aligned metric depth image only while mapping is stable. */
+    fun integrateMetricDepthImage(
+        image: MetricDepthImage,
+        frameWorldFromCamera: WorldPose,
+        options: DepthSamplingOptions = DepthSamplingOptions(),
+    ): SurfelMapUpdate? {
+        check(!closed) { "AR kernel session is closed" }
+        if (!running || !latestMappingGate.integrate) return null
+        return visual.integrateDepthImage(image, frameWorldFromCamera, options,
+            SystemClock.elapsedRealtimeNanos())
+    }
+
     /** Fuses model-independent camera-space depth samples only while mapping is stable. */
     fun integrateSurfelObservations(
         observations: List<SurfelObservationCamera>,

@@ -16,6 +16,7 @@
 #include "arkernel/optical_flow.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
+#include "arkernel/trajectory_metrics.h"
 #include "arkernel/visual_frontend.h"
 #include "arkernel/vio_estimator.h"
 
@@ -357,6 +358,34 @@ int main() {
   CHECK(smoothing.visual_factor_count==3);
   CHECK(smoothing.final_cost<smoothing.initial_cost*0.2);
   CHECK(smoothing.marginalized_keyframe_count==2);
+
+  // Sim(3) trajectory alignment recovers known scale, rigid transform and RPE.
+  std::vector<TrajectorySample> estimated_trajectory,ground_truth_trajectory;
+  const Quaternion trajectory_alignment=Quaternion::fromRotationVector({0.2,-0.1,0.3});
+  const Vec3 trajectory_offset{1.5,-0.8,0.4};
+  for(int i=0;i<20;++i){
+    TrajectorySample estimate;estimate.timestamp_ns=8000000000LL+i*50000000LL;
+    estimate.world_from_body.translation={0.1*i,std::sin(i*0.2),0.03*i*i};
+    estimate.world_from_body.rotation=Quaternion::fromRotationVector({0.01*i,-0.005*i,0.008*i});
+    estimated_trajectory.push_back(estimate);
+    TrajectorySample truth;truth.timestamp_ns=estimate.timestamp_ns+1000000LL;
+    truth.world_from_body.translation=trajectory_alignment.rotate(
+        estimate.world_from_body.translation)*2.0+trajectory_offset;
+    truth.world_from_body.rotation=(trajectory_alignment*estimate.world_from_body.rotation).normalized();
+    ground_truth_trajectory.push_back(truth);
+  }
+  const auto sim3_metrics=evaluateTrajectory(estimated_trajectory,ground_truth_trajectory,
+      {TrajectoryAlignment::kSim3,2000000LL,2});
+  CHECK(sim3_metrics.valid);
+  CHECK(sim3_metrics.associated_samples==20);
+  CHECK(std::abs(sim3_metrics.alignment_scale-2.0)<1e-8);
+  CHECK(sim3_metrics.ate_rmse_m<1e-8);
+  CHECK(sim3_metrics.rpe_translation_rmse_m<1e-8);
+  CHECK(sim3_metrics.rpe_rotation_rmse_degrees<1e-6);
+  const auto se3_metrics=evaluateTrajectory(estimated_trajectory,ground_truth_trajectory,
+      {TrajectoryAlignment::kSe3,2000000LL,1});
+  CHECK(se3_metrics.valid);
+  CHECK(se3_metrics.ate_rmse_m>0.5);
 
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));

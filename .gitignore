@@ -10,3 +10,6 @@ out/
 *.so
 *.a
 *.o
+
+__pycache__/
+*.py[cod]

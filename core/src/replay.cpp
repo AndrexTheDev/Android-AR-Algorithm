@@ -162,7 +162,12 @@ ReplayMetrics ReplayRunner::run(const ReplayDataset& dataset) {
     metrics.planar_frames+=visual.geometry.geometry==SceneGeometry::kPlanarOrRotationDominant;
     if(visual.relative_pose.valid){const auto fused=vio.fuseVisual(event.timestamp_ns,visual.relative_pose);
       metrics.visual_fusions+=fused.rotation_applied||fused.position_applied;}
-    if(vio.initialized()){previous_world_from_body_=vio.state().world_from_body.rotation;has_previous_camera_pose_=true;}
+    if(vio.initialized()){
+      previous_world_from_body_=vio.state().world_from_body.rotation;has_previous_camera_pose_=true;
+      const auto& state=vio.state();
+      if(metrics.trajectory.empty()||state.timestamp_ns>metrics.trajectory.back().timestamp_ns)
+        metrics.trajectory.push_back({state.timestamp_ns,state.world_from_body});
+    }
     hashInteger(metrics.deterministic_hash,static_cast<std::uint32_t>(visual.state));
     hashInteger(metrics.deterministic_hash,static_cast<std::uint32_t>(visual.geometry.geometry));
     hashInteger(metrics.deterministic_hash,visual.accepted_track_count);

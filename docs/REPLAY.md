@@ -29,7 +29,7 @@ Constraints:
 python3 tools/replay/generate_synthetic.py /tmp/ark-replay
 c++ -std=c++17 -O2 -Icore/include core/src/*.cpp tools/replay/main.cpp \
   -pthread -o /tmp/arkernel_replay
-/tmp/arkernel_replay /tmp/ark-replay/manifest.arkr
+/tmp/arkernel_replay /tmp/ark-replay/manifest.arkr --trajectory /tmp/estimated.arktraj
 ```
 
 The JSON result reports frame states, geometry selection, visual fusions, peak feature count, final VIO status and a deterministic FNV-1a hash over quantized algorithm outputs. CI executes the same replay twice and requires byte-identical JSON. The hash is a regression signal, not a cryptographic integrity check and not an accuracy metric.

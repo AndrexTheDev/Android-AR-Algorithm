@@ -48,6 +48,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
 - gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation und visueller Rückkopplung;
 - versionierter Offline-Replay-Runner mit deterministischen Metriken und CI-Regressionshash;
+- EuRoC-Konverter und Trajektorienauswertung mit SE(3)/Sim(3), ATE und lokaler RPE;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;
@@ -71,7 +72,7 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 /tmp/arkernel_tests
 ```
 
-Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) und [`docs/ROADMAP.md`](docs/ROADMAP.md) und [`docs/REPLAY.md`](docs/REPLAY.md).
+Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) und [`docs/ROADMAP.md`](docs/ROADMAP.md) und [`docs/REPLAY.md`](docs/REPLAY.md) und [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ## Lizenz
 

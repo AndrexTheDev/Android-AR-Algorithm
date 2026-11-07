@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "arkernel/camera_model.h"
+#include "arkernel/trajectory_metrics.h"
 #include "arkernel/visual_frontend.h"
 #include "arkernel/vio_estimator.h"
 
@@ -43,6 +44,7 @@ struct ReplayMetrics {
   std::size_t peak_active_features{0};
   VioStatus final_vio_status{VioStatus::kUninitialized};
   Pose final_world_from_body{};
+  std::vector<TrajectorySample> trajectory;
   std::uint64_t deterministic_hash{1469598103934665603ULL};
 };
 

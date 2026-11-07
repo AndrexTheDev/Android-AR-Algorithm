@@ -80,3 +80,8 @@ Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine ex
 ## Replay als ausführbare Spezifikation
 
 `ReplayDataset` validiert ein versioniertes, monotones Manifest und exakte kalibrierte P5-Graustufenframes. `ReplayRunner` verwendet dieselben Frontend- und VIO-Klassen sowie dieselbe Regel „IMU bis einschließlich Capture-Zeit vor Frame“. Ergebniszähler und quantisierte Zustände fließen in einen deterministischen FNV-1a-Regressionshash. Replay-Code wird als separates Support-Target gebaut und vergrößert deshalb die Android-Core-Bibliothek nicht.
+
+
+## Trajektorienmetriken
+
+Der Evaluator assoziiert Zeitstempel unter einer harten Toleranz, richtet geschätzte Positionen per Horn-Verfahren optional in SE(3) oder Sim(3) aus und berechnet ATE sowie lokale SE(3)-RPE. Sim(3) ist nur Diagnose für monokulare Skalenambiguität; der primäre VIO-Benchmark bleibt SE(3). EuRoC-Ground-Truth und das versionierte ARK-Trajektorienformat werden ohne Laufzeitabhängigkeiten gelesen.

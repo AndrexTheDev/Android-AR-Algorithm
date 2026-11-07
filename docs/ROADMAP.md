@@ -28,7 +28,8 @@
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - Vision-Frontend inklusive Feature-Lebenszyklus ist nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
 - Sparse Sliding-Window-Gauss-Newton, Bias-Jakobians und Schur-Marginalisierung; ein begrenzter robuster Fixed-Lag-Bootstrap ist implementiert;
-- [x] versioniertes synthetisches Kamera-/IMU-Replay; EuroC/TUM-VI/KITTI-Import und ATE/RPE bleiben offen;
+- [x] versioniertes synthetisches Kamera-/IMU-Replay, EuRoC-Konverter sowie SE(3)/Sim(3)-ATE/RPE;
+- [ ] reale EuRoC/TUM-VI/KITTI-Baselines, automatische Ergebnisbudgets und Regressionstrends;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.
 
 **Exit:** 30 FPS Midrange, keine unbounded allocations, reproduzierbare Trajektorien und dokumentierte Genauigkeit.

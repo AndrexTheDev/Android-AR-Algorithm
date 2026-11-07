@@ -31,4 +31,10 @@ jobs:
           /tmp/arkernel-build/arkernel_replay /tmp/arkernel-replay/manifest.arkr > /tmp/result-2.json
           diff -u /tmp/result-1.json /tmp/result-2.json
           grep -q '"tracking_frames": 11' /tmp/result-1.json
+          /tmp/arkernel-build/arkernel_replay /tmp/arkernel-replay/manifest.arkr \
+            --trajectory /tmp/estimated.arktraj > /tmp/result-3.json
+          test -s /tmp/estimated.arktraj
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -Icore/include \
+            core/src/*.cpp tools/evaluation/main.cpp -pthread \
+            -o /tmp/arkernel-build/arkernel_trajectory_eval
           cat /tmp/result-1.json

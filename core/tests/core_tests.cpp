@@ -7,6 +7,7 @@
 #include "arkernel/core_engine.h"
 #include "arkernel/feature_detector.h"
 #include "arkernel/epipolar_ransac.h"
+#include "arkernel/essential_pose.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/motion_prediction.h"
@@ -98,6 +99,30 @@ int main() {
   }
   CHECK(true_inliers >= 58);
   CHECK(rejected_outliers >= 18);
+  EssentialPoseSolver pose_solver({30,0.7,0.1});
+  const auto relative_pose = pose_solver.solve(
+      verified.matrix,epipolar_matches,verified.inliers);
+  CHECK(relative_pose.valid);
+  CHECK(relative_pose.positive_depth_count >= 55);
+  const Vec3 expected_ray = Quaternion::fromRotationVector({0.01,-0.025,0.008})
+                                .rotate({0.2,-0.1,1.0});
+  const Vec3 recovered_ray = relative_pose.rotation_current_from_previous
+                                 .rotate({0.2,-0.1,1.0});
+  CHECK((expected_ray-recovered_ray).norm() < 0.03);
+  const Vec3 expected_translation = Vec3{0.12,-0.015,0.025} *
+      (1.0/Vec3{0.12,-0.015,0.025}.norm());
+  CHECK(relative_pose.translation_direction_current.x*expected_translation.x +
+        relative_pose.translation_direction_current.y*expected_translation.y +
+        relative_pose.translation_direction_current.z*expected_translation.z > 0.9);
+  // Two-view translation cannot be trusted when parallax is effectively zero.
+  std::vector<NormalizedCorrespondence> tiny_parallax;
+  for (int i=0; i<30; ++i) {
+    const Vec3 point3d{-1.0+0.08*i,-0.5+0.09*(i%9),3.0+0.07*(i%7)};
+    tiny_parallax.push_back({{point3d.x/point3d.z,point3d.y/point3d.z},
+                             {(point3d.x+1e-6)/point3d.z,point3d.y/point3d.z}});
+  }
+  const std::array<double,9> x_translation_essential{0,0,0,0,0,-1,0,1,0};
+  CHECK(!pose_solver.solve(x_translation_essential,tiny_parallax).valid);
   std::vector<NormalizedCorrespondence> collinear(20);
   for (int i=0; i<20; ++i) {
     const double x=-0.4+i*0.04;

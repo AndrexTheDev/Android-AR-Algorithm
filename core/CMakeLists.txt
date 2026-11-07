@@ -4,6 +4,7 @@ add_library(arkernel STATIC
     src/core_engine.cpp
     src/feature_detector.cpp
     src/epipolar_ransac.cpp
+    src/essential_pose.cpp
     src/imu_preintegrator.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp

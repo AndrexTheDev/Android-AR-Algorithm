@@ -14,12 +14,13 @@
 - [x] pyramidenbasiertes Sparse Optical Flow mit Forward/Backward-Gate
 - [x] IMU-gestützte Rotationsvorhersage für Optical-Flow-Initialwerte
 - [x] kalibrierter Epipolar-RANSAC und Sampson-Inlier-Gate
+- [x] Essential-Rangprojektion, Vier-Pose-Zerlegung, Cheirality und Parallaxen-Gate
 
 ## Phase 1 – messbares VIO-MVP
 
 - Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
-- Vision-Frontend: FAST/Grid, pyramidenbasiertes KLT und Epipolar-RANSAC sind nativ implementiert; ORB-Deskriptor, Essential-Rangprojektion und Homographie-Modellwahl folgen;
+- Vision-Frontend: FAST/Grid, KLT, Epipolar-RANSAC und Essential-Pose sind nativ implementiert; ORB-Deskriptor und Homographie-/Epipolar-Modellwahl folgen;
 - Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
 - EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.

@@ -50,7 +50,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - versionierte, größenbegrenzte und CRC-geprüfte Spatial Snapshots mit Android-Keystore-AES-GCM- und AtomicFile-Speicher;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
-- gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation, vollständiger Kamera-IMU-Hebelarmextrinsik und visueller Rückkopplung;
+- gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation, vollständiger Kamera-IMU-Hebelarmextrinsik, visueller Rückkopplung und hysteretischem Mapping-Sicherheitsgate;
 - versionierter Offline-Replay-Runner mit deterministischen Metriken und CI-Regressionshash;
 - EuRoC-Konverter inklusive `T_BS`-Kamera/IMU-Extrinsik, Baseline-Runner und Trajektorienauswertung mit SE(3)/Sim(3), ATE und lokaler RPE;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;

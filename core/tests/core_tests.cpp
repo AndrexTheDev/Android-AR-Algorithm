@@ -267,6 +267,15 @@ int main() {
   CHECK(c_visual_result.state==ARK_FRONTEND_TRACKING);
   CHECK(c_visual_result.geometry==ARK_GEOMETRY_PLANAR_OR_ROTATION);
   CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OUT_OF_ORDER);
+  ark_mapping_gate_v1 c_mapping_gate{};c_mapping_gate.struct_size=sizeof(c_mapping_gate);
+  CHECK(ark_visual_update_mapping_gate(visual_c_handle,0,0,1,30,0,
+                                        &c_mapping_gate)==ARK_RESULT_OK);
+  CHECK(c_mapping_gate.state==ARK_MAPPING_PAUSED &&
+        c_mapping_gate.reason==ARK_MAPPING_REASON_POSE_UNINITIALIZED);
+  for(int i=0;i<3;++i)
+    CHECK(ark_visual_update_mapping_gate(visual_c_handle,1,0,1,30,0,
+                                          &c_mapping_gate)==ARK_RESULT_OK);
+  CHECK(c_mapping_gate.state==ARK_MAPPING_ACTIVE && c_mapping_gate.integrate);
   ark_world_pose_v1 c_world_pose{};c_world_pose.struct_size=sizeof(c_world_pose);
   c_world_pose.timestamp_ns=c_frame.timestamp_ns;c_world_pose.rotation_w=1;
   ark_map_update_v1 c_map_update{};c_map_update.struct_size=sizeof(c_map_update);
@@ -674,6 +683,25 @@ int main() {
   CHECK(gate.update(40, 1.0) == TrackingState::kTracking);
   for (int i=0; i<5; ++i) gate.update(1, 20.0);
   CHECK(gate.state() == TrackingState::kLost);
+
+  MappingQualityGate mapping_gate;
+  auto mapping_decision=mapping_gate.update(false,false,true,40,false);
+  CHECK(!mapping_decision.integrate &&
+        mapping_decision.reason==MappingPauseReason::kPoseUninitialized);
+  mapping_decision=mapping_gate.update(true,false,true,40,false);
+  CHECK(mapping_decision.state==MappingGateState::kRecovering && !mapping_decision.integrate);
+  mapping_gate.update(true,false,true,40,false);
+  mapping_decision=mapping_gate.update(true,false,true,40,false);
+  CHECK(mapping_decision.state==MappingGateState::kActive && mapping_decision.integrate);
+  mapping_decision=mapping_gate.update(true,true,true,40,false);
+  CHECK(mapping_decision.state==MappingGateState::kPaused &&
+        mapping_decision.reason==MappingPauseReason::kPoseLimited);
+  mapping_gate.update(true,false,true,40,false);mapping_gate.update(true,false,true,40,false);
+  mapping_decision=mapping_gate.update(true,false,true,40,false);
+  CHECK(mapping_decision.integrate);
+  mapping_decision=mapping_gate.update(true,false,true,40,true);
+  CHECK(!mapping_decision.integrate &&
+        mapping_decision.reason==MappingPauseReason::kImuOverflow);
 
   auto fake = std::make_unique<FakeTracker>();
   FakeTracker* raw = fake.get();

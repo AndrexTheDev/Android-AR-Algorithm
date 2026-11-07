@@ -49,6 +49,22 @@ typedef enum ark_plane_semantic {
   ARK_PLANE_SLOPED = 4
 } ark_plane_semantic;
 
+typedef enum ark_mapping_gate_state {
+  ARK_MAPPING_PAUSED = 0,
+  ARK_MAPPING_RECOVERING = 1,
+  ARK_MAPPING_ACTIVE = 2
+} ark_mapping_gate_state;
+
+typedef enum ark_mapping_pause_reason {
+  ARK_MAPPING_REASON_NONE = 0,
+  ARK_MAPPING_REASON_POSE_UNINITIALIZED = 1,
+  ARK_MAPPING_REASON_POSE_LIMITED = 2,
+  ARK_MAPPING_REASON_VISUAL_NOT_TRACKING = 3,
+  ARK_MAPPING_REASON_TOO_FEW_TRACKS = 4,
+  ARK_MAPPING_REASON_IMU_OVERFLOW = 5,
+  ARK_MAPPING_REASON_RECOVERING = 6
+} ark_mapping_pause_reason;
+
 typedef struct ark_vio_config_v1 {
   uint32_t struct_size;
   uint32_t api_version;
@@ -196,6 +212,13 @@ typedef struct ark_plane_v1 {
   size_t inlier_count;
 } ark_plane_v1;
 
+typedef struct ark_mapping_gate_v1 {
+  uint32_t struct_size;
+  uint32_t state;
+  uint32_t reason;
+  uint32_t integrate;
+} ark_mapping_gate_v1;
+
 typedef struct ark_room_layout_v1 {
   uint32_t struct_size;
   uint32_t has_floor;
@@ -273,6 +296,13 @@ ark_result ark_visual_process_gray(ark_visual_handle* handle,
                                    const ark_gray_frame_v1* frame,
                                    ark_visual_result_v1* out_result);
 size_t ark_visual_copy_last_error(ark_visual_handle* handle, char* buffer, size_t buffer_size);
+ark_result ark_visual_update_mapping_gate(ark_visual_handle* handle,
+                                          uint32_t pose_initialized,
+                                          uint32_t pose_limited,
+                                          uint32_t visual_tracking,
+                                          size_t accepted_tracks,
+                                          uint32_t imu_queue_overflow,
+                                          ark_mapping_gate_v1* out_gate);
 ark_result ark_visual_integrate_map(ark_visual_handle* handle,
                                     const ark_world_pose_v1* world_from_camera,
                                     ark_map_update_v1* out_update);

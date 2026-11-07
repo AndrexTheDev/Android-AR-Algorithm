@@ -269,3 +269,21 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetRoomLayout(JNIEnv* env,jo
   env->SetLongArrayRegion(metadata,0,6,meta);env->SetDoubleArrayRegion(values,0,6,data);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeUpdateMappingGate(JNIEnv* env,jobject,jlong handle,
+    jboolean pose_initialized,jboolean pose_limited,jboolean visual_tracking,jlong accepted_tracks,
+    jboolean imu_overflow,jlongArray output) {
+  if(accepted_tracks<0||static_cast<uint64_t>(accepted_tracks)>
+       std::numeric_limits<size_t>::max()||!output||env->GetArrayLength(output)<3)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_mapping_gate_v1 gate{};gate.struct_size=sizeof(gate);
+  const auto status=ark_visual_update_mapping_gate(fromVisualHandle(handle),pose_initialized?1u:0u,
+    pose_limited?1u:0u,visual_tracking?1u:0u,static_cast<size_t>(accepted_tracks),
+    imu_overflow?1u:0u,&gate);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong values[3]={static_cast<jlong>(gate.state),static_cast<jlong>(gate.reason),
+                         static_cast<jlong>(gate.integrate)};
+  env->SetLongArrayRegion(output,0,3,values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

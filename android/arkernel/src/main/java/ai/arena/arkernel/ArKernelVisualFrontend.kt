@@ -11,6 +11,16 @@ data class CameraCalibration(
 enum class FrontendState { INITIALIZING, TRACKING, LIMITED, REINITIALIZED }
 enum class SceneGeometry { INVALID, GENERAL_3D, PLANAR_OR_ROTATION }
 enum class PlaneSemantic { UNKNOWN, FLOOR, CEILING, WALL, SLOPED }
+enum class MappingGateState { PAUSED, RECOVERING, ACTIVE }
+enum class MappingPauseReason {
+    NONE, POSE_UNINITIALIZED, POSE_LIMITED, VISUAL_NOT_TRACKING,
+    TOO_FEW_TRACKS, IMU_OVERFLOW, RECOVERING
+}
+data class MappingGateDecision(
+    val state: MappingGateState,
+    val reason: MappingPauseReason,
+    val integrate: Boolean,
+)
 data class PlaneEstimateSnapshot(
     val normalWorld: Vector3,
     val distanceFromOriginMeters: Double,
@@ -93,6 +103,24 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         return VisualFrontendSnapshot(metadata[0], FrontendState.entries[metadata[1].toInt()],
             SceneGeometry.entries[metadata[2].toInt()], metadata[3], metadata[4],
             metadata[5] != 0L, pose, metadata[7], values[7])
+    }
+
+    @Synchronized
+    fun updateMappingGate(
+        poseInitialized: Boolean,
+        poseLimited: Boolean,
+        visualTracking: Boolean,
+        acceptedTracks: Long,
+        imuQueueOverflow: Boolean,
+    ): MappingGateDecision {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(acceptedTracks >= 0) { "Accepted track count must not be negative" }
+        val output = LongArray(3)
+        val result = nativeUpdateMappingGate(nativeHandle, poseInitialized, poseLimited,
+            visualTracking, acceptedTracks, imuQueueOverflow, output)
+        check(result == RESULT_OK) { "Native mapping gate error: $result" }
+        return MappingGateDecision(MappingGateState.entries[output[0].toInt()],
+            MappingPauseReason.entries[output[1].toInt()], output[2] != 0L)
     }
 
     @Synchronized
@@ -224,6 +252,9 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         offset: Int, dataSize: Int, width: Int, height: Int, rowStride: Int, timestampNs: Long,
         hasRotation: Boolean, rw: Double, rx: Double, ry: Double, rz: Double,
         metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeUpdateMappingGate(handle: Long,
+        poseInitialized: Boolean, poseLimited: Boolean, visualTracking: Boolean,
+        acceptedTracks: Long, imuQueueOverflow: Boolean, output: LongArray): Int
     private external fun nativeIntegrateMap(handle: Long, timestampNs: Long,
         rw: Double, rx: Double, ry: Double, rz: Double,
         px: Double, py: Double, pz: Double, metadata: LongArray, values: DoubleArray): Int

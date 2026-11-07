@@ -12,6 +12,7 @@
 #include <string>
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
+#include "arkernel/tracking_quality.h"
 #include "arkernel/vio_estimator.h"
 #include "arkernel/visual_frontend.h"
 
@@ -33,6 +34,7 @@ struct ark_visual_handle {
   arkernel::SparsePlaneTracker plane_tracker;
   arkernel::PlaneEstimate plane;
   arkernel::RoomLayoutEstimate room_layout;
+  arkernel::MappingQualityGate mapping_gate;
   arkernel::AnchorStore anchors;
   std::optional<arkernel::VisualFrontendResult> last_result;
   std::mutex mutex;
@@ -147,7 +149,8 @@ void ark_visual_destroy(ark_visual_handle* handle){delete handle;}
 ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
-  handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();handle->anchors.reset();
+  handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();
+  handle->mapping_gate.reset();handle->anchors.reset();
   handle->plane={};handle->room_layout={};handle->last_result.reset();handle->last_frame_ns=0;
   handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
 }
@@ -202,6 +205,19 @@ ark_result ark_visual_process_gray(ark_visual_handle* handle,const ark_gray_fram
 size_t ark_visual_copy_last_error(ark_visual_handle* handle,char* buffer,size_t buffer_size){
   if(!handle)return copyError(handle,buffer,buffer_size);
   std::lock_guard<std::mutex> lock(handle->mutex);return copyError(handle,buffer,buffer_size);
+}
+
+ark_result ark_visual_update_mapping_gate(ark_visual_handle* handle,uint32_t pose_initialized,
+    uint32_t pose_limited,uint32_t visual_tracking,size_t accepted_tracks,
+    uint32_t imu_queue_overflow,ark_mapping_gate_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  const auto decision=handle->mapping_gate.update(pose_initialized!=0,pose_limited!=0,
+    visual_tracking!=0,accepted_tracks,imu_queue_overflow!=0);
+  const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+  out->state=static_cast<uint32_t>(decision.state);
+  out->reason=static_cast<uint32_t>(decision.reason);out->integrate=decision.integrate?1u:0u;
+  handle->error.clear();return ARK_RESULT_OK;
 }
 
 ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_pose_v1* pose,

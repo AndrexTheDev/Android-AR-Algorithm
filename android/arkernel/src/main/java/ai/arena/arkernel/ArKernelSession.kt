@@ -8,6 +8,7 @@ import kotlin.math.sqrt
 data class ArKernelSessionResult(
     val visual: VisualFrontendSnapshot,
     val vio: VioSnapshot?,
+    val mappingGate: MappingGateDecision,
     val spatialMap: SpatialMapUpdate?,
     val visualFusionApplied: Boolean,
     val queuedImuSamples: Int,
@@ -40,6 +41,7 @@ class ArKernelSession(
     private val vio = ArKernelVio(bodyFromCameraRotation, bodyFromCameraTranslationMeters)
     private val visual = ArKernelVisualFrontend(calibration)
     private var droppedSamples = 0L
+    private var gateObservedDroppedSamples = 0L
     private var previousBodyWorldRotation: Rotation? = null
     private var pendingBodyWorldRotation: Pair<Long, Rotation>? = null
     @Volatile private var running = false
@@ -59,7 +61,7 @@ class ArKernelSession(
         check(!closed) { "AR kernel session is closed" }
         if (running) return
         synchronized(lock) {
-            queue.clear(); droppedSamples = 0
+            queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
             previousBodyWorldRotation = null; pendingBodyWorldRotation = null
         }
         running = true
@@ -117,6 +119,7 @@ class ArKernelSession(
 
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
+        val stateBeforeFusion = vio.snapshot()
         val fusionApplied = result.relativePose?.let(vio::fuseVisual) ?: false
         val snapshot = vio.snapshot()
         val queueStatus = synchronized(lock) {
@@ -124,9 +127,19 @@ class ArKernelSession(
             if (pending?.first == result.timestampNs)
                 previousBodyWorldRotation = snapshot?.rotation ?: pending.second
             pendingBodyWorldRotation = null
-            queue.size to droppedSamples
+            val overflow = droppedSamples > gateObservedDroppedSamples
+            gateObservedDroppedSamples = droppedSamples
+            Triple(queue.size, droppedSamples, overflow)
         }
-        val spatialMap = snapshot?.let { state ->
+        val mappingGate = visual.updateMappingGate(
+            poseInitialized = snapshot != null,
+            poseLimited = stateBeforeFusion?.status == VioStatus.LIMITED ||
+                snapshot?.status == VioStatus.LIMITED,
+            visualTracking = result.state == FrontendState.TRACKING,
+            acceptedTracks = result.acceptedTrackCount,
+            imuQueueOverflow = queueStatus.third,
+        )
+        val spatialMap = if (mappingGate.integrate) snapshot?.let { state ->
             val cameraOffsetWorld = rotate(state.rotation, bodyFromCameraTranslationMeters)
             val worldFromCamera = WorldPose(result.timestampNs,
                 multiply(state.rotation, bodyFromCameraRotation),
@@ -134,9 +147,10 @@ class ArKernelSession(
                     state.positionMeters.y + cameraOffsetWorld.y,
                     state.positionMeters.z + cameraOffsetWorld.z))
             visual.integrateMap(worldFromCamera)
-        }
+        } else null
         onResult(ArKernelSessionResult(
-            result, snapshot, spatialMap, fusionApplied, queueStatus.first, queueStatus.second))
+            result, snapshot, mappingGate, spatialMap, fusionApplied,
+            queueStatus.first, queueStatus.second))
     }
 
     fun planes(): List<PlaneEstimateSnapshot> {

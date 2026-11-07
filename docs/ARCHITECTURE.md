@@ -33,6 +33,8 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `motion_prediction.h`: IMU-Rotation in erwartete Featurepositionen umrechnen;
 - `epipolar_ransac.h`: robuste statische Szenenkonsistenz in normalisierten Kamerakoordinaten;
 - `essential_pose.h`: rangbeschränkte Essential-Matrix, relative Rotation und maßstabslose Translationsrichtung;
+- `homography_ransac.h`: planare Projektivgeometrie mit symmetrischem Transferfehler;
+- `geometry_model_selector.h`: konservatives Gate gegen falsche 3D-Initialisierung;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;

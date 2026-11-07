@@ -8,6 +8,8 @@
 #include "arkernel/feature_detector.h"
 #include "arkernel/epipolar_ransac.h"
 #include "arkernel/essential_pose.h"
+#include "arkernel/geometry_model_selector.h"
+#include "arkernel/homography_ransac.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/motion_prediction.h"
@@ -129,6 +131,31 @@ int main() {
     collinear[i]={{x,2.0*x+0.1},{x+0.02,2.0*(x+0.02)+0.1}};
   }
   CHECK(!epipolar.verify(collinear).valid);
+
+  // Planar scenes are explained by one homography and must not initialize a
+  // falsely confident general-3D translation.
+  const std::array<double,9> known_h{1.01,0.03,0.04,-0.02,0.98,-0.025,0.04,-0.03,1.0};
+  std::vector<NormalizedCorrespondence> planar_matches;
+  for (int i=0; i<65; ++i) {
+    const Vec2 source{-0.5+0.09*(i%12),-0.35+0.08*((i*5)%10)};
+    const double denominator=known_h[6]*source.x+known_h[7]*source.y+known_h[8];
+    Vec2 target{(known_h[0]*source.x+known_h[1]*source.y+known_h[2])/denominator,
+                (known_h[3]*source.x+known_h[4]*source.y+known_h[5])/denominator};
+    if (i>=50) target={0.4-0.051*(i-50),-0.3+0.039*((i*7)%13)};
+    planar_matches.push_back({source,target});
+  }
+  HomographyRansac homography({400,0.0001,35,9876});
+  const auto planar_h=homography.verify(planar_matches);
+  CHECK(planar_h.valid);
+  CHECK(planar_h.inlier_count>=49 && planar_h.inlier_count<=53);
+  const auto planar_e=epipolar.verify(planar_matches);
+  CHECK(planar_e.valid);
+  GeometryModelSelector model_selector({0.85,8});
+  CHECK(model_selector.select(planar_e,planar_h).geometry==
+        SceneGeometry::kPlanarOrRotationDominant);
+  const auto general_h=homography.verify(epipolar_matches);
+  CHECK(model_selector.select(verified,general_h).geometry==SceneGeometry::kGeneral3d);
+  CHECK(!homography.verify(collinear).valid);
 
   // Coarse-to-fine replay: a textured frame is translated by (3,2) pixels.
   constexpr int flow_width = 128, flow_height = 96;

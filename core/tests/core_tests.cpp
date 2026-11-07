@@ -15,6 +15,7 @@
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/visual_frontend.h"
+#include "arkernel/vio_estimator.h"
 
 using namespace arkernel;
 #define CHECK(x) do { if (!(x)) { std::cerr << "FAIL line " << __LINE__ << ": " #x "\n"; return 1; } } while (0)
@@ -228,6 +229,42 @@ int main() {
   const auto frontend_collapse=frontend.process(flat_view,2033000000LL);
   CHECK(frontend_collapse.state==FrontendState::kReinitialized);
   CHECK(frontend_collapse.accepted_track_count<frontend_config.min_tracked_features);
+
+  // VIO starts only from a stationary window, propagates metric inertial state,
+  // and accepts monocular scale only when inertial displacement agrees.
+  VioConfig vio_config;
+  vio_config.min_scale_displacement_m=0.001;
+  vio_config.visual_rotation_gain=0.5;
+  VioEstimator vio(vio_config);
+  constexpr double gravity=9.80665;
+  const TimestampNs vio_start=3000000000LL;
+  for (int i=0;i<80;++i)
+    vio.submitImu({vio_start+i*10000000LL,{0,0,gravity},{0,0,0}});
+  CHECK(vio.initialized());
+  CHECK(vio.state().status==VioStatus::kInertial);
+  CHECK(vio.state().gyroscope_bias_rps.norm()<1e-12);
+  RelativePoseEstimate visual_reference;
+  visual_reference.valid=true;
+  visual_reference.rotation_current_from_previous={};
+  visual_reference.translation_direction_current={-1,0,0};
+  CHECK(!vio.fuseVisual(vio.state().timestamp_ns,visual_reference).rotation_applied);
+  const TimestampNs initialized_at=vio.state().timestamp_ns;
+  for (int i=1;i<=10;++i)
+    CHECK(vio.submitImu({initialized_at+i*10000000LL,{1,0,gravity},{0,0,0}}));
+  RelativePoseEstimate visual_motion=visual_reference;
+  visual_motion.rotation_current_from_previous=Quaternion::fromRotationVector({0,0,-0.1});
+  const auto fused=vio.fuseVisual(vio.state().timestamp_ns,visual_motion);
+  CHECK(fused.rotation_applied);
+  CHECK(fused.scale_updated && fused.position_applied);
+  CHECK(std::abs(fused.observed_scale_m-0.005)<0.001);
+  CHECK(vio.state().visual_translation_scale_valid);
+  CHECK(vio.state().world_from_body.rotation.rotate({1,0,0}).y>0.03);
+
+  VioEstimator moving_initializer;
+  for (int i=0;i<100;++i)
+    moving_initializer.submitImu({vio_start+i*10000000LL,{0,0,gravity},
+                                  {0.2*(i&1?1.0:-1.0),0,0}});
+  CHECK(!moving_initializer.initialized());
 
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));

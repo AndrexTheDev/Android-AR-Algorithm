@@ -17,13 +17,15 @@
 - [x] Essential-Rangprojektion, Vier-Pose-Zerlegung, Cheirality und Parallaxen-Gate
 - [x] Homographie-RANSAC und Homographie-/Epipolar-Modellentscheidung
 - [x] zustandsbehaftetes Visual-Frontend, ID-Erhalt, Replenishment und Keyframe-Gate
+- [x] stationäre VIO-Initialisierung, Gravity/Bias-Seed und Strapdown-Propagation
+- [x] konservative visuelle Rotation sowie inertial beobachtbare Intervallskalierung
 
 ## Phase 1 – messbares VIO-MVP
 
 - Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - Vision-Frontend inklusive Feature-Lebenszyklus ist nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
-- Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
+- Sliding-window Optimizer und Marginalisierung; Gravity/Bias-Bootstrap und Zustandspropagation sind implementiert;
 - EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.
 

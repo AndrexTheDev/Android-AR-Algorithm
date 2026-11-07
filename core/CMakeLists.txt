@@ -12,6 +12,7 @@ add_library(arkernel STATIC
     src/motion_prediction.cpp
     src/tracking_quality.cpp
     src/visual_frontend.cpp
+    src/vio_estimator.cpp
 )
 target_compile_features(arkernel PUBLIC cxx_std_17)
 target_include_directories(arkernel PUBLIC include)

@@ -33,6 +33,23 @@ struct Quaternion {
             w*o.y - x*o.z + y*o.w + z*o.x,
             w*o.z + x*o.y - y*o.x + z*o.w};
   }
+  Quaternion conjugate() const { return {w, -x, -y, -z}; }
+  Quaternion inverse() const { return normalized().conjugate(); }
+  static Quaternion slerp(Quaternion a, Quaternion b, double t) {
+    a = a.normalized(); b = b.normalized();
+    double cosine = a.w*b.w + a.x*b.x + a.y*b.y + a.z*b.z;
+    if (cosine < 0.0) { b = {-b.w,-b.x,-b.y,-b.z}; cosine = -cosine; }
+    t = std::max(0.0, std::min(1.0, t));
+    if (cosine > 0.9995) {
+      return Quaternion{a.w+t*(b.w-a.w), a.x+t*(b.x-a.x),
+                        a.y+t*(b.y-a.y), a.z+t*(b.z-a.z)}.normalized();
+    }
+    const double angle = std::acos(std::max(-1.0, std::min(1.0, cosine)));
+    const double sine = std::sin(angle);
+    const double wa = std::sin((1.0-t)*angle)/sine;
+    const double wb = std::sin(t*angle)/sine;
+    return {wa*a.w+wb*b.w, wa*a.x+wb*b.x, wa*a.y+wb*b.y, wa*a.z+wb*b.z};
+  }
   Vec3 rotate(const Vec3& v) const {
     const Quaternion q = normalized();
     const Quaternion p{0.0, v.x, v.y, v.z};

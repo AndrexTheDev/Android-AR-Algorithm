@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace arkernel {
 namespace {
@@ -67,6 +68,27 @@ std::uint32_t randomNext(std::uint32_t& state){
   state^=state<<13;state^=state>>17;state^=state<<5;return state;
 }
 }  // namespace
+
+std::vector<RelocalizationCorrespondence> matchRelocalizationLandmarks(
+    const SpatialSnapshot& saved,const std::vector<SparseLandmark>& current,
+    const std::vector<BinaryFeatureDescriptor>& current_descriptors,
+    DescriptorMatcherConfig matcher_config){
+  std::unordered_map<std::uint32_t,Vec3> saved_positions,current_positions;
+  saved_positions.reserve(saved.landmarks.size());current_positions.reserve(current.size());
+  for(const auto& landmark:saved.landmarks)
+    saved_positions.emplace(landmark.feature_id,landmark.position_world_m);
+  for(const auto& landmark:current)
+    current_positions.emplace(landmark.feature_id,landmark.position_world_m);
+  const auto matches=matchDescriptors(saved.landmark_descriptors,current_descriptors,matcher_config);
+  std::vector<RelocalizationCorrespondence> output;output.reserve(matches.size());
+  for(const auto& match:matches){
+    const auto saved_point=saved_positions.find(match.query_feature_id);
+    const auto current_point=current_positions.find(match.train_feature_id);
+    if(saved_point!=saved_positions.end()&&current_point!=current_positions.end())
+      output.push_back({saved_point->second,current_point->second});
+  }
+  return output;
+}
 
 RelocalizationResult estimateRelocalization(
     const std::vector<RelocalizationCorrespondence>& correspondences,

@@ -13,6 +13,7 @@
 #include "arkernel/essential_pose.h"
 #include "arkernel/geometry_model_selector.h"
 #include "arkernel/homography_ransac.h"
+#include "arkernel/image_descriptor.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/relocalization.h"
@@ -78,6 +79,20 @@ int main() {
   bool left = false, right = false;
   for (const auto& f : features) { left |= f.x < 40; right |= f.x >= 40; }
   CHECK(left && right);
+
+  std::vector<std::uint8_t> descriptor_image(96*80);
+  for(int y=0;y<80;++y)for(int x=0;x<96;++x)
+    descriptor_image[y*96+x]=static_cast<std::uint8_t>((x*17+y*31+(x*y)%97)&255);
+  const GrayImageView descriptor_view{96,80,96,descriptor_image.data(),descriptor_image.size()};
+  const std::vector<ImageFeature> descriptor_features{{30,30,1,11},{65,45,1,22},{2,2,1,33}};
+  const auto descriptors=describeFeatures(descriptor_view,descriptor_features);
+  CHECK(descriptors.size()==2);
+  CHECK(descriptorHammingDistance(descriptors[0],descriptors[0])==0);
+  auto trained_descriptors=descriptors;trained_descriptors[0].feature_id=101;
+  trained_descriptors[1].feature_id=202;
+  const auto descriptor_matches=matchDescriptors(descriptors,trained_descriptors);
+  CHECK(descriptor_matches.size()==2);
+  CHECK(descriptor_matches[0].query_feature_id==11&&descriptor_matches[0].train_feature_id==101);
 
   // IMU rotation prediction supplies LK with physically meaningful initial guesses.
   const std::vector<ImageFeature> prediction_features{{320,240,10,1},{420,260,9,2}};
@@ -350,6 +365,8 @@ int main() {
   }
   ark_relocalization_result_v1 c_relocalization{};
   c_relocalization.struct_size=sizeof(c_relocalization);
+  CHECK(ark_visual_restore_snapshot_matched(visual_c_handle,c_snapshot.data(),c_snapshot.size(),
+      c_frame.timestamp_ns+3,&c_relocalization)==ARK_RESULT_NOT_READY);
   CHECK(ark_visual_restore_snapshot_relocalized(visual_c_handle,c_snapshot.data(),c_snapshot.size(),
       c_correspondences.data(),c_correspondences.size(),c_frame.timestamp_ns+3,
       &c_relocalization)==ARK_RESULT_OK);
@@ -552,13 +569,53 @@ int main() {
     {{static_cast<double>(i),0,0},{static_cast<double>(i)+1,0,0}});
   CHECK(!estimateRelocalization(degenerate_relocalization).valid);
 
-  SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot()};
+  SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot(),{}};
+  const std::array<std::size_t,8> descriptor_landmark_indices{{0,1,8,9,10,11,18,19}};
+  for(std::size_t i=0;i<descriptor_landmark_indices.size();++i){
+    BinaryFeatureDescriptor descriptor;
+    descriptor.feature_id=spatial_snapshot.landmarks[descriptor_landmark_indices[i]].feature_id;
+    for(std::size_t byte=0;byte<descriptor.bytes.size();++byte)
+      descriptor.bytes[byte]=static_cast<std::uint8_t>((i*37+byte*11)&255);
+    spatial_snapshot.landmark_descriptors.push_back(descriptor);
+  }
   const auto encoded_snapshot=SpatialSnapshotCodec::encode(spatial_snapshot);
   CHECK(encoded_snapshot==SpatialSnapshotCodec::encode(spatial_snapshot));
+  auto version_one_snapshot=SpatialSnapshotCodec::encode(
+      {spatial_snapshot.created_ns,spatial_snapshot.landmarks,spatial_snapshot.anchors,{}});
+  version_one_snapshot.erase(version_one_snapshot.begin()+28,version_one_snapshot.begin()+32);
+  version_one_snapshot[8]=1;version_one_snapshot[9]=version_one_snapshot[10]=version_one_snapshot[11]=0;
+  auto test_crc32=[](const std::uint8_t* data,std::size_t size){
+    std::uint32_t crc=0xffffffffu;for(std::size_t i=0;i<size;++i){crc^=data[i];
+      for(int bit=0;bit<8;++bit)crc=(crc>>1)^((crc&1u)?0xedb88320u:0u);}return ~crc;};
+  const auto version_one_crc=test_crc32(version_one_snapshot.data(),version_one_snapshot.size()-4);
+  for(std::size_t i=0;i<4;++i)version_one_snapshot[version_one_snapshot.size()-4+i]=
+    static_cast<std::uint8_t>(version_one_crc>>(8*i));
+  const auto decoded_version_one=SpatialSnapshotCodec::decode(version_one_snapshot);
+  CHECK(decoded_version_one.valid&&decoded_version_one.snapshot.landmark_descriptors.empty());
   const auto decoded_snapshot=SpatialSnapshotCodec::decode(encoded_snapshot);
   CHECK(decoded_snapshot.valid);
   CHECK(decoded_snapshot.snapshot.landmarks.size()==20);
   CHECK(decoded_snapshot.snapshot.anchors.size()==1);
+  CHECK(decoded_snapshot.snapshot.landmark_descriptors.size()==8);
+  std::vector<SparseLandmark> current_relocalization_landmarks;
+  std::vector<BinaryFeatureDescriptor> current_relocalization_descriptors;
+  for(std::size_t i=0;i<8;++i){
+    const auto saved_id=decoded_snapshot.snapshot.landmark_descriptors[i].feature_id;
+    const auto saved_landmark=std::find_if(decoded_snapshot.snapshot.landmarks.begin(),
+      decoded_snapshot.snapshot.landmarks.end(),[&](const auto& value){return value.feature_id==saved_id;});
+    CHECK(saved_landmark!=decoded_snapshot.snapshot.landmarks.end());
+    auto landmark=*saved_landmark;landmark.feature_id=1000+static_cast<std::uint32_t>(i);
+    landmark.position_world_m=expected_current_from_saved.rotation.rotate(landmark.position_world_m)+
+      expected_current_from_saved.translation;
+    current_relocalization_landmarks.push_back(landmark);
+    auto descriptor=decoded_snapshot.snapshot.landmark_descriptors[i];
+    descriptor.feature_id=landmark.feature_id;current_relocalization_descriptors.push_back(descriptor);
+  }
+  const auto automatic_correspondences=matchRelocalizationLandmarks(decoded_snapshot.snapshot,
+      current_relocalization_landmarks,current_relocalization_descriptors);
+  CHECK(automatic_correspondences.size()==8);
+  const auto automatic_relocalization=estimateRelocalization(automatic_correspondences);
+  CHECK(automatic_relocalization.valid);
   const auto transformed_snapshot=transformSpatialSnapshot(
       decoded_snapshot.snapshot,expected_current_from_saved);
   CHECK((transformed_snapshot.landmarks.front().position_world_m-

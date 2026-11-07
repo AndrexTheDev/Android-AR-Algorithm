@@ -232,7 +232,7 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRestoreRelocalizedSpatialSna
   if(!snapshot||!saved_points||!current_points||!output)return ARK_RESULT_INVALID_ARGUMENT;
   const jsize byte_count=env->GetArrayLength(snapshot);
   const jsize saved_count=env->GetArrayLength(saved_points);
-  if(byte_count<=0||saved_count<18||saved_count%3!=0||
+  if(byte_count<=0||saved_count<18||saved_count%3!=0||saved_count/3>4096||
      env->GetArrayLength(current_points)!=saved_count||env->GetArrayLength(output)<10)
     return ARK_RESULT_INVALID_ARGUMENT;
   std::vector<uint8_t> bytes(static_cast<size_t>(byte_count));
@@ -251,6 +251,27 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRestoreRelocalizedSpatialSna
   ark_relocalization_result_v1 result{};result.struct_size=sizeof(result);
   const auto status=ark_visual_restore_snapshot_relocalized(fromVisualHandle(handle),bytes.data(),
     bytes.size(),correspondences.data(),correspondences.size(),restore_now_ns,&result);
+  if(status!=ARK_RESULT_OK)return status;
+  const jdouble values[10]={static_cast<double>(result.correspondence_count),
+    static_cast<double>(result.inlier_count),result.rmse_m,result.rotation_w,result.rotation_x,
+    result.rotation_y,result.rotation_z,result.translation_x_m,result.translation_y_m,
+    result.translation_z_m};
+  env->SetDoubleArrayRegion(output,0,10,values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRestoreMatchedSpatialSnapshot(
+    JNIEnv* env,jobject,jlong handle,jbyteArray snapshot,jlong restore_now_ns,jdoubleArray output) {
+  if(!snapshot||!output||env->GetArrayLength(output)<10)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize byte_count=env->GetArrayLength(snapshot);
+  if(byte_count<=0)return ARK_RESULT_INVALID_ARGUMENT;
+  std::vector<uint8_t> bytes(static_cast<size_t>(byte_count));
+  env->GetByteArrayRegion(snapshot,0,byte_count,reinterpret_cast<jbyte*>(bytes.data()));
+  if(env->ExceptionCheck())return ARK_RESULT_INTERNAL_ERROR;
+  ark_relocalization_result_v1 result{};result.struct_size=sizeof(result);
+  const auto status=ark_visual_restore_snapshot_matched(fromVisualHandle(handle),bytes.data(),
+    bytes.size(),restore_now_ns,&result);
   if(status!=ARK_RESULT_OK)return status;
   const jdouble values[10]={static_cast<double>(result.correspondence_count),
     static_cast<double>(result.inlier_count),result.rmse_m,result.rotation_w,result.rotation_x,

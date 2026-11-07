@@ -132,6 +132,11 @@ VisualFrontendResult VisualFrontend::process(
   result.active_feature_count=active_features_.size();return result;
 }
 
+std::vector<BinaryFeatureDescriptor> VisualFrontend::activeDescriptors() const {
+  if(previous_pixels_.empty())return {};
+  return describeFeatures(storedImageView(),active_features_,config_.max_active_features);
+}
+
 void VisualFrontend::reset() {
   previous_pixels_.clear();active_features_.clear();previous_width_=previous_height_=0;
   previous_timestamp_=0;next_feature_id_=1;frames_since_keyframe_=0;

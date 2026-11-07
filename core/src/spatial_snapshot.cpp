@@ -11,7 +11,7 @@
 namespace arkernel {
 namespace {
 constexpr std::array<std::uint8_t,8> kMagic{'A','R','K','M','A','P','0','1'};
-constexpr std::uint32_t kVersion=1;
+constexpr std::uint32_t kVersion=2;
 
 template<typename T> void appendInteger(std::vector<std::uint8_t>& out,T value){
   using U=typename std::make_unsigned<T>::type;const U bits=static_cast<U>(value);
@@ -47,7 +47,8 @@ class Reader {
 };
 
 bool validLimits(const SpatialSnapshotLimits& limits){
-  return limits.max_bytes>=64&&limits.max_landmarks>0&&limits.max_anchors>0;
+  return limits.max_bytes>=64&&limits.max_landmarks>0&&limits.max_anchors>0&&
+         limits.max_descriptors>0;
 }
 }  // namespace
 
@@ -64,8 +65,11 @@ std::vector<std::uint8_t> SpatialSnapshotCodec::encode(
     const SpatialSnapshot& snapshot,SpatialSnapshotLimits limits){
   if(!validLimits(limits)||snapshot.created_ns<=0||snapshot.landmarks.size()>limits.max_landmarks||
      snapshot.anchors.size()>limits.max_anchors||
+     snapshot.landmark_descriptors.size()>limits.max_descriptors||
+     snapshot.landmark_descriptors.size()>snapshot.landmarks.size()||
      snapshot.landmarks.size()>std::numeric_limits<std::uint32_t>::max()||
-     snapshot.anchors.size()>std::numeric_limits<std::uint32_t>::max())
+     snapshot.anchors.size()>std::numeric_limits<std::uint32_t>::max()||
+     snapshot.landmark_descriptors.size()>std::numeric_limits<std::uint32_t>::max())
     throw std::invalid_argument("Invalid spatial snapshot");
   std::unordered_set<std::uint32_t> landmark_ids;
   std::unordered_set<AnchorId> anchor_ids;
@@ -74,6 +78,7 @@ std::vector<std::uint8_t> SpatialSnapshotCodec::encode(
   appendInteger(out,snapshot.created_ns);
   appendInteger(out,static_cast<std::uint32_t>(snapshot.landmarks.size()));
   appendInteger(out,static_cast<std::uint32_t>(snapshot.anchors.size()));
+  appendInteger(out,static_cast<std::uint32_t>(snapshot.landmark_descriptors.size()));
   for(const auto& landmark:snapshot.landmarks){
     if(!finite(landmark.position_world_m)||landmark.observation_count<2||
        !std::isfinite(landmark.mean_ray_residual_m)||landmark.mean_ray_residual_m<0||
@@ -97,6 +102,14 @@ std::vector<std::uint8_t> SpatialSnapshotCodec::encode(
     appendDouble(out,rotation.w);appendDouble(out,rotation.x);appendDouble(out,rotation.y);appendDouble(out,rotation.z);
     appendInteger(out,anchor.created_ns);
   }
+  std::unordered_set<std::uint32_t> descriptor_ids;
+  for(const auto& descriptor:snapshot.landmark_descriptors){
+    if(landmark_ids.count(descriptor.feature_id)==0||
+       !descriptor_ids.insert(descriptor.feature_id).second)
+      throw std::invalid_argument("Invalid persisted landmark descriptor");
+    appendInteger(out,descriptor.feature_id);
+    out.insert(out.end(),descriptor.bytes.begin(),descriptor.bytes.end());
+  }
   if(out.size()+sizeof(std::uint32_t)>limits.max_bytes)throw std::length_error("Spatial snapshot too large");
   appendInteger(out,crc32(out.data(),out.size()));return out;
 }
@@ -113,11 +126,14 @@ SpatialDecodeResult SpatialSnapshotCodec::decode(
   if(stored_crc!=crc32(bytes.data(),payload_size)){result.error="Snapshot CRC mismatch";return result;}
   Reader reader(bytes,payload_size);std::array<std::uint8_t,8> magic{};
   for(auto& value:magic)if(!reader.integer(value)){result.error="Truncated snapshot";return result;}
-  std::uint32_t version=0,landmark_count=0,anchor_count=0;
-  if(!reader.integer(version)||version!=kVersion||!reader.integer(result.snapshot.created_ns)||
-     !reader.integer(landmark_count)||!reader.integer(anchor_count)){
+  std::uint32_t version=0,landmark_count=0,anchor_count=0,descriptor_count=0;
+  if(!reader.integer(version)||(version!=1&&version!=kVersion)||
+     !reader.integer(result.snapshot.created_ns)||!reader.integer(landmark_count)||
+     !reader.integer(anchor_count)||(version>=2&&!reader.integer(descriptor_count))){
     result.error="Unsupported or truncated snapshot header";return result;}
-  if(result.snapshot.created_ns<=0||landmark_count>limits.max_landmarks||anchor_count>limits.max_anchors){
+  if(result.snapshot.created_ns<=0||landmark_count>limits.max_landmarks||
+     anchor_count>limits.max_anchors||descriptor_count>limits.max_descriptors||
+     descriptor_count>landmark_count){
     result.error="Snapshot count limit exceeded";return result;}
   result.snapshot.landmarks.reserve(landmark_count);
   std::unordered_set<std::uint32_t> landmark_ids;
@@ -143,6 +159,16 @@ SpatialDecodeResult SpatialSnapshotCodec::decode(
        !anchor_ids.insert(value.id).second){result.error="Invalid anchor value";return result;}
     value.world_from_anchor.rotation=value.world_from_anchor.rotation.normalized();
     result.snapshot.anchors.push_back(value);
+  }
+  result.snapshot.landmark_descriptors.reserve(descriptor_count);
+  std::unordered_set<std::uint32_t> descriptor_ids;
+  for(std::uint32_t i=0;i<descriptor_count;++i){BinaryFeatureDescriptor value;
+    if(!reader.integer(value.feature_id)||landmark_ids.count(value.feature_id)==0||
+       !descriptor_ids.insert(value.feature_id).second){
+      result.error="Invalid landmark descriptor record";return result;}
+    for(auto& byte:value.bytes)if(!reader.integer(byte)){
+      result.error="Truncated landmark descriptor";return result;}
+    result.snapshot.landmark_descriptors.push_back(value);
   }
   if(reader.position()!=payload_size){result.error="Unexpected trailing snapshot payload";return result;}
   result.valid=true;return result;

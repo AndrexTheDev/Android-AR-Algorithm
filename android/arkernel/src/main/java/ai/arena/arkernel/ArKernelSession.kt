@@ -258,6 +258,18 @@ class ArKernelSession(
             SystemClock.elapsedRealtimeNanos())
     }
 
+    /**
+     * Attempts descriptor matching against the running confirmed sparse map,
+     * then applies the same metric RANSAC gates as explicit relocalization.
+     */
+    fun restoreSpatialMapMatched(store: ArKernelMapStore): RelocalizationResult? {
+        check(!closed) { "AR kernel session is closed" }
+        check(running) { "Start and map the current scene before matched restore" }
+        if (!latestMappingGate.integrate) return null
+        val snapshot = store.load() ?: return null
+        return visual.restoreMatchedSpatialSnapshot(snapshot, SystemClock.elapsedRealtimeNanos())
+    }
+
     override fun close() {
         if (closed) return
         stop()

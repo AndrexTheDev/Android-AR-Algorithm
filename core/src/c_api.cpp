@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
@@ -447,8 +448,14 @@ ark_result ark_visual_export_snapshot(ark_visual_handle* handle,int64_t created_
   if(!handle||!out_size||created_ns<=0)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
   try{
-    const arkernel::SpatialSnapshot snapshot{created_ns,handle->map.snapshot(),
-                                             handle->anchors.snapshot()};
+    const auto landmarks=handle->map.snapshot();
+    std::unordered_set<std::uint32_t> landmark_ids;
+    for(const auto& landmark:landmarks)landmark_ids.insert(landmark.feature_id);
+    std::vector<arkernel::BinaryFeatureDescriptor> descriptors;
+    for(const auto& descriptor:handle->frontend.activeDescriptors())
+      if(landmark_ids.count(descriptor.feature_id))descriptors.push_back(descriptor);
+    const arkernel::SpatialSnapshot snapshot{created_ns,landmarks,
+                                             handle->anchors.snapshot(),descriptors};
     const auto encoded=arkernel::SpatialSnapshotCodec::encode(snapshot);
     *out_size=encoded.size();
     if(!buffer){handle->error.clear();return ARK_RESULT_OK;}
@@ -513,6 +520,38 @@ ark_result ark_visual_restore_snapshot_relocalized(ark_visual_handle* handle,
   catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
   catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
   catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown relocalized restore error");}
+}
+
+ark_result ark_visual_restore_snapshot_matched(ark_visual_handle* handle,
+    const uint8_t* buffer,size_t size,int64_t restore_now_ns,ark_relocalization_result_v1* out){
+  if(!handle||!buffer||size==0||restore_now_ns<=0||!validStruct(out))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  try{
+    const std::vector<std::uint8_t> bytes(buffer,buffer+size);
+    auto decoded=arkernel::SpatialSnapshotCodec::decode(bytes);
+    if(!decoded.valid)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,decoded.error.c_str());
+    const auto correspondences=arkernel::matchRelocalizationLandmarks(decoded.snapshot,
+      handle->map.snapshot(),handle->frontend.activeDescriptors());
+    const auto alignment=arkernel::estimateRelocalization(correspondences);
+    const uint32_t output_size=out->struct_size;*out={};out->struct_size=output_size;
+    out->correspondence_count=alignment.correspondence_count;out->inlier_count=alignment.inlier_count;
+    out->rmse_m=alignment.rmse_m;
+    if(!alignment.valid)return fail(handle,ARK_RESULT_NOT_READY,
+      "Descriptor matches did not pass relocalization geometry gates");
+    auto transformed=arkernel::transformSpatialSnapshot(decoded.snapshot,alignment.current_from_saved);
+    std::string error;
+    if(!installSnapshot(handle,std::move(transformed),restore_now_ns,error))
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,error.c_str());
+    const auto& pose=alignment.current_from_saved;
+    out->rotation_w=pose.rotation.w;out->rotation_x=pose.rotation.x;
+    out->rotation_y=pose.rotation.y;out->rotation_z=pose.rotation.z;
+    out->translation_x_m=pose.translation.x;out->translation_y_m=pose.translation.y;
+    out->translation_z_m=pose.translation.z;handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown matched restore error");}
 }
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out){

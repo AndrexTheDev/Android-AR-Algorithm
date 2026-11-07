@@ -386,6 +386,24 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
                 Vector3(output[7], output[8], output[9])))
     }
 
+    /** Matches persisted descriptors against confirmed landmarks in the current map. */
+    @Synchronized fun restoreMatchedSpatialSnapshot(
+        snapshot: ByteArray,
+        restoreNowNs: Long,
+    ): RelocalizationResult? {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(snapshot.isNotEmpty()) { "Spatial snapshot must not be empty" }
+        require(restoreNowNs > 0) { "Restore timestamp must be positive" }
+        val output = DoubleArray(10)
+        val status = nativeRestoreMatchedSpatialSnapshot(nativeHandle, snapshot, restoreNowNs, output)
+        if (status == RESULT_NOT_READY) return null
+        require(status != RESULT_INVALID_ARGUMENT) { "Invalid spatial snapshot" }
+        check(status == RESULT_OK) { "Native descriptor relocalization error: $status" }
+        return RelocalizationResult(output[0].toLong(), output[1].toLong(), output[2],
+            WorldPose(restoreNowNs, Rotation(output[3], output[4], output[5], output[6]),
+                Vector3(output[7], output[8], output[9])))
+    }
+
     @Synchronized fun reset() { check(nativeHandle != 0L); nativeReset(nativeHandle) }
     @Synchronized override fun close() {
         if (nativeHandle != 0L) { nativeDestroy(nativeHandle); nativeHandle = 0L }
@@ -440,6 +458,8 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeRestoreRelocalizedSpatialSnapshot(handle: Long,
         snapshot: ByteArray, savedPoints: DoubleArray, currentPoints: DoubleArray,
         restoreNowNs: Long, output: DoubleArray): Int
+    private external fun nativeRestoreMatchedSpatialSnapshot(handle: Long,
+        snapshot: ByteArray, restoreNowNs: Long, output: DoubleArray): Int
 
     private companion object {
         const val RESULT_OK = 0

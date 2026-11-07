@@ -433,6 +433,11 @@ ark_result ark_visual_restore_snapshot_relocalized(
     const ark_relocalization_correspondence_v1* correspondences,
     size_t correspondence_count, int64_t restore_now_ns,
     ark_relocalization_result_v1* out_result);
+// Matches persisted/current landmark descriptors, verifies the resulting
+// metric 3D-3D alignment, and atomically restores on success.
+ark_result ark_visual_restore_snapshot_matched(
+    ark_visual_handle* handle, const uint8_t* buffer, size_t size,
+    int64_t restore_now_ns, ark_relocalization_result_v1* out_result);
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out_config);
 ark_result ark_vio_create(const ark_vio_config_v1* config, ark_vio_handle** out_handle);

@@ -7,6 +7,7 @@ add_library(arkernel STATIC
     src/fixed_lag_smoother.cpp
     src/geometry_model_selector.cpp
     src/homography_ransac.cpp
+    src/image_descriptor.cpp
     src/epipolar_ransac.cpp
     src/essential_pose.cpp
     src/imu_preintegrator.cpp

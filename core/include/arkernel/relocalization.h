@@ -32,6 +32,12 @@ struct RelocalizationResult {
   bool valid{false};
 };
 
+std::vector<RelocalizationCorrespondence> matchRelocalizationLandmarks(
+    const SpatialSnapshot& saved_snapshot,
+    const std::vector<SparseLandmark>& current_landmarks,
+    const std::vector<BinaryFeatureDescriptor>& current_descriptors,
+    DescriptorMatcherConfig matcher_config = {});
+
 RelocalizationResult estimateRelocalization(
     const std::vector<RelocalizationCorrespondence>& correspondences,
     RelocalizationConfig config = {});

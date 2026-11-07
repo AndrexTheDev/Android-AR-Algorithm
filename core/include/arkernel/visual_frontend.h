@@ -7,6 +7,7 @@
 #include "arkernel/feature_detector.h"
 #include "arkernel/geometry_model_selector.h"
 #include "arkernel/homography_ransac.h"
+#include "arkernel/image_descriptor.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/optical_flow.h"
 
@@ -53,6 +54,7 @@ class VisualFrontend {
   void reset();
   bool reserveFeatureIdsAbove(std::uint32_t feature_id);
   const std::vector<ImageFeature>& activeFeatures() const { return active_features_; }
+  std::vector<BinaryFeatureDescriptor> activeDescriptors() const;
 
  private:
   VisualFrontendResult initialize(const GrayImageView& image, TimestampNs timestamp_ns,

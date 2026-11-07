@@ -1,0 +1,53 @@
+# Systematische Roadmap
+
+## Phase 0 – Fundament (jetzt)
+
+- [x] Lizenz- und Kandidatenanalyse
+- [x] portable C++17-Modulgrenzen
+- [x] IMU-Vorintegration, Qualitätsgate, Sensor-Orchestrator
+- [x] Unit-Tests ohne Drittanbieterabhängigkeiten
+- [ ] CI-Matrix Linux + Android NDK
+- [ ] stabile C-ABI und Kotlin/JNI-Wrapper
+
+## Phase 1 – messbares VIO-MVP
+
+- Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
+- Kalibrierdatei, Verzerrungsmodell und Timestamp-Offset-Schätzer;
+- OpenCV-Frontend: FAST/ORB + KLT + Grid-Auswahl + RANSAC;
+- Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
+- EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
+- Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.
+
+**Exit:** 30 FPS Midrange, keine unbounded allocations, reproduzierbare Trajektorien und dokumentierte Genauigkeit.
+
+## Phase 2 – Karten und Relokalisierung
+
+- Keyframe-/Landmark-Store mit Budget und Versionierung;
+- DBoW-/Embedding-basierte Kandidatensuche;
+- geometrische Loop-Verifikation, Pose Graph, Map merge;
+- Plane/Raycast/Anchor API; verschlüsselte lokale Persistenz.
+
+## Phase 3 – Tiefe, Mesh, Occlusion
+
+- sparse VIO depth → TSDF/surfel backend;
+- optional Depth Anything V2 Small quantisiert als Prior;
+- Skalen-/Confidence-Fusion, dynamische Masken, Mesh-LOD;
+- Filament-Occlusionadapter.
+
+## Phase 4 – Semantik
+
+- LiteRT/ONNX Runtime Backend SPI;
+- Detektion + Tracking + Segmentierung mit Geräteprofilen;
+- semantische 3D-Objekte und Unknown-Klasse;
+- Modellmanifest: Hash, Lizenz, Labels, Quantisierung, Benchmark.
+
+## Phase 5 – Outdoor und Produktreife
+
+- GNSS/Barometer-Faktoren und robuste Georeferenzierung;
+- OpenXR- und optionaler ARCore-/Geospatial-Adapter;
+- Privacy Threat Model, Fuzzing, SBOM, API-Stabilität;
+- 8+ reale Geräte, thermische 30-Minuten-Läufe, Tag/Nacht/Weather-Szenen.
+
+## Qualitätsgates je Pull Request
+
+Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regression → Android instrumented → Lizenz/SBOM. Ein schnellerer Build darf Genauigkeits-, Speicher- oder Temperaturbudgets nicht unbemerkt verschlechtern.

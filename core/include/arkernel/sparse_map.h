@@ -149,6 +149,30 @@ struct PlaneTrackerConfig {
   PlaneClassificationConfig classification{};
 };
 
+struct RoomLayoutEstimate {
+  PlaneId floor_plane_id{0};
+  PlaneId ceiling_plane_id{0};
+  double floor_elevation_m{0.0};
+  double ceiling_elevation_m{0.0};
+  double room_height_m{0.0};
+  double observed_floor_area_m2{0.0};
+  double observed_ceiling_area_m2{0.0};
+  double observed_wall_area_m2{0.0};
+  std::size_t wall_count{0};
+  bool has_floor{false};
+  bool has_ceiling{false};
+  bool height_valid{false};
+};
+
+struct RoomLayoutConfig {
+  double min_room_height_m{1.5};
+  double max_room_height_m{10.0};
+};
+
+RoomLayoutEstimate estimateRoomLayout(const std::vector<TrackedPlane>& planes,
+                                      const Vec3& world_up = {0,0,1},
+                                      RoomLayoutConfig config = {});
+
 class SparsePlaneTracker {
  public:
   SparsePlaneTracker(PlaneDetectorConfig detector_config = {},

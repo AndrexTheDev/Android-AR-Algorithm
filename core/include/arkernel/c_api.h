@@ -196,6 +196,22 @@ typedef struct ark_plane_v1 {
   size_t inlier_count;
 } ark_plane_v1;
 
+typedef struct ark_room_layout_v1 {
+  uint32_t struct_size;
+  uint32_t has_floor;
+  uint32_t has_ceiling;
+  uint32_t height_valid;
+  uint64_t floor_plane_id;
+  uint64_t ceiling_plane_id;
+  double floor_elevation_m;
+  double ceiling_elevation_m;
+  double room_height_m;
+  double observed_floor_area_m2;
+  double observed_ceiling_area_m2;
+  double observed_wall_area_m2;
+  size_t wall_count;
+} ark_room_layout_v1;
+
 typedef struct ark_plane_hit_v1 {
   uint32_t struct_size;
   double position_x_m;
@@ -265,6 +281,8 @@ ark_result ark_visual_get_plane(ark_visual_handle* handle, size_t index,
                                 ark_plane_v1* out_plane);
 ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle, size_t index,
                                          uint32_t* out_semantic);
+ark_result ark_visual_get_room_layout(ark_visual_handle* handle,
+                                      ark_room_layout_v1* out_layout);
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,
                                     double origin_x_m, double origin_y_m, double origin_z_m,
                                     double direction_x, double direction_y, double direction_z,

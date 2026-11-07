@@ -398,6 +398,47 @@ PlaneSemantic classifyPlane(const PlaneEstimate& plane,const Vec3& world_up,
   return absolute_alignment<=vertical_sine?PlaneSemantic::kWall:PlaneSemantic::kSloped;
 }
 
+RoomLayoutEstimate estimateRoomLayout(const std::vector<TrackedPlane>& planes,
+                                      const Vec3& world_up,RoomLayoutConfig config){
+  if(config.min_room_height_m<=0||config.max_room_height_m<=config.min_room_height_m)
+    throw std::invalid_argument("Invalid room layout configuration");
+  const Vec3 up=normalized(world_up);
+  if(up.norm()<0.9)throw std::invalid_argument("Invalid room up direction");
+  RoomLayoutEstimate result;const TrackedPlane* floor=nullptr;const TrackedPlane* ceiling=nullptr;
+  for(const auto& tracked:planes){
+    if(!tracked.estimate.valid)continue;
+    if(tracked.semantic==PlaneSemantic::kWall){
+      ++result.wall_count;result.observed_wall_area_m2+=tracked.estimate.observed_area_m2;continue;
+    }
+    if(tracked.semantic==PlaneSemantic::kFloor&&
+       (!floor||tracked.estimate.observed_area_m2>floor->estimate.observed_area_m2||
+        (tracked.estimate.observed_area_m2==floor->estimate.observed_area_m2&&tracked.id<floor->id)))
+      floor=&tracked;
+    if(tracked.semantic==PlaneSemantic::kCeiling&&
+       (!ceiling||tracked.estimate.observed_area_m2>ceiling->estimate.observed_area_m2||
+        (tracked.estimate.observed_area_m2==ceiling->estimate.observed_area_m2&&tracked.id<ceiling->id)))
+      ceiling=&tracked;
+  }
+  auto elevation=[&](const TrackedPlane& tracked){
+    const double denominator=dot(tracked.estimate.normal_world,up);
+    return std::abs(denominator)>1e-9?
+      -tracked.estimate.distance_from_origin_m/denominator:std::numeric_limits<double>::quiet_NaN();
+  };
+  if(floor){result.floor_elevation_m=elevation(*floor);result.has_floor=std::isfinite(result.floor_elevation_m);
+    if(result.has_floor){result.floor_plane_id=floor->id;
+      result.observed_floor_area_m2=floor->estimate.observed_area_m2;}}
+  if(ceiling){result.ceiling_elevation_m=elevation(*ceiling);
+    result.has_ceiling=std::isfinite(result.ceiling_elevation_m);
+    if(result.has_ceiling){result.ceiling_plane_id=ceiling->id;
+      result.observed_ceiling_area_m2=ceiling->estimate.observed_area_m2;}}
+  if(result.has_floor&&result.has_ceiling){
+    result.room_height_m=result.ceiling_elevation_m-result.floor_elevation_m;
+    result.height_valid=result.room_height_m>=config.min_room_height_m&&
+                        result.room_height_m<=config.max_room_height_m;
+  }
+  return result;
+}
+
 SparsePlaneTracker::SparsePlaneTracker(PlaneDetectorConfig detector_config,
                                        PlaneTrackerConfig tracker_config)
     :detector_(detector_config),config_(tracker_config){

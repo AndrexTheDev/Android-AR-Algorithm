@@ -252,3 +252,20 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetPlane(JNIEnv* env,jobject
   env->SetLongArrayRegion(metadata,0,3,meta);env->SetDoubleArrayRegion(values,0,9,data);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetRoomLayout(JNIEnv* env,jobject,jlong handle,
+    jlongArray metadata,jdoubleArray values) {
+  if(!metadata||!values||env->GetArrayLength(metadata)<6||env->GetArrayLength(values)<6)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_room_layout_v1 layout{};layout.struct_size=sizeof(layout);
+  const auto status=ark_visual_get_room_layout(fromVisualHandle(handle),&layout);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[6]={static_cast<jlong>(layout.has_floor),static_cast<jlong>(layout.has_ceiling),
+    static_cast<jlong>(layout.height_valid),static_cast<jlong>(layout.floor_plane_id),
+    static_cast<jlong>(layout.ceiling_plane_id),static_cast<jlong>(layout.wall_count)};
+  const jdouble data[6]={layout.floor_elevation_m,layout.ceiling_elevation_m,layout.room_height_m,
+    layout.observed_floor_area_m2,layout.observed_ceiling_area_m2,layout.observed_wall_area_m2};
+  env->SetLongArrayRegion(metadata,0,6,meta);env->SetDoubleArrayRegion(values,0,6,data);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

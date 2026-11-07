@@ -30,6 +30,17 @@ data class SpatialMapUpdate(
     val landmarkCount: Long,
     val plane: PlaneEstimateSnapshot?,
 )
+data class RoomLayoutSnapshot(
+    val floorPlaneId: Long?,
+    val ceilingPlaneId: Long?,
+    val floorElevationMeters: Double?,
+    val ceilingElevationMeters: Double?,
+    val roomHeightMeters: Double?,
+    val observedFloorAreaSquareMeters: Double,
+    val observedCeilingAreaSquareMeters: Double,
+    val observedWallAreaSquareMeters: Double,
+    val wallCount: Long,
+)
 data class PlaneRaycastHit(
     val positionWorldMeters: Vector3,
     val normalWorld: Vector3,
@@ -118,6 +129,22 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     }
 
     @Synchronized
+    fun roomLayout(): RoomLayoutSnapshot {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        val metadata = LongArray(6)
+        val values = DoubleArray(6)
+        val result = nativeGetRoomLayout(nativeHandle, metadata, values)
+        check(result == RESULT_OK) { "Native room layout query error: $result" }
+        return RoomLayoutSnapshot(
+            if (metadata[0] != 0L) metadata[3] else null,
+            if (metadata[1] != 0L) metadata[4] else null,
+            if (metadata[0] != 0L) values[0] else null,
+            if (metadata[1] != 0L) values[1] else null,
+            if (metadata[2] != 0L) values[2] else null,
+            values[3], values[4], values[5], metadata[5])
+    }
+
+    @Synchronized
     fun raycastPlane(originWorldMeters: Vector3, directionWorld: Vector3,
                      minDistanceMeters: Double = 0.05,
                      maxDistanceMeters: Double = 20.0): PlaneRaycastHit? {
@@ -202,6 +229,8 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         px: Double, py: Double, pz: Double, metadata: LongArray, values: DoubleArray): Int
     private external fun nativeGetPlaneCount(handle: Long): Long
     private external fun nativeGetPlane(handle: Long, index: Long,
+        metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeGetRoomLayout(handle: Long,
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeRaycastPlane(handle: Long,
         ox: Double, oy: Double, oz: Double, dx: Double, dy: Double, dz: Double,

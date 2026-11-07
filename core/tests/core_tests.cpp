@@ -280,6 +280,9 @@ int main() {
   CHECK(ark_visual_get_plane(visual_c_handle,0,&c_plane)==ARK_RESULT_NOT_READY);
   std::uint32_t c_plane_semantic=99;
   CHECK(ark_visual_get_plane_semantic(visual_c_handle,0,&c_plane_semantic)==ARK_RESULT_NOT_READY);
+  ark_room_layout_v1 c_room_layout{};c_room_layout.struct_size=sizeof(c_room_layout);
+  CHECK(ark_visual_get_room_layout(visual_c_handle,&c_room_layout)==ARK_RESULT_OK);
+  CHECK(!c_room_layout.has_floor && !c_room_layout.has_ceiling && c_room_layout.wall_count==0);
   ark_plane_hit_v1 c_plane_hit{};c_plane_hit.struct_size=sizeof(c_plane_hit);
   CHECK(ark_visual_raycast_plane(visual_c_handle,0,0,0,0,0,1,0.05,10,
                                   &c_plane_hit)==ARK_RESULT_NOT_READY);
@@ -414,6 +417,20 @@ int main() {
   const auto tracked_second=plane_tracker.update(room_planes,{0,0,1},Vec3{0,0,1});
   CHECK(tracked_second.size()==2);
   CHECK(tracked_second[0].id==first_plane_id && tracked_second[1].id==second_plane_id);
+  PlaneEstimate layout_floor=plane;layout_floor.distance_from_origin_m=0;
+  layout_floor.center_world.z=0;layout_floor.observed_area_m2=12;
+  PlaneEstimate layout_ceiling=layout_floor;layout_ceiling.distance_from_origin_m=-2.7;
+  layout_ceiling.center_world.z=2.7;layout_ceiling.observed_area_m2=10;
+  PlaneEstimate layout_wall=layout_floor;layout_wall.normal_world={1,0,0};
+  layout_wall.distance_from_origin_m=-2;layout_wall.center_world={2,0,1.35};
+  layout_wall.observed_area_m2=8;
+  const std::vector<TrackedPlane> layout_planes{{10,layout_floor,PlaneSemantic::kFloor},
+    {11,layout_ceiling,PlaneSemantic::kCeiling},{12,layout_wall,PlaneSemantic::kWall}};
+  const auto room_layout=estimateRoomLayout(layout_planes);
+  CHECK(room_layout.has_floor && room_layout.floor_plane_id==10);
+  CHECK(room_layout.has_ceiling && room_layout.ceiling_plane_id==11);
+  CHECK(room_layout.height_valid && std::abs(room_layout.room_height_m-2.7)<1e-9);
+  CHECK(room_layout.wall_count==1 && std::abs(room_layout.observed_wall_area_m2-8)<1e-9);
   plane_tracker.reset();
   CHECK(plane_tracker.planes().empty());
   const auto plane_hit=plane.raycast({0,0,0},{0,0,1});

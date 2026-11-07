@@ -32,6 +32,7 @@ struct ark_visual_handle {
   arkernel::SparseLandmarkMap map;
   arkernel::SparsePlaneTracker plane_tracker;
   arkernel::PlaneEstimate plane;
+  arkernel::RoomLayoutEstimate room_layout;
   arkernel::AnchorStore anchors;
   std::optional<arkernel::VisualFrontendResult> last_result;
   std::mutex mutex;
@@ -147,7 +148,7 @@ ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
   handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();handle->anchors.reset();
-  handle->plane={};handle->last_result.reset();handle->last_frame_ns=0;
+  handle->plane={};handle->room_layout={};handle->last_result.reset();handle->last_frame_ns=0;
   handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
 }
 
@@ -220,6 +221,7 @@ ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_po
     const auto& planes=handle->plane_tracker.update(
       handle->map.snapshot(),{0,0,1},world_from_camera.translation);
     handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
+    handle->room_layout=arkernel::estimateRoomLayout(planes);
     const uint32_t size=out->struct_size;*out={};out->struct_size=size;
     out->timestamp_ns=pose->timestamp_ns;out->created=update.created;out->updated=update.updated;
     out->rejected=update.rejected;out->pruned=update.pruned;out->landmark_count=handle->map.size();
@@ -260,6 +262,20 @@ ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle,size_t index,
   std::lock_guard<std::mutex> lock(handle->mutex);const auto& planes=handle->plane_tracker.planes();
   if(index>=planes.size())return fail(handle,ARK_RESULT_NOT_READY,"Plane index does not exist");
   *out=static_cast<uint32_t>(planes[index].semantic);handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_get_room_layout(ark_visual_handle* handle,ark_room_layout_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);const auto& layout=handle->room_layout;
+  const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+  out->has_floor=layout.has_floor?1u:0u;out->has_ceiling=layout.has_ceiling?1u:0u;
+  out->height_valid=layout.height_valid?1u:0u;out->floor_plane_id=layout.floor_plane_id;
+  out->ceiling_plane_id=layout.ceiling_plane_id;out->floor_elevation_m=layout.floor_elevation_m;
+  out->ceiling_elevation_m=layout.ceiling_elevation_m;out->room_height_m=layout.room_height_m;
+  out->observed_floor_area_m2=layout.observed_floor_area_m2;
+  out->observed_ceiling_area_m2=layout.observed_ceiling_area_m2;
+  out->observed_wall_area_m2=layout.observed_wall_area_m2;out->wall_count=layout.wall_count;
+  handle->error.clear();return ARK_RESULT_OK;
 }
 
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,double ox,double oy,double oz,
@@ -359,6 +375,7 @@ ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,const uint8_t* 
     handle->plane_tracker.reset();
     const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
     handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
+    handle->room_layout=arkernel::estimateRoomLayout(planes);
     handle->error.clear();return ARK_RESULT_OK;
   }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
   catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}

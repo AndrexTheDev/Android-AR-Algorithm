@@ -144,6 +144,11 @@ class ArKernelSession(
         return visual.planes()
     }
 
+    fun roomLayout(): RoomLayoutSnapshot {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.roomLayout()
+    }
+
     /** Returns the nearest hit across all currently observed plane boundaries. */
     fun raycastPlane(originWorldMeters: Vector3, directionWorld: Vector3,
                      minDistanceMeters: Double = 0.05,

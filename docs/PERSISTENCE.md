@@ -19,7 +19,7 @@ landmark descriptor records
 uint32 crc32
 ```
 
-Landmarks store feature ID, metric world position, observation count, mean ray residual and last-seen timestamp. Anchors store ID, metric pose and creation timestamp. Version 2 can additionally store one fixed 256-bit oriented-BRIEF descriptor per landmark; every descriptor ID must reference a unique persisted landmark. Version 1 snapshots decode with an empty descriptor set. Plane estimates are recomputed from landmarks and are not persisted as stale derived state.
+Landmarks store feature ID, metric world position, observation count, mean ray residual and last-seen timestamp. Anchors store ID, metric pose and creation timestamp. Version 2 can additionally store one fixed 256-bit oriented-BRIEF descriptor per landmark; the representative is a bounded bitwise majority over repeated confirmed observations, and every descriptor ID must reference a unique persisted landmark. Version 1 snapshots decode with an empty descriptor set. Plane estimates are recomputed from landmarks and are not persisted as stale derived state.
 
 ## Validation and limits
 

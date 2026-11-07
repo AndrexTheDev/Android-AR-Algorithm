@@ -10,7 +10,6 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <unordered_set>
 #include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
@@ -39,6 +38,7 @@ struct ark_visual_handle {
   arkernel::RoomLayoutEstimate room_layout;
   arkernel::MappingQualityGate mapping_gate;
   arkernel::SemanticObjectMap semantic_map;
+  arkernel::LandmarkDescriptorStore descriptor_store;
   arkernel::AnchorStore anchors;
   std::optional<arkernel::VisualFrontendResult> last_result;
   std::mutex mutex;
@@ -116,12 +116,18 @@ size_t copyError(Handle* handle,char* buffer,size_t buffer_size) {
 bool installSnapshot(ark_visual_handle* handle,arkernel::SpatialSnapshot snapshot,
                      int64_t restore_now_ns,std::string& error){
   std::uint32_t maximum_feature_id=0;
+  std::vector<std::uint32_t> landmark_ids;landmark_ids.reserve(snapshot.landmarks.size());
   for(auto& landmark:snapshot.landmarks){landmark.last_seen_ns=restore_now_ns;
-    maximum_feature_id=std::max(maximum_feature_id,landmark.feature_id);}
+    maximum_feature_id=std::max(maximum_feature_id,landmark.feature_id);
+    landmark_ids.push_back(landmark.feature_id);}
   if(maximum_feature_id==std::numeric_limits<std::uint32_t>::max()){
     error="Snapshot feature ID range is exhausted";return false;}
+  arkernel::LandmarkDescriptorStore replacement_descriptors;
+  if(!replacement_descriptors.restore(snapshot.landmark_descriptors,landmark_ids)){
+    error="Snapshot descriptors exceed runtime limits";return false;}
   if(!arkernel::restoreSpatialSnapshot(snapshot,handle->map,handle->anchors)){
     error="Snapshot exceeds runtime map limits";return false;}
+  handle->descriptor_store=std::move(replacement_descriptors);
   handle->frontend.reset();handle->frontend.reserveFeatureIdsAbove(maximum_feature_id);
   handle->last_result.reset();handle->plane_tracker.reset();
   const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
@@ -169,7 +175,8 @@ ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
   handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();
-  handle->mapping_gate.reset();handle->semantic_map.reset();handle->anchors.reset();
+  handle->mapping_gate.reset();handle->semantic_map.reset();handle->descriptor_store.reset();
+  handle->anchors.reset();
   handle->plane={};handle->room_layout={};handle->last_result.reset();handle->last_frame_ns=0;
   handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
 }
@@ -253,8 +260,12 @@ ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_po
     const auto observations=arkernel::makeLandmarkObservations(
       *handle->last_result,handle->camera,world_from_camera);
     const auto update=handle->map.integrate(observations,pose->timestamp_ns);
+    const auto landmarks=handle->map.snapshot();
+    std::vector<std::uint32_t> landmark_ids;landmark_ids.reserve(landmarks.size());
+    for(const auto& landmark:landmarks)landmark_ids.push_back(landmark.feature_id);
+    handle->descriptor_store.integrate(handle->frontend.activeDescriptors(),landmark_ids);
     const auto& planes=handle->plane_tracker.update(
-      handle->map.snapshot(),{0,0,1},world_from_camera.translation);
+      landmarks,{0,0,1},world_from_camera.translation);
     handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
     handle->room_layout=arkernel::estimateRoomLayout(planes);
     const uint32_t size=out->struct_size;*out={};out->struct_size=size;
@@ -449,13 +460,8 @@ ark_result ark_visual_export_snapshot(ark_visual_handle* handle,int64_t created_
   std::lock_guard<std::mutex> lock(handle->mutex);
   try{
     const auto landmarks=handle->map.snapshot();
-    std::unordered_set<std::uint32_t> landmark_ids;
-    for(const auto& landmark:landmarks)landmark_ids.insert(landmark.feature_id);
-    std::vector<arkernel::BinaryFeatureDescriptor> descriptors;
-    for(const auto& descriptor:handle->frontend.activeDescriptors())
-      if(landmark_ids.count(descriptor.feature_id))descriptors.push_back(descriptor);
     const arkernel::SpatialSnapshot snapshot{created_ns,landmarks,
-                                             handle->anchors.snapshot(),descriptors};
+      handle->anchors.snapshot(),handle->descriptor_store.snapshot()};
     const auto encoded=arkernel::SpatialSnapshotCodec::encode(snapshot);
     *out_size=encoded.size();
     if(!buffer){handle->error.clear();return ARK_RESULT_OK;}
@@ -532,7 +538,7 @@ ark_result ark_visual_restore_snapshot_matched(ark_visual_handle* handle,
     auto decoded=arkernel::SpatialSnapshotCodec::decode(bytes);
     if(!decoded.valid)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,decoded.error.c_str());
     const auto correspondences=arkernel::matchRelocalizationLandmarks(decoded.snapshot,
-      handle->map.snapshot(),handle->frontend.activeDescriptors());
+      handle->map.snapshot(),handle->descriptor_store.snapshot());
     const auto alignment=arkernel::estimateRelocalization(correspondences);
     const uint32_t output_size=out->struct_size;*out={};out->struct_size=output_size;
     out->correspondence_count=alignment.correspondence_count;out->inlier_count=alignment.inlier_count;

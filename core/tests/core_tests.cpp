@@ -93,6 +93,21 @@ int main() {
   const auto descriptor_matches=matchDescriptors(descriptors,trained_descriptors);
   CHECK(descriptor_matches.size()==2);
   CHECK(descriptor_matches[0].query_feature_id==11&&descriptor_matches[0].train_feature_id==101);
+  LandmarkDescriptorStore descriptor_store;
+  auto noisy_descriptor=descriptors[0];noisy_descriptor.bytes[0]^=0x01;
+  descriptor_store.integrate({descriptors[0]},{11});
+  CHECK(descriptor_store.snapshot().empty());
+  descriptor_store.integrate({noisy_descriptor},{11});
+  descriptor_store.integrate({descriptors[0]},{11});
+  const auto aggregated_descriptors=descriptor_store.snapshot();
+  CHECK(aggregated_descriptors.size()==1);
+  CHECK(aggregated_descriptors[0].bytes==descriptors[0].bytes);
+  descriptor_store.integrate({descriptors[1]},{22});
+  CHECK(descriptor_store.size()==1&&descriptor_store.snapshot().empty());
+  CHECK(descriptor_store.restore(aggregated_descriptors,{11}));
+  const auto restored_descriptors=descriptor_store.snapshot();
+  CHECK(restored_descriptors.size()==1&&restored_descriptors[0].feature_id==11&&
+        restored_descriptors[0].bytes==aggregated_descriptors[0].bytes);
 
   // IMU rotation prediction supplies LK with physically meaningful initial guesses.
   const std::vector<ImageFeature> prediction_features{{320,240,10,1},{420,260,9,2}};

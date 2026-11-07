@@ -5,6 +5,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace arkernel {
 namespace {
@@ -113,5 +114,83 @@ std::vector<DescriptorMatch> matchDescriptors(
     return a.train_feature_id<b.train_feature_id;});
   return output;
 }
+
+LandmarkDescriptorStore::LandmarkDescriptorStore(LandmarkDescriptorStoreConfig config)
+    :config_(config){
+  if(config_.max_entries==0||config_.min_observations_for_snapshot==0||
+     config_.max_accumulated_observations<config_.min_observations_for_snapshot||
+     config_.max_accumulated_observations>std::numeric_limits<std::uint16_t>::max())
+    throw std::invalid_argument("Invalid landmark descriptor store configuration");
+}
+
+void LandmarkDescriptorStore::integrate(
+    const std::vector<BinaryFeatureDescriptor>& descriptors,
+    const std::vector<std::uint32_t>& confirmed_feature_ids){
+  const std::unordered_set<std::uint32_t> confirmed(confirmed_feature_ids.begin(),
+                                                    confirmed_feature_ids.end());
+  for(auto iterator=entries_.begin();iterator!=entries_.end();)
+    if(confirmed.count(iterator->first)==0)iterator=entries_.erase(iterator);else ++iterator;
+  for(const auto& descriptor:descriptors){
+    if(confirmed.count(descriptor.feature_id)==0)continue;
+    auto iterator=entries_.find(descriptor.feature_id);
+    if(iterator==entries_.end()){
+      if(entries_.size()>=config_.max_entries){
+        auto victim=entries_.begin();
+        for(auto candidate=entries_.begin();candidate!=entries_.end();++candidate)
+          if(candidate->second.observations<victim->second.observations||
+             (candidate->second.observations==victim->second.observations&&
+              candidate->first>victim->first))victim=candidate;
+        if(victim->second.observations>1||
+           (victim->second.observations==1&&descriptor.feature_id>victim->first))continue;
+        entries_.erase(victim);
+      }
+      iterator=entries_.emplace(descriptor.feature_id,Entry{}).first;
+    }
+    auto& entry=iterator->second;
+    if(entry.observations>=config_.max_accumulated_observations){
+      entry.observations/=2;
+      for(auto& votes:entry.one_votes)votes=static_cast<std::uint16_t>(votes/2);
+    }
+    for(std::size_t bit=0;bit<entry.one_votes.size();++bit)
+      if(descriptor.bytes[bit/8]&(1u<<(bit%8)))++entry.one_votes[bit];
+    ++entry.observations;
+  }
+}
+
+std::vector<BinaryFeatureDescriptor> LandmarkDescriptorStore::snapshot() const {
+  std::vector<BinaryFeatureDescriptor> output;output.reserve(entries_.size());
+  for(const auto& item:entries_){
+    if(item.second.observations<config_.min_observations_for_snapshot)continue;
+    BinaryFeatureDescriptor descriptor;descriptor.feature_id=item.first;
+    for(std::size_t bit=0;bit<item.second.one_votes.size();++bit)
+      if(static_cast<std::size_t>(item.second.one_votes[bit])*2>=item.second.observations)
+        descriptor.bytes[bit/8]|=static_cast<std::uint8_t>(1u<<(bit%8));
+    output.push_back(descriptor);
+  }
+  std::sort(output.begin(),output.end(),[](const auto& a,const auto& b){
+    return a.feature_id<b.feature_id;});
+  return output;
+}
+
+bool LandmarkDescriptorStore::restore(
+    const std::vector<BinaryFeatureDescriptor>& descriptors,
+    const std::vector<std::uint32_t>& confirmed_feature_ids){
+  if(descriptors.size()>config_.max_entries)return false;
+  const std::unordered_set<std::uint32_t> confirmed(confirmed_feature_ids.begin(),
+                                                    confirmed_feature_ids.end());
+  LandmarkDescriptorStore replacement(config_);
+  for(const auto& descriptor:descriptors){
+    if(confirmed.count(descriptor.feature_id)==0||
+       replacement.entries_.count(descriptor.feature_id)!=0)return false;
+    Entry entry;entry.observations=config_.min_observations_for_snapshot;
+    for(std::size_t bit=0;bit<entry.one_votes.size();++bit)
+      if(descriptor.bytes[bit/8]&(1u<<(bit%8)))
+        entry.one_votes[bit]=static_cast<std::uint16_t>(entry.observations);
+    replacement.entries_.emplace(descriptor.feature_id,entry);
+  }
+  entries_=std::move(replacement.entries_);return true;
+}
+
+void LandmarkDescriptorStore::reset(){entries_.clear();}
 
 }  // namespace arkernel

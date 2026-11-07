@@ -283,22 +283,48 @@ int main() {
   // and accepts monocular scale only when inertial displacement agrees.
   // Stable feature IDs become metric landmarks, a plane and persistent anchors.
   SparseLandmarkMap sparse_map;
-  std::vector<LandmarkObservation> map_first,map_second;
+  std::vector<LandmarkObservation> map_first,map_second,map_third;
   const Pose map_camera_first{{},{0,0,0}};
   const Pose map_camera_second{{},{0.2,0,0}};
+  const Pose map_camera_third{{},{0.4,0,0}};
   for(std::uint32_t id=1;id<=20;++id){
     const Vec3 point{-0.8+0.08*id,-0.5+0.1*(id%10),3.0};
     map_first.push_back({id,2100000000LL,point*(1.0/point.norm()),map_camera_first});
     const Vec3 ray2=point-map_camera_second.translation;
     map_second.push_back({id,2200000000LL,ray2*(1.0/ray2.norm()),map_camera_second});
+    const Vec3 ray3=point-map_camera_third.translation;
+    map_third.push_back({id,2300000000LL,ray3*(1.0/ray3.norm()),map_camera_third});
   }
   CHECK(sparse_map.integrate(map_first,2100000000LL).created==0);
-  const auto map_update=sparse_map.integrate(map_second,2200000000LL);
+  CHECK(sparse_map.integrate(map_second,2200000000LL).created==0);
+  CHECK(sparse_map.size()==0);
+  const auto map_update=sparse_map.integrate(map_third,2300000000LL);
   CHECK(map_update.created==20);
   CHECK(sparse_map.size()==20);
+  SparseLandmarkMap unconfirmed_dynamic_map;
+  const Vec3 candidate_point{0,0,3};
+  const Vec3 candidate_ray2=candidate_point-map_camera_second.translation;
+  CHECK(unconfirmed_dynamic_map.integrate({{99,2100000000LL,{0,0,1},map_camera_first}},
+                                           2100000000LL).created==0);
+  CHECK(unconfirmed_dynamic_map.integrate({{99,2200000000LL,
+      candidate_ray2*(1.0/candidate_ray2.norm()),map_camera_second}},2200000000LL).created==0);
+  const auto unconfirmed_update=unconfirmed_dynamic_map.integrate(
+      {{99,2300000000LL,{1,0,0},map_camera_third}},2300000000LL);
+  CHECK(unconfirmed_update.created==0 && unconfirmed_update.rejected==1);
+  CHECK(unconfirmed_dynamic_map.size()==0);
   const auto landmark=sparse_map.find(7);
   CHECK(landmark.has_value());
+  CHECK(landmark->observation_count==3);
   CHECK(std::abs(landmark->position_world_m.z-3.0)<1e-8);
+  SparseLandmarkMap dynamic_rejection_map;
+  CHECK(dynamic_rejection_map.restore({*landmark}));
+  MapUpdate dynamic_update;
+  for(int i=1;i<=3;++i){
+    const LandmarkObservation inconsistent{7,2300000000LL+i*10000000LL,{1,0,0},map_camera_first};
+    dynamic_update=dynamic_rejection_map.integrate({inconsistent},inconsistent.timestamp_ns);
+  }
+  CHECK(dynamic_update.dynamic_pruned==1);
+  CHECK(dynamic_rejection_map.size()==0);
   SparsePlaneDetector plane_detector({300,0.01,15,123});
   const auto plane=plane_detector.detect(sparse_map.snapshot());
   CHECK(plane.valid && plane.inlier_count==20);

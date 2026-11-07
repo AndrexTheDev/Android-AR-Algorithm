@@ -113,6 +113,7 @@ SparseLandmarkMap::SparseLandmarkMap(SparseMapConfig config):config_(config){
   if(config_.max_landmarks<1||config_.min_triangulation_baseline_m<=0||
      config_.min_triangulation_parallax_degrees<=0||
      config_.min_triangulation_parallax_degrees>=90||config_.max_ray_residual_m<=0||
+     config_.min_confirming_observations<3||config_.max_consecutive_rejections<1||
      config_.pending_observation_lifetime_ns<=0||config_.landmark_lifetime_ns<=0)
     throw std::invalid_argument("Invalid sparse map configuration");
 }
@@ -146,22 +147,54 @@ MapUpdate SparseLandmarkMap::integrate(const std::vector<LandmarkObservation>& o
   if(now_ns<=0)throw std::invalid_argument("Map timestamp must be positive");
   MapUpdate update;
   for(auto it=pending_.begin();it!=pending_.end();){
-    if(now_ns-it->second.observation.timestamp_ns>config_.pending_observation_lifetime_ns){it=pending_.erase(it);++update.pruned;}
-    else ++it;
+    if(now_ns-it->second.observation.timestamp_ns>config_.pending_observation_lifetime_ns){
+      it=pending_.erase(it);++update.pruned;
+    }else ++it;
   }
   for(auto it=landmarks_.begin();it!=landmarks_.end();){
-    if(now_ns-it->second.last_seen_ns>config_.landmark_lifetime_ns){it=landmarks_.erase(it);++update.pruned;}
-    else ++it;
+    if(now_ns-it->second.last_seen_ns>config_.landmark_lifetime_ns){
+      consecutive_rejections_.erase(it->first);it=landmarks_.erase(it);++update.pruned;
+    }else ++it;
   }
+  auto makeRoom=[&](){
+    if(landmarks_.size()<config_.max_landmarks)return;
+    auto victim=std::min_element(landmarks_.begin(),landmarks_.end(),[](const auto& a,const auto& b){
+      if(a.second.observation_count!=b.second.observation_count)
+        return a.second.observation_count<b.second.observation_count;
+      if(a.second.last_seen_ns!=b.second.last_seen_ns)
+        return a.second.last_seen_ns<b.second.last_seen_ns;
+      return a.second.feature_id<b.second.feature_id;
+    });
+    if(victim!=landmarks_.end()){
+      consecutive_rejections_.erase(victim->first);landmarks_.erase(victim);++update.pruned;
+    }
+  };
   for(const auto& observation:observations){
+    const auto& rotation=observation.world_from_camera.rotation;
+    const double rotation_norm=std::sqrt(rotation.w*rotation.w+rotation.x*rotation.x+
+      rotation.y*rotation.y+rotation.z*rotation.z);
     if(observation.timestamp_ns<=0||observation.timestamp_ns>now_ns||
-       !finite(observation.unit_ray_camera)||observation.unit_ray_camera.norm()<1e-9){++update.rejected;continue;}
-    const Vec3 ray=normalized(observation.world_from_camera.rotation.rotate(observation.unit_ray_camera));
+       !finite(observation.unit_ray_camera)||observation.unit_ray_camera.norm()<1e-9||
+       !finite(observation.world_from_camera.translation)||!std::isfinite(rotation_norm)||
+       rotation_norm<1e-9){++update.rejected;continue;}
+    const Vec3 ray=normalized(rotation.rotate(observation.unit_ray_camera));
     auto landmark=landmarks_.find(observation.feature_id);
     if(landmark!=landmarks_.end()){
+      if(observation.timestamp_ns<=landmark->second.last_seen_ns){++update.rejected;continue;}
+      const Vec3 offset=landmark->second.position_world_m-observation.world_from_camera.translation;
       const double residual=rayDistance(observation.world_from_camera.translation,ray,
                                         landmark->second.position_world_m);
-      if(residual>config_.max_ray_residual_m){++update.rejected;continue;}
+      if(!std::isfinite(residual)||residual>config_.max_ray_residual_m||dot(offset,ray)<=0){
+        ++update.rejected;
+        auto& count=consecutive_rejections_[observation.feature_id];
+        if(++count>=config_.max_consecutive_rejections){
+          landmarks_.erase(landmark);consecutive_rejections_.erase(observation.feature_id);
+          pending_[observation.feature_id]=Pending{observation,std::nullopt,1,0.0};
+          ++update.pruned;++update.dynamic_pruned;
+        }
+        continue;
+      }
+      consecutive_rejections_.erase(observation.feature_id);
       auto candidate=pending_.find(observation.feature_id);
       if(candidate!=pending_.end()){
         const auto triangulated=triangulate(candidate->second.observation,observation);
@@ -174,26 +207,46 @@ MapUpdate SparseLandmarkMap::integrate(const std::vector<LandmarkObservation>& o
       const double count=static_cast<double>(landmark->second.observation_count);
       landmark->second.mean_ray_residual_m=(landmark->second.mean_ray_residual_m*count+residual)/(count+1.0);
       ++landmark->second.observation_count;landmark->second.last_seen_ns=observation.timestamp_ns;
-      pending_[observation.feature_id]={observation};++update.updated;continue;
+      pending_[observation.feature_id]=Pending{observation,std::nullopt,1,0.0};++update.updated;continue;
     }
     auto pending=pending_.find(observation.feature_id);
     if(pending==pending_.end()){
-      pending_[observation.feature_id]={observation};continue;
+      pending_[observation.feature_id]=Pending{observation,std::nullopt,1,0.0};continue;
     }
-    const auto triangulated=triangulate(pending->second.observation,observation);
-    if(!triangulated){pending->second.observation=observation;++update.rejected;continue;}
-    if(landmarks_.size()>=config_.max_landmarks){
-      auto victim=std::min_element(landmarks_.begin(),landmarks_.end(),[](const auto& a,const auto& b){
-        if(a.second.observation_count!=b.second.observation_count)
-          return a.second.observation_count<b.second.observation_count;
-        if(a.second.last_seen_ns!=b.second.last_seen_ns)
-          return a.second.last_seen_ns<b.second.last_seen_ns;
-        return a.second.feature_id<b.second.feature_id;});
-      if(victim!=landmarks_.end()){landmarks_.erase(victim);++update.pruned;}
+    if(observation.timestamp_ns<=pending->second.observation.timestamp_ns){++update.rejected;continue;}
+    if(!pending->second.candidate_position_world_m){
+      const auto triangulated=triangulate(pending->second.observation,observation);
+      if(!triangulated){pending->second=Pending{observation,std::nullopt,1,0.0};++update.rejected;continue;}
+      pending->second.observation=observation;
+      pending->second.candidate_position_world_m=triangulated->first;
+      pending->second.confirming_observations=2;
+      pending->second.accumulated_residual_m=triangulated->second;
+      continue;
     }
-    landmarks_[observation.feature_id]={observation.feature_id,triangulated->first,2,
-                                        triangulated->second,observation.timestamp_ns};
-    pending_[observation.feature_id]={observation};++update.created;
+    const Vec3 candidate_position=*pending->second.candidate_position_world_m;
+    const Vec3 candidate_offset=candidate_position-observation.world_from_camera.translation;
+    const double confirmation_residual=rayDistance(
+      observation.world_from_camera.translation,ray,candidate_position);
+    if(!std::isfinite(confirmation_residual)||confirmation_residual>config_.max_ray_residual_m||
+       dot(candidate_offset,ray)<=0){
+      pending->second=Pending{observation,std::nullopt,1,0.0};++update.rejected;continue;
+    }
+    const auto pair_estimate=triangulate(pending->second.observation,observation);
+    ++pending->second.confirming_observations;
+    pending->second.accumulated_residual_m+=confirmation_residual;
+    if(pair_estimate){
+      const double prior_weight=static_cast<double>(pending->second.confirming_observations-2);
+      pending->second.candidate_position_world_m=(candidate_position*prior_weight+
+        pair_estimate->first)*(1.0/(prior_weight+1.0));
+    }
+    pending->second.observation=observation;
+    if(pending->second.confirming_observations<config_.min_confirming_observations)continue;
+    makeRoom();
+    const double residual_count=static_cast<double>(pending->second.confirming_observations-1);
+    landmarks_[observation.feature_id]={observation.feature_id,
+      *pending->second.candidate_position_world_m,pending->second.confirming_observations,
+      pending->second.accumulated_residual_m/residual_count,observation.timestamp_ns};
+    pending->second=Pending{observation,std::nullopt,1,0.0};++update.created;
   }
   return update;
 }
@@ -215,9 +268,9 @@ bool SparseLandmarkMap::restore(const std::vector<SparseLandmark>& values){
        !std::isfinite(value.mean_ray_residual_m)||value.mean_ray_residual_m<0||
        value.last_seen_ns<=0||!restored.emplace(value.feature_id,value).second)return false;
   }
-  landmarks_=std::move(restored);pending_.clear();return true;
+  landmarks_=std::move(restored);pending_.clear();consecutive_rejections_.clear();return true;
 }
-void SparseLandmarkMap::reset(){pending_.clear();landmarks_.clear();}
+void SparseLandmarkMap::reset(){pending_.clear();landmarks_.clear();consecutive_rejections_.clear();}
 
 std::optional<PlaneHit> PlaneEstimate::raycast(const Vec3& origin,const Vec3& direction,
                                                 double minimum,double maximum) const{

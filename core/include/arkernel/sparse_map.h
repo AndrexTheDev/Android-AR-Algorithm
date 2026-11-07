@@ -37,6 +37,8 @@ struct SparseMapConfig {
   double min_triangulation_baseline_m{0.03};
   double min_triangulation_parallax_degrees{1.0};
   double max_ray_residual_m{0.05};
+  std::size_t min_confirming_observations{3};
+  std::size_t max_consecutive_rejections{3};
   TimestampNs pending_observation_lifetime_ns{2000000000};
   TimestampNs landmark_lifetime_ns{30000000000};
 };
@@ -46,6 +48,7 @@ struct MapUpdate {
   std::size_t updated{0};
   std::size_t rejected{0};
   std::size_t pruned{0};
+  std::size_t dynamic_pruned{0};
 };
 
 class SparseLandmarkMap {
@@ -60,13 +63,19 @@ class SparseLandmarkMap {
   void reset();
 
  private:
-  struct Pending { LandmarkObservation observation; };
+  struct Pending {
+    LandmarkObservation observation;
+    std::optional<Vec3> candidate_position_world_m;
+    std::size_t confirming_observations{1};
+    double accumulated_residual_m{0.0};
+  };
   std::optional<std::pair<Vec3,double>> triangulate(
       const LandmarkObservation& first,
       const LandmarkObservation& second) const;
   SparseMapConfig config_;
   std::unordered_map<std::uint32_t,Pending> pending_;
   std::unordered_map<std::uint32_t,SparseLandmark> landmarks_;
+  std::unordered_map<std::uint32_t,std::size_t> consecutive_rejections_;
 };
 
 struct PlaneHit {

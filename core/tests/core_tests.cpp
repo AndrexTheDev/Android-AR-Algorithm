@@ -273,6 +273,11 @@ int main() {
   CHECK(ark_visual_integrate_map(visual_c_handle,&c_world_pose,&c_map_update)==ARK_RESULT_OK);
   CHECK(c_map_update.timestamp_ns==c_frame.timestamp_ns);
   CHECK(ark_visual_integrate_map(visual_c_handle,&c_world_pose,&c_map_update)==ARK_RESULT_OUT_OF_ORDER);
+  std::size_t c_plane_count=99;
+  CHECK(ark_visual_get_plane_count(visual_c_handle,&c_plane_count)==ARK_RESULT_OK);
+  CHECK(c_plane_count==0);
+  ark_plane_v1 c_plane{};c_plane.struct_size=sizeof(c_plane);
+  CHECK(ark_visual_get_plane(visual_c_handle,0,&c_plane)==ARK_RESULT_NOT_READY);
   ark_plane_hit_v1 c_plane_hit{};c_plane_hit.struct_size=sizeof(c_plane_hit);
   CHECK(ark_visual_raycast_plane(visual_c_handle,0,0,0,0,0,1,0.05,10,
                                   &c_plane_hit)==ARK_RESULT_NOT_READY);
@@ -375,6 +380,27 @@ int main() {
         refined_plane.normal_world.y*expected_plane_normal.y+
         refined_plane.normal_world.z*expected_plane_normal.z>0.9999);
   CHECK(refined_plane.mean_absolute_error_m<0.007);
+  std::vector<SparseLandmark> room_planes;
+  std::uint32_t room_id=1000;
+  for(int row=0;row<5;++row)for(int column=0;column<5;++column)
+    room_planes.push_back({room_id++,{-1.0+0.5*column,-1.0+0.5*row,2.0},3,0.001,2300000000LL});
+  for(int row=0;row<5;++row)for(int column=0;column<5;++column)
+    room_planes.push_back({room_id++,{2.0,-1.0+0.5*column,0.5+0.5*row},3,0.001,2300000000LL});
+  SparsePlaneDetector room_detector({500,0.01,12,789});
+  const auto multiple_planes=room_detector.detectMultiple(room_planes,4);
+  CHECK(multiple_planes.size()==2);
+  CHECK(multiple_planes[0].inlier_count>=20 && multiple_planes[1].inlier_count>=20);
+  CHECK(multiple_planes[0].inlier_count+multiple_planes[1].inlier_count==50);
+  SparsePlaneTracker plane_tracker({500,0.01,12,789},{4,8.0,0.1,0.5});
+  const auto tracked_first=plane_tracker.update(room_planes);
+  CHECK(tracked_first.size()==2 && tracked_first[0].id!=tracked_first[1].id);
+  const PlaneId first_plane_id=tracked_first[0].id,second_plane_id=tracked_first[1].id;
+  for(auto& point:room_planes)point.position_world_m.y+=0.001;
+  const auto tracked_second=plane_tracker.update(room_planes);
+  CHECK(tracked_second.size()==2);
+  CHECK(tracked_second[0].id==first_plane_id && tracked_second[1].id==second_plane_id);
+  plane_tracker.reset();
+  CHECK(plane_tracker.planes().empty());
   const auto plane_hit=plane.raycast({0,0,0},{0,0,1});
   CHECK(plane_hit.has_value());
   CHECK(std::abs(plane_hit->position_world.z-3.0)<1e-8);

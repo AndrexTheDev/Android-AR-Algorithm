@@ -30,7 +30,7 @@ struct ark_visual_handle {
   arkernel::PinholeRadTanCamera camera;
   arkernel::VisualFrontend frontend;
   arkernel::SparseLandmarkMap map;
-  arkernel::SparsePlaneDetector plane_detector;
+  arkernel::SparsePlaneTracker plane_tracker;
   arkernel::PlaneEstimate plane;
   arkernel::AnchorStore anchors;
   std::optional<arkernel::VisualFrontendResult> last_result;
@@ -146,7 +146,7 @@ void ark_visual_destroy(ark_visual_handle* handle){delete handle;}
 ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
-  handle->frontend.reset();handle->map.reset();handle->anchors.reset();
+  handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();handle->anchors.reset();
   handle->plane={};handle->last_result.reset();handle->last_frame_ns=0;
   handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
 }
@@ -217,7 +217,8 @@ ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_po
     const auto observations=arkernel::makeLandmarkObservations(
       *handle->last_result,handle->camera,world_from_camera);
     const auto update=handle->map.integrate(observations,pose->timestamp_ns);
-    handle->plane=handle->plane_detector.detect(handle->map.snapshot());
+    const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
+    handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
     const uint32_t size=out->struct_size;*out={};out->struct_size=size;
     out->timestamp_ns=pose->timestamp_ns;out->created=update.created;out->updated=update.updated;
     out->rejected=update.rejected;out->pruned=update.pruned;out->landmark_count=handle->map.size();
@@ -234,6 +235,25 @@ ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_po
   catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown map integration error");}
 }
 
+ark_result ark_visual_get_plane_count(ark_visual_handle* handle,size_t* out_count){
+  if(!handle||!out_count)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  *out_count=handle->plane_tracker.planes().size();handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_get_plane(ark_visual_handle* handle,size_t index,ark_plane_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);const auto& planes=handle->plane_tracker.planes();
+  if(index>=planes.size())return fail(handle,ARK_RESULT_NOT_READY,"Plane index does not exist");
+  const auto& tracked=planes[index];const auto& plane=tracked.estimate;
+  const uint32_t size=out->struct_size;*out={};out->struct_size=size;out->id=tracked.id;
+  out->normal_x=plane.normal_world.x;out->normal_y=plane.normal_world.y;out->normal_z=plane.normal_world.z;
+  out->distance_from_origin_m=plane.distance_from_origin_m;out->center_x_m=plane.center_world.x;
+  out->center_y_m=plane.center_world.y;out->center_z_m=plane.center_world.z;
+  out->observed_area_m2=plane.observed_area_m2;out->mean_absolute_error_m=plane.mean_absolute_error_m;
+  out->inlier_count=plane.inlier_count;handle->error.clear();return ARK_RESULT_OK;
+}
+
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,double ox,double oy,double oz,
     double dx,double dy,double dz,double min_distance,double max_distance,ark_plane_hit_v1* out){
   if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
@@ -242,7 +262,11 @@ ark_result ark_visual_raycast_plane(ark_visual_handle* handle,double ox,double o
      !std::isfinite(dy)||!std::isfinite(dz)||!std::isfinite(min_distance)||
      !std::isfinite(max_distance)||min_distance<0||max_distance<=min_distance)
     return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Raycast arguments are invalid");
-  const auto hit=handle->plane.raycast({ox,oy,oz},{dx,dy,dz},min_distance,max_distance);
+  std::optional<arkernel::PlaneHit> hit;
+  for(const auto& plane:handle->plane_tracker.planes()){
+    const auto candidate=plane.estimate.raycast({ox,oy,oz},{dx,dy,dz},min_distance,max_distance);
+    if(candidate&&(!hit||candidate->distance_m<hit->distance_m))hit=candidate;
+  }
   if(!hit)return fail(handle,ARK_RESULT_NOT_READY,"Ray does not hit observed plane geometry");
   const uint32_t size=out->struct_size;*out={};out->struct_size=size;
   out->position_x_m=hit->position_world.x;out->position_y_m=hit->position_world.y;
@@ -324,7 +348,9 @@ ark_result ark_visual_restore_snapshot(ark_visual_handle* handle,const uint8_t* 
     handle->frontend.reset();
     handle->frontend.reserveFeatureIdsAbove(maximum_feature_id);
     handle->last_result.reset();
-    handle->plane=handle->plane_detector.detect(handle->map.snapshot());
+    handle->plane_tracker.reset();
+    const auto& planes=handle->plane_tracker.update(handle->map.snapshot());
+    handle->plane=planes.empty()?arkernel::PlaneEstimate{}:planes.front().estimate;
     handle->error.clear();return ARK_RESULT_OK;
   }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
   catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}

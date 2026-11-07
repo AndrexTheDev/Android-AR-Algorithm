@@ -115,8 +115,37 @@ class SparsePlaneDetector {
  public:
   explicit SparsePlaneDetector(PlaneDetectorConfig config = {});
   PlaneEstimate detect(const std::vector<SparseLandmark>& landmarks) const;
+  std::vector<PlaneEstimate> detectMultiple(const std::vector<SparseLandmark>& landmarks,
+                                            std::size_t max_planes) const;
  private:
   PlaneDetectorConfig config_;
+};
+
+using PlaneId = std::uint64_t;
+struct TrackedPlane {
+  PlaneId id{0};
+  PlaneEstimate estimate{};
+};
+
+struct PlaneTrackerConfig {
+  std::size_t max_planes{6};
+  double max_normal_angle_degrees{12.0};
+  double max_offset_change_m{0.20};
+  double max_center_shift_m{2.0};
+};
+
+class SparsePlaneTracker {
+ public:
+  SparsePlaneTracker(PlaneDetectorConfig detector_config = {},
+                     PlaneTrackerConfig tracker_config = {});
+  const std::vector<TrackedPlane>& update(const std::vector<SparseLandmark>& landmarks);
+  const std::vector<TrackedPlane>& planes() const { return planes_; }
+  void reset();
+ private:
+  SparsePlaneDetector detector_;
+  PlaneTrackerConfig config_;
+  PlaneId next_id_{1};
+  std::vector<TrackedPlane> planes_;
 };
 
 using AnchorId = std::uint64_t;

@@ -17,6 +17,7 @@ data class PlaneEstimateSnapshot(
     val observedAreaSquareMeters: Double,
     val meanAbsoluteErrorMeters: Double,
     val inlierCount: Long,
+    val id: Long = 0,
 )
 data class SpatialMapUpdate(
     val timestampNs: Long,
@@ -96,6 +97,22 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
             Vector3(values[4], values[5], values[6]), values[7], values[8], metadata[7]) else null
         return SpatialMapUpdate(metadata[0], metadata[1], metadata[2], metadata[3],
             metadata[4], metadata[5], plane)
+    }
+
+    @Synchronized
+    fun planes(): List<PlaneEstimateSnapshot> {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        val count = nativeGetPlaneCount(nativeHandle)
+        check(count >= 0) { "Could not query native planes" }
+        return List(count.toInt()) { index ->
+            val metadata = LongArray(2)
+            val values = DoubleArray(9)
+            val result = nativeGetPlane(nativeHandle, index.toLong(), metadata, values)
+            check(result == RESULT_OK) { "Native plane query error: $result" }
+            PlaneEstimateSnapshot(Vector3(values[0], values[1], values[2]), values[3],
+                Vector3(values[4], values[5], values[6]), values[7], values[8],
+                metadata[1], metadata[0])
+        }
     }
 
     @Synchronized
@@ -181,6 +198,9 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeIntegrateMap(handle: Long, timestampNs: Long,
         rw: Double, rx: Double, ry: Double, rz: Double,
         px: Double, py: Double, pz: Double, metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeGetPlaneCount(handle: Long): Long
+    private external fun nativeGetPlane(handle: Long, index: Long,
+        metadata: LongArray, values: DoubleArray): Int
     private external fun nativeRaycastPlane(handle: Long,
         ox: Double, oy: Double, oz: Double, dx: Double, dy: Double, dz: Double,
         minDistance: Double, maxDistance: Double, values: DoubleArray): Int

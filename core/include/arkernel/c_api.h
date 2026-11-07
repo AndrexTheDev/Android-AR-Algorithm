@@ -173,6 +173,21 @@ typedef struct ark_map_update_v1 {
   double plane_mean_absolute_error_m;
 } ark_map_update_v1;
 
+typedef struct ark_plane_v1 {
+  uint32_t struct_size;
+  uint64_t id;
+  double normal_x;
+  double normal_y;
+  double normal_z;
+  double distance_from_origin_m;
+  double center_x_m;
+  double center_y_m;
+  double center_z_m;
+  double observed_area_m2;
+  double mean_absolute_error_m;
+  size_t inlier_count;
+} ark_plane_v1;
+
 typedef struct ark_plane_hit_v1 {
   uint32_t struct_size;
   double position_x_m;
@@ -237,6 +252,9 @@ size_t ark_visual_copy_last_error(ark_visual_handle* handle, char* buffer, size_
 ark_result ark_visual_integrate_map(ark_visual_handle* handle,
                                     const ark_world_pose_v1* world_from_camera,
                                     ark_map_update_v1* out_update);
+ark_result ark_visual_get_plane_count(ark_visual_handle* handle, size_t* out_count);
+ark_result ark_visual_get_plane(ark_visual_handle* handle, size_t index,
+                                ark_plane_v1* out_plane);
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,
                                     double origin_x_m, double origin_y_m, double origin_z_m,
                                     double direction_x, double direction_y, double direction_z,

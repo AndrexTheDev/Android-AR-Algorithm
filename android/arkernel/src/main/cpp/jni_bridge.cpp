@@ -223,3 +223,26 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRestoreSpatialSnapshot(
   if(env->ExceptionCheck())return ARK_RESULT_INTERNAL_ERROR;
   return ark_visual_restore_snapshot(fromVisualHandle(handle),bytes.data(),bytes.size(),restore_now_ns);
 }
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetPlaneCount(JNIEnv*,jobject,jlong handle) {
+  size_t count=0;
+  return ark_visual_get_plane_count(fromVisualHandle(handle),&count)==ARK_RESULT_OK?
+    static_cast<jlong>(count):-1;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetPlane(JNIEnv* env,jobject,jlong handle,
+    jlong index,jlongArray metadata,jdoubleArray values) {
+  if(index<0||!metadata||!values||env->GetArrayLength(metadata)<2||
+     env->GetArrayLength(values)<9)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_plane_v1 plane{};plane.struct_size=sizeof(plane);
+  const auto status=ark_visual_get_plane(fromVisualHandle(handle),static_cast<size_t>(index),&plane);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[2]={static_cast<jlong>(plane.id),static_cast<jlong>(plane.inlier_count)};
+  const jdouble data[9]={plane.normal_x,plane.normal_y,plane.normal_z,
+    plane.distance_from_origin_m,plane.center_x_m,plane.center_y_m,plane.center_z_m,
+    plane.observed_area_m2,plane.mean_absolute_error_m};
+  env->SetLongArrayRegion(metadata,0,2,meta);env->SetDoubleArrayRegion(values,0,9,data);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

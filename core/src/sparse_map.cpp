@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace arkernel {
 namespace {
@@ -350,6 +351,69 @@ PlaneEstimate SparsePlaneDetector::detect(const std::vector<SparseLandmark>& lan
   best.valid=best.boundary_uv.size()>=3&&best.observed_area_m2>1e-8;
   return best;
 }
+
+std::vector<PlaneEstimate> SparsePlaneDetector::detectMultiple(
+    const std::vector<SparseLandmark>& landmarks,std::size_t max_planes) const{
+  std::vector<PlaneEstimate> result;
+  if(max_planes==0)return result;
+  std::vector<SparseLandmark> remaining=landmarks;
+  result.reserve(std::min(max_planes,remaining.size()/3));
+  while(result.size()<max_planes){
+    auto plane=detect(remaining);
+    if(!plane.valid)break;
+    std::unordered_set<std::uint32_t> inliers(plane.landmark_ids.begin(),plane.landmark_ids.end());
+    if(inliers.empty())break;
+    result.push_back(std::move(plane));
+    remaining.erase(std::remove_if(remaining.begin(),remaining.end(),[&](const auto& landmark){
+      return inliers.find(landmark.feature_id)!=inliers.end();
+    }),remaining.end());
+  }
+  return result;
+}
+
+SparsePlaneTracker::SparsePlaneTracker(PlaneDetectorConfig detector_config,
+                                       PlaneTrackerConfig tracker_config)
+    :detector_(detector_config),config_(tracker_config){
+  if(config_.max_planes<1||config_.max_normal_angle_degrees<=0||
+     config_.max_normal_angle_degrees>=90||config_.max_offset_change_m<=0||
+     config_.max_center_shift_m<=0)throw std::invalid_argument("Invalid plane tracker configuration");
+}
+const std::vector<TrackedPlane>& SparsePlaneTracker::update(
+    const std::vector<SparseLandmark>& landmarks){
+  auto detected=detector_.detectMultiple(landmarks,config_.max_planes);
+  std::vector<TrackedPlane> tracked;tracked.reserve(detected.size());
+  std::vector<bool> matched(planes_.size(),false);
+  const double minimum_cosine=std::cos(config_.max_normal_angle_degrees*
+                                       3.14159265358979323846/180.0);
+  for(auto& estimate:detected){
+    std::size_t best_index=planes_.size();double best_score=std::numeric_limits<double>::infinity();
+    for(std::size_t i=0;i<planes_.size();++i){
+      if(matched[i])continue;
+      const auto& previous=planes_[i].estimate;
+      const double cosine=dot(previous.normal_world,estimate.normal_world);
+      const double offset=std::abs(previous.distance_from_origin_m-estimate.distance_from_origin_m);
+      const double center=(previous.center_world-estimate.center_world).norm();
+      if(cosine<minimum_cosine||offset>config_.max_offset_change_m||
+         center>config_.max_center_shift_m)continue;
+      const double score=(1.0-cosine)/(1.0-minimum_cosine)+
+        offset/config_.max_offset_change_m+center/config_.max_center_shift_m;
+      if(score<best_score||(std::abs(score-best_score)<1e-12&&
+         (best_index==planes_.size()||planes_[i].id<planes_[best_index].id))){
+        best_score=score;best_index=i;
+      }
+    }
+    PlaneId id=0;
+    if(best_index<planes_.size()){id=planes_[best_index].id;matched[best_index]=true;}
+    else{
+      if(next_id_==std::numeric_limits<PlaneId>::max())
+        throw std::overflow_error("Plane ID range exhausted");
+      id=next_id_++;
+    }
+    tracked.push_back({id,std::move(estimate)});
+  }
+  planes_=std::move(tracked);return planes_;
+}
+void SparsePlaneTracker::reset(){planes_.clear();next_id_=1;}
 
 AnchorId AnchorStore::create(const Pose& pose,TimestampNs timestamp){
   const double rotation_norm=std::sqrt(pose.rotation.w*pose.rotation.w+

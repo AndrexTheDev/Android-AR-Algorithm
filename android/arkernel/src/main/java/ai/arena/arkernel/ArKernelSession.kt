@@ -134,7 +134,12 @@ class ArKernelSession(
             result, snapshot, spatialMap, fusionApplied, queueStatus.first, queueStatus.second))
     }
 
-    /** Returns null unless the ray intersects the currently observed plane boundary. */
+    fun planes(): List<PlaneEstimateSnapshot> {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.planes()
+    }
+
+    /** Returns the nearest hit across all currently observed plane boundaries. */
     fun raycastPlane(originWorldMeters: Vector3, directionWorld: Vector3,
                      minDistanceMeters: Double = 0.05,
                      maxDistanceMeters: Double = 20.0): PlaneRaycastHit? {

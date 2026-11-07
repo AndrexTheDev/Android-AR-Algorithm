@@ -58,6 +58,32 @@ data class PlaneRaycastHit(
     val planeCoordinatesMeters: Pair<Double, Double>,
 )
 data class WorldAnchorSnapshot(val id: Long, val worldPose: WorldPose)
+data class SemanticObjectObservation3d(
+    val classId: Long,
+    val sourceTrackId: Long = -1,
+    val positionWorldMeters: Vector3,
+    val confidence: Double,
+    val timestampNs: Long,
+    val dynamic: Boolean = false,
+)
+data class SemanticMapUpdate(
+    val created: Long,
+    val updated: Long,
+    val rejected: Long,
+    val pruned: Long,
+    val objectCount: Long,
+)
+data class SemanticObjectSnapshot(
+    val id: Long,
+    val classId: Long,
+    val sourceTrackId: Long,
+    val positionWorldMeters: Vector3,
+    val confidence: Double,
+    val observationCount: Long,
+    val firstSeenNs: Long,
+    val lastSeenNs: Long,
+    val dynamic: Boolean,
+)
 
 data class VisualFrontendSnapshot(
     val timestampNs: Long,
@@ -173,6 +199,50 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     }
 
     @Synchronized
+    fun integrateSemantic(
+        observation: SemanticObjectObservation3d,
+        nowNs: Long = observation.timestampNs,
+    ): SemanticMapUpdate {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(observation.classId in 0..0xffff_ffffL) { "Semantic class ID is out of range" }
+        val output = LongArray(5)
+        val position = observation.positionWorldMeters
+        val result = nativeIntegrateSemantic(nativeHandle, observation.classId,
+            observation.sourceTrackId, observation.timestampNs, nowNs,
+            position.x, position.y, position.z,
+            observation.confidence, observation.dynamic, output)
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid semantic object observation" }
+        check(result == RESULT_OK) { "Native semantic map error: $result" }
+        return SemanticMapUpdate(output[0], output[1], output[2], output[3], output[4])
+    }
+
+    @Synchronized
+    fun pruneSemantics(nowNs: Long): SemanticMapUpdate {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        val output = LongArray(5)
+        val result = nativePruneSemantics(nativeHandle, nowNs, output)
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid semantic prune timestamp" }
+        check(result == RESULT_OK) { "Native semantic prune error: $result" }
+        return SemanticMapUpdate(output[0], output[1], output[2], output[3], output[4])
+    }
+
+    @Synchronized
+    fun semanticObjects(): List<SemanticObjectSnapshot> {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        val count = nativeGetSemanticObjectCount(nativeHandle)
+        check(count >= 0) { "Could not query native semantic object count" }
+        return List(count.toInt()) { index ->
+            val metadata = LongArray(7)
+            val values = DoubleArray(4)
+            val result = nativeGetSemanticObject(nativeHandle, index.toLong(), metadata, values)
+            check(result == RESULT_OK) { "Native semantic object query error: $result" }
+            SemanticObjectSnapshot(metadata[0], metadata[1], metadata[2],
+                Vector3(values[0], values[1], values[2]), values[3], metadata[5],
+                metadata[3], metadata[4], metadata[6] != 0L)
+        }
+    }
+
+    @Synchronized
     fun raycastPlane(originWorldMeters: Vector3, directionWorld: Vector3,
                      minDistanceMeters: Double = 0.05,
                      maxDistanceMeters: Double = 20.0): PlaneRaycastHit? {
@@ -262,6 +332,14 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeGetPlane(handle: Long, index: Long,
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeGetRoomLayout(handle: Long,
+        metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeIntegrateSemantic(handle: Long, classId: Long,
+        sourceTrackId: Long, timestampNs: Long, nowNs: Long,
+        x: Double, y: Double, z: Double,
+        confidence: Double, dynamic: Boolean, output: LongArray): Int
+    private external fun nativePruneSemantics(handle: Long, nowNs: Long, output: LongArray): Int
+    private external fun nativeGetSemanticObjectCount(handle: Long): Long
+    private external fun nativeGetSemanticObject(handle: Long, index: Long,
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeRaycastPlane(handle: Long,
         ox: Double, oy: Double, oz: Double, dx: Double, dy: Double, dz: Double,

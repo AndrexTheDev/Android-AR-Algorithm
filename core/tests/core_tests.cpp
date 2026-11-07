@@ -15,6 +15,7 @@
 #include "arkernel/homography_ransac.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
+#include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
 #include "arkernel/motion_prediction.h"
@@ -292,6 +293,23 @@ int main() {
   ark_room_layout_v1 c_room_layout{};c_room_layout.struct_size=sizeof(c_room_layout);
   CHECK(ark_visual_get_room_layout(visual_c_handle,&c_room_layout)==ARK_RESULT_OK);
   CHECK(!c_room_layout.has_floor && !c_room_layout.has_ceiling && c_room_layout.wall_count==0);
+  ark_semantic_observation_v1 c_semantic{};c_semantic.struct_size=sizeof(c_semantic);
+  c_semantic.class_id=5;c_semantic.source_track_id=77;c_semantic.timestamp_ns=c_frame.timestamp_ns;
+  c_semantic.position_z_m=2;c_semantic.confidence=0.9;
+  ark_semantic_update_v1 c_semantic_update{};c_semantic_update.struct_size=sizeof(c_semantic_update);
+  CHECK(ark_visual_integrate_semantics(visual_c_handle,&c_semantic,1,c_semantic.timestamp_ns,
+                                        &c_semantic_update)==ARK_RESULT_OK);
+  CHECK(c_semantic_update.object_count==0);
+  c_semantic.timestamp_ns+=1;
+  CHECK(ark_visual_integrate_semantics(visual_c_handle,&c_semantic,1,c_semantic.timestamp_ns,
+                                        &c_semantic_update)==ARK_RESULT_OK);
+  CHECK(c_semantic_update.created==1 && c_semantic_update.object_count==1);
+  std::size_t c_semantic_count=0;
+  CHECK(ark_visual_get_semantic_object_count(visual_c_handle,&c_semantic_count)==ARK_RESULT_OK);
+  CHECK(c_semantic_count==1);
+  ark_semantic_object_v1 c_semantic_object{};c_semantic_object.struct_size=sizeof(c_semantic_object);
+  CHECK(ark_visual_get_semantic_object(visual_c_handle,0,&c_semantic_object)==ARK_RESULT_OK);
+  CHECK(c_semantic_object.class_id==5 && c_semantic_object.observation_count==2);
   ark_plane_hit_v1 c_plane_hit{};c_plane_hit.struct_size=sizeof(c_plane_hit);
   CHECK(ark_visual_raycast_plane(visual_c_handle,0,0,0,0,0,1,0.05,10,
                                   &c_plane_hit)==ARK_RESULT_NOT_READY);
@@ -322,6 +340,8 @@ int main() {
   CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OK);
   CHECK(c_visual_result.state==ARK_FRONTEND_INITIALIZING);
   CHECK(ark_visual_reset(visual_c_handle)==ARK_RESULT_OK);
+  CHECK(ark_visual_get_semantic_object_count(visual_c_handle,&c_semantic_count)==ARK_RESULT_OK);
+  CHECK(c_semantic_count==0);
   CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_NOT_READY);
   ark_visual_destroy(visual_c_handle);
 
@@ -371,6 +391,29 @@ int main() {
   }
   CHECK(dynamic_update.dynamic_pruned==1);
   CHECK(dynamic_rejection_map.size()==0);
+
+  SemanticObjectMap semantic_map;
+  const SemanticObjectObservation chair_first{7,42,{1,0,0},0.8,2400000000LL,false};
+  CHECK(semantic_map.integrate({chair_first},chair_first.timestamp_ns).created==0);
+  CHECK(semantic_map.size()==0 && semantic_map.snapshot().empty());
+  const SemanticObjectObservation chair_second{7,42,{1.2,0,0},0.9,2500000000LL,false};
+  CHECK(semantic_map.integrate({chair_second},chair_second.timestamp_ns).created==1);
+  CHECK(semantic_map.size()==1);
+  const auto semantic_objects=semantic_map.snapshot();
+  CHECK(semantic_objects.size()==1 && semantic_objects.front().class_id==7);
+  CHECK(semantic_objects.front().observation_count==2);
+  CHECK(semantic_objects.front().position_world_m.x>1.10&&
+        semantic_objects.front().position_world_m.x<1.11);
+  const SemanticObjectObservation moving_person_first{3,9,{0,2,0},0.95,2600000000LL,true};
+  const SemanticObjectObservation moving_person_second{3,9,{0.1,2,0},0.90,2700000000LL,true};
+  semantic_map.integrate({moving_person_first},moving_person_first.timestamp_ns);
+  CHECK(semantic_map.integrate({moving_person_second},moving_person_second.timestamp_ns).created==1);
+  CHECK(semantic_map.size()==2);
+  const auto semantic_prune=semantic_map.integrate({},4800000000LL);
+  CHECK(semantic_prune.pruned==1 && semantic_map.size()==1);
+  CHECK(semantic_map.integrate({{7,-1,{0,0,0},0.1,4900000000LL,false}},
+                               4900000000LL).rejected==1);
+
   SparsePlaneDetector plane_detector({300,0.01,15,123});
   const auto plane=plane_detector.detect(sparse_map.snapshot());
   CHECK(plane.valid && plane.inlier_count==20);

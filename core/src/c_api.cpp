@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
 #include "arkernel/tracking_quality.h"
@@ -35,6 +36,7 @@ struct ark_visual_handle {
   arkernel::PlaneEstimate plane;
   arkernel::RoomLayoutEstimate room_layout;
   arkernel::MappingQualityGate mapping_gate;
+  arkernel::SemanticObjectMap semantic_map;
   arkernel::AnchorStore anchors;
   std::optional<arkernel::VisualFrontendResult> last_result;
   std::mutex mutex;
@@ -150,7 +152,7 @@ ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
   handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();
-  handle->mapping_gate.reset();handle->anchors.reset();
+  handle->mapping_gate.reset();handle->semantic_map.reset();handle->anchors.reset();
   handle->plane={};handle->room_layout={};handle->last_result.reset();handle->last_frame_ns=0;
   handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
 }
@@ -291,6 +293,52 @@ ark_result ark_visual_get_room_layout(ark_visual_handle* handle,ark_room_layout_
   out->observed_floor_area_m2=layout.observed_floor_area_m2;
   out->observed_ceiling_area_m2=layout.observed_ceiling_area_m2;
   out->observed_wall_area_m2=layout.observed_wall_area_m2;out->wall_count=layout.wall_count;
+  handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_integrate_semantics(ark_visual_handle* handle,
+    const ark_semantic_observation_v1* observations,size_t count,int64_t now_ns,
+    ark_semantic_update_v1* out){
+  if(!handle||!validStruct(out)||now_ns<=0||count>4096||(!observations&&count>0))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  try{
+    std::vector<arkernel::SemanticObjectObservation> converted;converted.reserve(count);
+    for(size_t i=0;i<count;++i){
+      if(!validStruct(&observations[i]))
+        return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Semantic observation struct is invalid");
+      const auto& value=observations[i];
+      converted.push_back({value.class_id,value.source_track_id,
+        {value.position_x_m,value.position_y_m,value.position_z_m},value.confidence,
+        value.timestamp_ns,value.dynamic!=0});
+    }
+    const auto update=handle->semantic_map.integrate(converted,now_ns);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->created=update.created;out->updated=update.updated;out->rejected=update.rejected;
+    out->pruned=update.pruned;out->object_count=handle->semantic_map.size();
+    handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown semantic map error");}
+}
+
+ark_result ark_visual_get_semantic_object_count(ark_visual_handle* handle,size_t* out_count){
+  if(!handle||!out_count)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  *out_count=handle->semantic_map.size();handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_get_semantic_object(ark_visual_handle* handle,size_t index,
+                                          ark_semantic_object_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);const auto objects=handle->semantic_map.snapshot();
+  if(index>=objects.size())return fail(handle,ARK_RESULT_NOT_READY,"Semantic object index does not exist");
+  const auto& object=objects[index];const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+  out->id=object.id;out->class_id=object.class_id;out->source_track_id=object.source_track_id;
+  out->first_seen_ns=object.first_seen_ns;out->last_seen_ns=object.last_seen_ns;
+  out->position_x_m=object.position_world_m.x;out->position_y_m=object.position_world_m.y;
+  out->position_z_m=object.position_world_m.z;out->confidence=object.confidence;
+  out->observation_count=object.observation_count;out->dynamic=object.dynamic?1u:0u;
   handle->error.clear();return ARK_RESULT_OK;
 }
 

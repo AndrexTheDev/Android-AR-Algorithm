@@ -42,6 +42,8 @@ class ArKernelSession(
     private val visual = ArKernelVisualFrontend(calibration)
     private var droppedSamples = 0L
     private var gateObservedDroppedSamples = 0L
+    @Volatile private var latestMappingGate = MappingGateDecision(
+        MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
     private var previousBodyWorldRotation: Rotation? = null
     private var pendingBodyWorldRotation: Pair<Long, Rotation>? = null
     @Volatile private var running = false
@@ -64,6 +66,8 @@ class ArKernelSession(
             queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
             previousBodyWorldRotation = null; pendingBodyWorldRotation = null
         }
+        latestMappingGate = MappingGateDecision(
+            MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
         running = true
         try {
             imu.start()
@@ -77,6 +81,8 @@ class ArKernelSession(
     fun stop() {
         if (!running) return
         running = false
+        latestMappingGate = MappingGateDecision(
+            MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
         camera.stop()
         imu.stop()
         synchronized(lock) {
@@ -139,6 +145,7 @@ class ArKernelSession(
             acceptedTracks = result.acceptedTrackCount,
             imuQueueOverflow = queueStatus.third,
         )
+        latestMappingGate = mappingGate
         val spatialMap = if (mappingGate.integrate) snapshot?.let { state ->
             val cameraOffsetWorld = rotate(state.rotation, bodyFromCameraTranslationMeters)
             val worldFromCamera = WorldPose(result.timestampNs,
@@ -161,6 +168,23 @@ class ArKernelSession(
     fun roomLayout(): RoomLayoutSnapshot {
         check(!closed) { "AR kernel session is closed" }
         return visual.roomLayout()
+    }
+
+    /** Returns null while geometric mapping is paused or recovering. */
+    fun integrateSemanticObservation(observation: SemanticObjectObservation3d): SemanticMapUpdate? {
+        check(!closed) { "AR kernel session is closed" }
+        if (!running || !latestMappingGate.integrate) return null
+        return visual.integrateSemantic(observation, SystemClock.elapsedRealtimeNanos())
+    }
+
+    fun semanticObjects(): List<SemanticObjectSnapshot> {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.semanticObjects()
+    }
+
+    fun pruneSemanticObjects(nowNs: Long): SemanticMapUpdate {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.pruneSemantics(nowNs)
     }
 
     /** Returns the nearest hit across all currently observed plane boundaries. */

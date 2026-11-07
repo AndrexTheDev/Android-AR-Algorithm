@@ -12,6 +12,7 @@ add_library(arkernel STATIC
     src/imu_preintegrator.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp
+    src/semantic_map.cpp
     src/sparse_map.cpp
     src/spatial_snapshot.cpp
     src/tracking_quality.cpp

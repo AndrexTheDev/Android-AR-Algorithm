@@ -248,6 +248,42 @@ typedef struct ark_plane_hit_v1 {
   double plane_v_m;
 } ark_plane_hit_v1;
 
+typedef struct ark_semantic_observation_v1 {
+  uint32_t struct_size;
+  uint32_t class_id;
+  int64_t source_track_id;
+  int64_t timestamp_ns;
+  double position_x_m;
+  double position_y_m;
+  double position_z_m;
+  double confidence;
+  uint32_t dynamic;
+} ark_semantic_observation_v1;
+
+typedef struct ark_semantic_update_v1 {
+  uint32_t struct_size;
+  size_t created;
+  size_t updated;
+  size_t rejected;
+  size_t pruned;
+  size_t object_count;
+} ark_semantic_update_v1;
+
+typedef struct ark_semantic_object_v1 {
+  uint32_t struct_size;
+  uint64_t id;
+  uint32_t class_id;
+  int64_t source_track_id;
+  int64_t first_seen_ns;
+  int64_t last_seen_ns;
+  double position_x_m;
+  double position_y_m;
+  double position_z_m;
+  double confidence;
+  size_t observation_count;
+  uint32_t dynamic;
+} ark_semantic_object_v1;
+
 typedef struct ark_anchor_v1 {
   uint32_t struct_size;
   uint64_t id;
@@ -313,6 +349,14 @@ ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle, size_t index
                                          uint32_t* out_semantic);
 ark_result ark_visual_get_room_layout(ark_visual_handle* handle,
                                       ark_room_layout_v1* out_layout);
+ark_result ark_visual_integrate_semantics(ark_visual_handle* handle,
+                                          const ark_semantic_observation_v1* observations,
+                                          size_t observation_count,
+                                          int64_t now_ns,
+                                          ark_semantic_update_v1* out_update);
+ark_result ark_visual_get_semantic_object_count(ark_visual_handle* handle, size_t* out_count);
+ark_result ark_visual_get_semantic_object(ark_visual_handle* handle, size_t index,
+                                          ark_semantic_object_v1* out_object);
 ark_result ark_visual_raycast_plane(ark_visual_handle* handle,
                                     double origin_x_m, double origin_y_m, double origin_z_m,
                                     double direction_x, double direction_y, double direction_z,

@@ -40,6 +40,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
 - `sparse_map.h`: Feature-ID-basierte Triangulation, begrenzte Landmark-Karte, Ebenen und Weltanker;
 - `spatial_snapshot.h`: portable, versionierte und integritätsgeprüfte Kartenbytes;
+- `semantic_map.h`: modellunabhängige, begrenzte Fusion metrischer 3D-Klassenbeobachtungen;
 - `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO- und Visual-Handles;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: Midpoint-Vorintegration, Referenz-Bias, First-Order-Bias-Jakobians und diagonale Unsicherheitspropagation;
@@ -107,3 +108,7 @@ Geometrisch akzeptierte Frontend-Tracks werden über ihre stabilen IDs und das k
 ## Spatial Snapshot
 
 Persistiert werden nur primäre Landmark- und Anchor-Zustände; Ebenen bleiben ableitbar und werden nach dem Laden neu geschätzt. `ARKMAP01` kodiert Zahlen explizit Little Endian, begrenzt Counts und Gesamtbytes, validiert eindeutige IDs und schützt gegen zufällige Korruption mit CRC32. Restore baut zunächst einen vollständigen temporären Zustand und tauscht ihn erst nach erfolgreicher Validierung ein. CRC32 ist keine Authentisierung. `ArKernelMapStore` schützt die Bytes deshalb vor Dateispeicherung mit einem nicht exportierbaren Android-Keystore-AES-256-GCM-Schlüssel, authentisiert seinen versionierten Envelope als AAD und schreibt über `AtomicFile` in den No-Backup-Bereich. Beim Runtime-Restore werden Landmark-Zeitstempel auf die aktuelle Boot-Time umgebunden und Frontend-Feature-IDs kollisionsfrei oberhalb importierter IDs fortgesetzt. Eine alte Karte darf dennoch erst nach externer Relokalisierung in denselben Weltframe geladen werden; AEAD beweist Datenintegrität, nicht räumliche Ausrichtung.
+
+## Semantische 3D-Objekte
+
+`SemanticObjectMap` nimmt ausschließlich bereits metrische Weltbeobachtungen eines externen On-Device-Modells entgegen; eine 2D-Box wird nie als erfundene 3D-Position behandelt. Klassen- und optionale Track-ID, Konfidenz, Dynamikstatus, Distanz und Zeit steuern die Assoziation. Zwei Beobachtungen bestätigen standardmäßig ein Objekt, Positionen werden konfidenzgewichtet fusioniert, dynamische Instanzen bleiben von statischen getrennt und verfallen schneller. Das harte Objektbudget nutzt deterministische Eviction. Android lässt semantische Writes nur bei aktivem Mapping-Gate zu. Taxonomie, Modellhash, Lizenz und Labelnamen gehören in das Adapter-Manifest, nicht in den Trackingkern; Klasse `0` bleibt Unknown. Semantik ist derzeit transient und aus Datenschutz- und Schema-Gründen nicht Teil von `ARKMAP01`.

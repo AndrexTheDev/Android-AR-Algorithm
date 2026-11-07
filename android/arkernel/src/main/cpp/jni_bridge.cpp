@@ -287,3 +287,64 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeUpdateMappingGate(JNIEnv* en
   env->SetLongArrayRegion(output,0,3,values);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeIntegrateSemantic(JNIEnv* env,jobject,jlong handle,
+    jlong class_id,jlong track_id,jlong timestamp,jlong now_ns,jdouble x,jdouble y,jdouble z,
+    jdouble confidence,jboolean dynamic,jlongArray output) {
+  if(class_id<0||static_cast<uint64_t>(class_id)>std::numeric_limits<uint32_t>::max()||
+     !output||env->GetArrayLength(output)<5)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_semantic_observation_v1 observation{};observation.struct_size=sizeof(observation);
+  observation.class_id=static_cast<uint32_t>(class_id);observation.source_track_id=track_id;
+  observation.timestamp_ns=timestamp;observation.position_x_m=x;observation.position_y_m=y;
+  observation.position_z_m=z;observation.confidence=confidence;observation.dynamic=dynamic?1u:0u;
+  ark_semantic_update_v1 update{};update.struct_size=sizeof(update);
+  const auto status=ark_visual_integrate_semantics(
+    fromVisualHandle(handle),&observation,1,now_ns,&update);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong values[5]={static_cast<jlong>(update.created),static_cast<jlong>(update.updated),
+    static_cast<jlong>(update.rejected),static_cast<jlong>(update.pruned),
+    static_cast<jlong>(update.object_count)};
+  env->SetLongArrayRegion(output,0,5,values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativePruneSemantics(JNIEnv* env,jobject,jlong handle,
+    jlong now_ns,jlongArray output) {
+  if(!output||env->GetArrayLength(output)<5)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_semantic_update_v1 update{};update.struct_size=sizeof(update);
+  const auto status=ark_visual_integrate_semantics(fromVisualHandle(handle),nullptr,0,now_ns,&update);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong values[5]={static_cast<jlong>(update.created),static_cast<jlong>(update.updated),
+    static_cast<jlong>(update.rejected),static_cast<jlong>(update.pruned),
+    static_cast<jlong>(update.object_count)};
+  env->SetLongArrayRegion(output,0,5,values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetSemanticObjectCount(
+    JNIEnv*,jobject,jlong handle) {
+  size_t count=0;
+  return ark_visual_get_semantic_object_count(fromVisualHandle(handle),&count)==ARK_RESULT_OK?
+    static_cast<jlong>(count):-1;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetSemanticObject(JNIEnv* env,jobject,jlong handle,
+    jlong index,jlongArray metadata,jdoubleArray values) {
+  if(index<0||!metadata||!values||env->GetArrayLength(metadata)<7||
+     env->GetArrayLength(values)<4)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_semantic_object_v1 object{};object.struct_size=sizeof(object);
+  const auto status=ark_visual_get_semantic_object(
+    fromVisualHandle(handle),static_cast<size_t>(index),&object);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[7]={static_cast<jlong>(object.id),static_cast<jlong>(object.class_id),
+    object.source_track_id,object.first_seen_ns,object.last_seen_ns,
+    static_cast<jlong>(object.observation_count),static_cast<jlong>(object.dynamic)};
+  const jdouble data[4]={object.position_x_m,object.position_y_m,object.position_z_m,
+                          object.confidence};
+  env->SetLongArrayRegion(metadata,0,7,meta);env->SetDoubleArrayRegion(values,0,4,data);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

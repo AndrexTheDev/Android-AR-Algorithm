@@ -65,6 +65,8 @@ int main() {
   for (int y=35; y<52; ++y) for (int x=50; x<72; ++x) image[y*80+x] = 255;
   FastGridDetector detector({15,4,3,2,4});
   const auto features = detector.detect({80,60,80,image.data(),image.size()});
+  std::vector<std::uint8_t> padded_camera_buffer(63*96+80,0);
+  CHECK((GrayImageView{80,64,96,padded_camera_buffer.data(),padded_camera_buffer.size()}.valid()));
   CHECK(features.size() >= 4);
   CHECK(features.size() <= 4u*3u*2u);
   bool left = false, right = false;
@@ -231,6 +233,27 @@ int main() {
   const auto frontend_collapse=frontend.process(flat_view,2033000000LL);
   CHECK(frontend_collapse.state==FrontendState::kReinitialized);
   CHECK(frontend_collapse.accepted_track_count<frontend_config.min_tracked_features);
+
+  ark_visual_config_v1 visual_c_config{};
+  CHECK(ark_visual_default_config(flow_width,flow_height,110,110,64,48,
+                                  &visual_c_config)==ARK_RESULT_OK);
+  visual_c_config.min_tracked_features=10;
+  visual_c_config.max_active_features=180;
+  ark_visual_handle* visual_c_handle=nullptr;
+  CHECK(ark_visual_create(&visual_c_config,&visual_c_handle)==ARK_RESULT_OK);
+  ark_gray_frame_v1 c_frame{};
+  c_frame.struct_size=sizeof(c_frame);c_frame.width=flow_width;c_frame.height=flow_height;
+  c_frame.row_stride=flow_width;c_frame.data_size=frontend_a.size();
+  ark_visual_result_v1 c_visual_result{};c_visual_result.struct_size=sizeof(c_visual_result);
+  c_frame.timestamp_ns=9000000000LL;c_frame.data=frontend_a.data();
+  CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OK);
+  CHECK(c_visual_result.state==ARK_FRONTEND_INITIALIZING);
+  c_frame.timestamp_ns+=33000000LL;c_frame.data=frontend_b.data();
+  CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OK);
+  CHECK(c_visual_result.state==ARK_FRONTEND_TRACKING);
+  CHECK(c_visual_result.geometry==ARK_GEOMETRY_PLANAR_OR_ROTATION);
+  CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OUT_OF_ORDER);
+  ark_visual_destroy(visual_c_handle);
 
   // VIO starts only from a stationary window, propagates metric inertial state,
   // and accepts monocular scale only when inertial displacement agrees.

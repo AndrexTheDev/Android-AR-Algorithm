@@ -26,6 +26,20 @@ typedef enum ark_vio_status {
 } ark_vio_status;
 
 typedef struct ark_vio_handle ark_vio_handle;
+typedef struct ark_visual_handle ark_visual_handle;
+
+typedef enum ark_frontend_state {
+  ARK_FRONTEND_INITIALIZING = 0,
+  ARK_FRONTEND_TRACKING = 1,
+  ARK_FRONTEND_LIMITED = 2,
+  ARK_FRONTEND_REINITIALIZED = 3
+} ark_frontend_state;
+
+typedef enum ark_scene_geometry {
+  ARK_GEOMETRY_INVALID = 0,
+  ARK_GEOMETRY_GENERAL_3D = 1,
+  ARK_GEOMETRY_PLANAR_OR_ROTATION = 2
+} ark_scene_geometry;
 
 typedef struct ark_vio_config_v1 {
   uint32_t struct_size;
@@ -72,6 +86,60 @@ typedef struct ark_relative_pose_v1 {
   uint32_t valid;
 } ark_relative_pose_v1;
 
+typedef struct ark_visual_config_v1 {
+  uint32_t struct_size;
+  uint32_t api_version;
+  int32_t width;
+  int32_t height;
+  double fx;
+  double fy;
+  double cx;
+  double cy;
+  double distortion_k1;
+  double distortion_k2;
+  double distortion_p1;
+  double distortion_p2;
+  double distortion_k3;
+  size_t max_active_features;
+  size_t min_tracked_features;
+  int64_t max_frame_gap_ns;
+} ark_visual_config_v1;
+
+typedef struct ark_gray_frame_v1 {
+  uint32_t struct_size;
+  int64_t timestamp_ns;
+  int32_t width;
+  int32_t height;
+  int32_t row_stride;
+  const uint8_t* data;
+  size_t data_size;
+  uint32_t has_rotation_prediction;
+  double rotation_current_from_previous_w;
+  double rotation_current_from_previous_x;
+  double rotation_current_from_previous_y;
+  double rotation_current_from_previous_z;
+} ark_gray_frame_v1;
+
+typedef struct ark_visual_result_v1 {
+  uint32_t struct_size;
+  int64_t timestamp_ns;
+  uint32_t state;
+  uint32_t geometry;
+  size_t accepted_track_count;
+  size_t active_feature_count;
+  uint32_t keyframe;
+  uint32_t relative_pose_valid;
+  double relative_rotation_w;
+  double relative_rotation_x;
+  double relative_rotation_y;
+  double relative_rotation_z;
+  double relative_translation_direction_x;
+  double relative_translation_direction_y;
+  double relative_translation_direction_z;
+  size_t positive_depth_count;
+  double median_parallax_degrees;
+} ark_visual_result_v1;
+
 typedef struct ark_vio_state_v1 {
   uint32_t struct_size;
   int64_t timestamp_ns;
@@ -97,6 +165,17 @@ typedef struct ark_vio_state_v1 {
 } ark_vio_state_v1;
 
 uint32_t ark_c_api_version(void);
+ark_result ark_visual_default_config(int32_t width, int32_t height,
+                                     double fx, double fy, double cx, double cy,
+                                     ark_visual_config_v1* out_config);
+ark_result ark_visual_create(const ark_visual_config_v1* config, ark_visual_handle** out_handle);
+void ark_visual_destroy(ark_visual_handle* handle);
+ark_result ark_visual_reset(ark_visual_handle* handle);
+ark_result ark_visual_process_gray(ark_visual_handle* handle,
+                                   const ark_gray_frame_v1* frame,
+                                   ark_visual_result_v1* out_result);
+size_t ark_visual_copy_last_error(ark_visual_handle* handle, char* buffer, size_t buffer_size);
+
 ark_result ark_vio_default_config(ark_vio_config_v1* out_config);
 ark_result ark_vio_create(const ark_vio_config_v1* config, ark_vio_handle** out_handle);
 void ark_vio_destroy(ark_vio_handle* handle);

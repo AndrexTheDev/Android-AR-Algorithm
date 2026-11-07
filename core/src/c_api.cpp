@@ -8,6 +8,7 @@
 #include <new>
 #include <string>
 #include "arkernel/vio_estimator.h"
+#include "arkernel/visual_frontend.h"
 
 struct ark_vio_handle {
   explicit ark_vio_handle(const arkernel::VioConfig& config) : estimator(config) {}
@@ -15,6 +16,16 @@ struct ark_vio_handle {
   std::mutex mutex;
   std::string error;
   int64_t last_submitted_imu_ns{0};
+};
+
+struct ark_visual_handle {
+  ark_visual_handle(const arkernel::PinholeRadTanCamera& camera,
+                    const arkernel::VisualFrontendConfig& config)
+      : frontend(camera,config) {}
+  arkernel::VisualFrontend frontend;
+  std::mutex mutex;
+  std::string error;
+  int64_t last_frame_ns{0};
 };
 
 namespace {
@@ -40,6 +51,17 @@ bool validConfigHeader(const ark_vio_config_v1* config) {
   return config && config->struct_size>=sizeof(ark_vio_config_v1) &&
          config->api_version==ARKERNEL_C_API_VERSION;
 }
+bool validConfigHeader(const ark_visual_config_v1* config) {
+  return config && config->struct_size>=sizeof(ark_visual_config_v1) &&
+         config->api_version==ARKERNEL_C_API_VERSION;
+}
+arkernel::VisualFrontendConfig convert(const ark_visual_config_v1& c) {
+  arkernel::VisualFrontendConfig result;
+  result.max_active_features=c.max_active_features;
+  result.min_tracked_features=c.min_tracked_features;
+  result.max_frame_gap_ns=c.max_frame_gap_ns;
+  return result;
+}
 template <typename T> bool validStruct(const T* value) {
   return value && value->struct_size>=sizeof(T);
 }
@@ -47,10 +69,112 @@ ark_result fail(ark_vio_handle* handle,ark_result result,const char* message) {
   if(handle)handle->error=message;
   return result;
 }
+ark_result fail(ark_visual_handle* handle,ark_result result,const char* message) {
+  if(handle)handle->error=message;
+  return result;
+}
+template <typename Handle>
+size_t copyError(Handle* handle,char* buffer,size_t buffer_size) {
+  static const char invalid[]="Invalid native handle";
+  const std::string value=handle?handle->error:invalid;
+  const size_t required=value.size()+1;
+  if(buffer&&buffer_size){const size_t count=std::min(buffer_size-1,value.size());
+    std::memcpy(buffer,value.data(),count);buffer[count]='\0';}
+  return required;
+}
 }  // namespace
 
 extern "C" {
 uint32_t ark_c_api_version(void){return ARKERNEL_C_API_VERSION;}
+
+ark_result ark_visual_default_config(int32_t width,int32_t height,double fx,double fy,
+    double cx,double cy,ark_visual_config_v1* out){
+  if(!out||width<=0||height<=0||fx<=0||fy<=0)return ARK_RESULT_INVALID_ARGUMENT;
+  arkernel::VisualFrontendConfig defaults;
+  *out={};out->struct_size=sizeof(*out);out->api_version=ARKERNEL_C_API_VERSION;
+  out->width=width;out->height=height;out->fx=fx;out->fy=fy;out->cx=cx;out->cy=cy;
+  out->max_active_features=defaults.max_active_features;
+  out->min_tracked_features=defaults.min_tracked_features;
+  out->max_frame_gap_ns=defaults.max_frame_gap_ns;return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_create(const ark_visual_config_v1* config,ark_visual_handle** out){
+  if(!out)return ARK_RESULT_INVALID_ARGUMENT;
+  *out=nullptr;
+  if(!validConfigHeader(config)||!std::isfinite(config->fx)||!std::isfinite(config->fy)||
+     !std::isfinite(config->cx)||!std::isfinite(config->cy)||
+     !std::isfinite(config->distortion_k1)||!std::isfinite(config->distortion_k2)||
+     !std::isfinite(config->distortion_p1)||!std::isfinite(config->distortion_p2)||
+     !std::isfinite(config->distortion_k3))return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    arkernel::CameraIntrinsics intrinsics{config->width,config->height,config->fx,
+                                          config->fy,config->cx,config->cy};
+    arkernel::RadTanDistortion distortion{config->distortion_k1,config->distortion_k2,
+      config->distortion_p1,config->distortion_p2,config->distortion_k3};
+    *out=new ark_visual_handle(arkernel::PinholeRadTanCamera(intrinsics,distortion),convert(*config));
+    return ARK_RESULT_OK;
+  }catch(const std::bad_alloc&){return ARK_RESULT_INTERNAL_ERROR;}
+  catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+void ark_visual_destroy(ark_visual_handle* handle){delete handle;}
+
+ark_result ark_visual_reset(ark_visual_handle* handle){
+  if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  handle->frontend.reset();handle->last_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_process_gray(ark_visual_handle* handle,const ark_gray_frame_v1* frame,
+                                   ark_visual_result_v1* out){
+  if(!handle||!validStruct(frame)||!validStruct(out)||!frame->data)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  if(frame->timestamp_ns<=handle->last_frame_ns)
+    return fail(handle,ARK_RESULT_OUT_OF_ORDER,"Camera timestamp is not increasing");
+  try{
+    std::optional<arkernel::Quaternion> prediction;
+    if(frame->has_rotation_prediction){
+      const double norm=std::sqrt(frame->rotation_current_from_previous_w*
+          frame->rotation_current_from_previous_w+frame->rotation_current_from_previous_x*
+          frame->rotation_current_from_previous_x+frame->rotation_current_from_previous_y*
+          frame->rotation_current_from_previous_y+frame->rotation_current_from_previous_z*
+          frame->rotation_current_from_previous_z);
+      if(!std::isfinite(norm)||norm<1e-9)
+        return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Rotation prediction is invalid");
+      prediction=arkernel::Quaternion{frame->rotation_current_from_previous_w/norm,
+        frame->rotation_current_from_previous_x/norm,
+        frame->rotation_current_from_previous_y/norm,
+        frame->rotation_current_from_previous_z/norm};
+    }
+    const arkernel::GrayImageView view{frame->width,frame->height,frame->row_stride,
+                                       frame->data,frame->data_size};
+    const auto result=handle->frontend.process(view,frame->timestamp_ns,prediction);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->timestamp_ns=result.timestamp_ns;out->state=static_cast<uint32_t>(result.state);
+    out->geometry=static_cast<uint32_t>(result.geometry.geometry);
+    out->accepted_track_count=result.accepted_track_count;
+    out->active_feature_count=result.active_feature_count;out->keyframe=result.keyframe?1u:0u;
+    out->relative_pose_valid=result.relative_pose.valid?1u:0u;
+    out->relative_rotation_w=result.relative_pose.rotation_current_from_previous.w;
+    out->relative_rotation_x=result.relative_pose.rotation_current_from_previous.x;
+    out->relative_rotation_y=result.relative_pose.rotation_current_from_previous.y;
+    out->relative_rotation_z=result.relative_pose.rotation_current_from_previous.z;
+    out->relative_translation_direction_x=result.relative_pose.translation_direction_current.x;
+    out->relative_translation_direction_y=result.relative_pose.translation_direction_current.y;
+    out->relative_translation_direction_z=result.relative_pose.translation_direction_current.z;
+    out->positive_depth_count=result.relative_pose.positive_depth_count;
+    out->median_parallax_degrees=result.relative_pose.median_parallax_degrees;
+    handle->last_frame_ns=frame->timestamp_ns;handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown visual frontend error");}
+}
+
+size_t ark_visual_copy_last_error(ark_visual_handle* handle,char* buffer,size_t buffer_size){
+  if(!handle)return copyError(handle,buffer,buffer_size);
+  std::lock_guard<std::mutex> lock(handle->mutex);return copyError(handle,buffer,buffer_size);
+}
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out){
   if(!out)return ARK_RESULT_INVALID_ARGUMENT;

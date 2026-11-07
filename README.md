@@ -44,7 +44,8 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - zustandsbehaftetes Visual-Frontend mit stabilen Feature-IDs, Geometriefilterung, Feature-Nachfüllung, Keyframes und kontrollierter Wiederinitialisierung;
 - VIO-Bootstrap mit stationärer Schwerkraft-/Gyro-Bias-Initialisierung, Strapdown-Propagation und konservativer visueller Korrektur;
 - speicherbegrenztes Fixed-Lag-Fenster mit IMU-/Vision-Faktoren, Huber-Gewichtung und Prior-Promotion;
-- versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sicherer Android-SensorManager-Adapter;
+- versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
+- kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

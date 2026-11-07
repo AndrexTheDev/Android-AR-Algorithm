@@ -21,3 +21,7 @@ override fun onDestroy() { imu.close(); vio.close(); super.onDestroy() }
 ```
 
 The next adapter will feed Camera2 Y-plane frames into the native visual frontend. The current module deliberately does not pretend that camera ingestion is complete.
+
+## Calibrated Camera2 stream
+
+`Camera2FrameSource` opens a back camera (or an explicit camera ID), requests the exact calibrated YUV size, consumes only the Y plane, and closes each `Image` after the synchronous native call. The host must pass intrinsics/distortion for that exact camera ID, output size, crop and stabilization mode; the adapter intentionally refuses to guess calibration. The requested size must be listed by that camera's `StreamConfigurationMap`.

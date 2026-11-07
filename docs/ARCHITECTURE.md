@@ -38,7 +38,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `visual_frontend.h`: zustandsbehaftete Verkettung der Visionmodule und Feature-Lebenszyklus;
 - `vio_estimator.h`: metrischer IMU-Zustand, stationäre Initialisierung und visueller Bootstrap;
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
-- `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO-Handles;
+- `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO- und Visual-Handles;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;
@@ -65,3 +65,8 @@ Das Fenster hält eine harte Maximalzahl an Keyframes. Der älteste Zustand ist 
 ## Android- und ABI-Grenze
 
 Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine explizite API-Version. C++-Exceptions verlassen die Bibliothek nie. Handles sind opak und intern per Mutex geschützt; Fehlertexte werden in Caller-Speicher kopiert. JNI transportiert Nanosekunden als `Long`, nicht als ungenaues `Double`. Die Kotlin-Fassade besitzt den nativen Handle eindeutig und implementiert `AutoCloseable`. `AndroidImuSource` registriert beide Sensoren auf einem eigenen `HandlerThread`; Pause/Resume setzt den Zustand zurück, damit Boot-Time-Sequenzen verschiedener Kamera-/App-Sessions nie vermischt werden.
+
+
+## Camera2-Puffervertrag
+
+`Camera2FrameSource` fordert exakt die Auflösung der übergebenen `CameraCalibration` an. Der Host muss Kamera-ID, Crop, Stabilisierung und Intrinsics konsistent wählen; der Kern rät keine Brennweite. Der direkte Y-Plane-`ByteBuffer` wird synchron über JNI verarbeitet und das `Image` erst danach geschlossen. `rowStride` und ein möglicherweise ungepolstertes letztes Bildsegment werden korrekt berücksichtigt. Das Visual-Frontend kopiert nur den benötigten Grauwertzustand für den nächsten Frame; kein Android-Pufferpointer wird gespeichert.

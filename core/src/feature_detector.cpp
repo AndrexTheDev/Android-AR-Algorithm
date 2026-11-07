@@ -5,8 +5,10 @@
 namespace arkernel {
 
 bool GrayImageView::valid() const {
-  return data && width > 0 && height > 0 && row_stride >= width &&
-         data_size >= static_cast<std::size_t>(row_stride) * static_cast<std::size_t>(height);
+  if (!data || width <= 0 || height <= 0 || row_stride < width) return false;
+  const std::size_t required = static_cast<std::size_t>(height-1)*row_stride+
+                               static_cast<std::size_t>(width);
+  return data_size >= required;
 }
 
 FastGridDetector::FastGridDetector(FeatureDetectorConfig config) : config_(config) {

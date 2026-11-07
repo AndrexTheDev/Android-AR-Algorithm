@@ -20,6 +20,12 @@ Each accepted pixel is distortion-aware unprojected. Radius is derived from dept
 
 When full, deterministic eviction prefers unconfirmed, weakly observed, low-confidence, old surfels. IDs and query order are stable for the lifetime of an entry. Reset clears all surfels.
 
+## Bounded surfel raycasts
+
+`SurfelMap::raycast`, the C ABI, and Android `raycastSurfel` return only the nearest hit among confirmed entries and enforce finite origins/directions plus explicit minimum and maximum distance. Surfels with reliable normals are intersected as finite two-sided discs using their fused radius. Surfels without normals are conservatively intersected as spheres whose collision radius is capped to half a voxel, even when their sampling footprint is larger; the returned radial normal is marked as approximate through `normal_valid = false`. Parallel rays, misses outside a disc radius, unconfirmed entries, and out-of-range intersections are ignored. Stable Surfel ID and confidence are returned with the world-space hit.
+
+This query supports placement and collision tests but is not a screen-space occlusion depth buffer; apps must not treat a sparse miss as proof that free space is observed.
+
 ## Safety and current limits
 
 Android session writes are allowed only while the geometric mapping gate is active. This prevents a depth model from painting geometry into an unstable world pose. The surfel map is transient and intentionally excluded from `ARKMAP01` until mesh schema, storage budgets, relocalized alignment, and privacy policy are finalized.

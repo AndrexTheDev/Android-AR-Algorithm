@@ -54,7 +54,7 @@
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 
-- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion und Android-Mapping-Gate; TSDF bleibt offen;
+- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; TSDF bleibt offen;
 - optional Depth Anything V2 Small quantisiert als Prior;
 - Skalen-/Confidence-Fusion, dynamische Masken, Mesh-LOD;
 - Filament-Occlusionadapter.

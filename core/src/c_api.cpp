@@ -419,6 +419,22 @@ ark_result ark_visual_get_surfel(ark_visual_handle* handle,size_t index,ark_surf
   out->normal_valid=value.normal_valid?1u:0u;handle->error.clear();return ARK_RESULT_OK;
 }
 
+ark_result ark_visual_raycast_surfel(ark_visual_handle* handle,
+    double ox,double oy,double oz,double dx,double dy,double dz,
+    double min_distance,double max_distance,ark_surfel_hit_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  const auto hit=handle->surfel_map.raycast({ox,oy,oz},{dx,dy,dz},min_distance,max_distance);
+  if(!hit)return fail(handle,ARK_RESULT_NOT_READY,"Ray does not hit a confirmed surfel");
+  const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+  out->surfel_id=hit->surfel_id;out->position_x_world_m=hit->position_world_m.x;
+  out->position_y_world_m=hit->position_world_m.y;out->position_z_world_m=hit->position_world_m.z;
+  out->normal_x_world=hit->normal_world.x;out->normal_y_world=hit->normal_world.y;
+  out->normal_z_world=hit->normal_world.z;out->distance_m=hit->distance_m;
+  out->confidence=hit->confidence;out->normal_valid=hit->normal_valid?1u:0u;
+  handle->error.clear();return ARK_RESULT_OK;
+}
+
 ark_result ark_visual_project_semantic(ark_visual_handle* handle,
     const ark_semantic_projection_v1* projection,const ark_world_pose_v1* pose,
     int64_t now_ns,ark_semantic_update_v1* out){

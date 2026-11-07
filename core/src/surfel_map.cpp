@@ -137,6 +137,50 @@ std::vector<Surfel> SurfelMap::snapshot(bool include_unconfirmed) const {
   return output;
 }
 
+std::optional<SurfelHit> SurfelMap::raycast(const Vec3& origin,const Vec3& direction,
+    double min_distance_m,double max_distance_m) const {
+  const double direction_norm=direction.norm();
+  if(!finite(origin)||!finite(direction)||!std::isfinite(direction_norm)||direction_norm<1e-9||
+     !std::isfinite(min_distance_m)||!std::isfinite(max_distance_m)||min_distance_m<0||
+     max_distance_m<=min_distance_m)return std::nullopt;
+  const Vec3 ray=direction*(1.0/direction_norm);
+  std::optional<SurfelHit> nearest;
+  for(const auto& item:surfels_){const Surfel& surfel=item.second;if(!surfel.confirmed)continue;
+    double distance=std::numeric_limits<double>::infinity();Vec3 hit_normal=surfel.normal_world;
+    if(surfel.normal_valid){
+      const double denominator=surfel.normal_world.x*ray.x+surfel.normal_world.y*ray.y+
+                               surfel.normal_world.z*ray.z;
+      if(std::abs(denominator)<1e-8)continue;
+      const Vec3 offset=surfel.position_world_m-origin;
+      distance=(offset.x*surfel.normal_world.x+offset.y*surfel.normal_world.y+
+                offset.z*surfel.normal_world.z)/denominator;
+      if(distance<min_distance_m||distance>max_distance_m)continue;
+      const Vec3 point=origin+ray*distance;
+      if((point-surfel.position_world_m).norm()>surfel.radius_m)continue;
+    }else{
+      const double sphere_radius=std::min(surfel.radius_m,config_.voxel_size_m*0.5);
+      const Vec3 offset=origin-surfel.position_world_m;
+      const double projection=offset.x*ray.x+offset.y*ray.y+offset.z*ray.z;
+      const double squared=offset.x*offset.x+offset.y*offset.y+offset.z*offset.z-
+                           sphere_radius*sphere_radius;
+      const double discriminant=projection*projection-squared;
+      if(discriminant<0)continue;
+      const double root=std::sqrt(discriminant);
+      distance=-projection-root;
+      if(distance<min_distance_m)distance=-projection+root;
+      if(distance<min_distance_m||distance>max_distance_m)continue;
+      const Vec3 point=origin+ray*distance;hit_normal=point-surfel.position_world_m;
+      const double normal_norm=hit_normal.norm();
+      if(normal_norm<1e-9)hit_normal=ray*(-1.0);else hit_normal=hit_normal*(1.0/normal_norm);
+    }
+    if(!nearest||distance<nearest->distance_m||
+       (distance==nearest->distance_m&&surfel.id<nearest->surfel_id))
+      nearest=SurfelHit{surfel.id,origin+ray*distance,hit_normal,distance,
+                        surfel.confidence,surfel.normal_valid};
+  }
+  return nearest;
+}
+
 std::size_t SurfelMap::size() const {
   std::size_t count=0;for(const auto& item:surfels_)if(item.second.confirmed)++count;return count;
 }

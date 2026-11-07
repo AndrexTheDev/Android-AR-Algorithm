@@ -113,6 +113,14 @@ data class SurfelMapUpdate(
     val pruned: Long,
     val surfelCount: Long,
 )
+data class SurfelHitSnapshot(
+    val surfelId: Long,
+    val positionWorldMeters: Vector3,
+    val normalWorld: Vector3,
+    val distanceMeters: Double,
+    val confidence: Double,
+    val normalValid: Boolean,
+)
 data class SurfelSnapshot(
     val id: Long,
     val positionWorldMeters: Vector3,
@@ -349,6 +357,27 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     }
 
     @Synchronized
+    fun raycastSurfel(
+        originWorldMeters: Vector3,
+        directionWorld: Vector3,
+        minDistanceMeters: Double = 0.05,
+        maxDistanceMeters: Double = 20.0,
+    ): SurfelHitSnapshot? {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        val metadata = LongArray(2)
+        val values = DoubleArray(8)
+        val result = nativeRaycastSurfel(nativeHandle,
+            originWorldMeters.x, originWorldMeters.y, originWorldMeters.z,
+            directionWorld.x, directionWorld.y, directionWorld.z,
+            minDistanceMeters, maxDistanceMeters, metadata, values)
+        if (result == RESULT_NOT_READY) return null
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid surfel ray" }
+        check(result == RESULT_OK) { "Native surfel raycast error: $result" }
+        return SurfelHitSnapshot(metadata[0], Vector3(values[0], values[1], values[2]),
+            Vector3(values[3], values[4], values[5]), values[6], values[7], metadata[1] != 0L)
+    }
+
+    @Synchronized
     fun projectSemantic(
         projection: SemanticPixelProjection,
         worldFromCamera: WorldPose,
@@ -566,6 +595,10 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         px: Double, py: Double, pz: Double, output: LongArray): Int
     private external fun nativeGetSurfelCount(handle: Long): Long
     private external fun nativeGetSurfel(handle: Long, index: Long,
+        metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeRaycastSurfel(handle: Long,
+        ox: Double, oy: Double, oz: Double, dx: Double, dy: Double, dz: Double,
+        minDistance: Double, maxDistance: Double,
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeProjectSemantic(handle: Long, classId: Long,
         sourceTrackId: Long, timestampNs: Long, nowNs: Long,

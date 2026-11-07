@@ -319,6 +319,20 @@ typedef struct ark_surfel_update_v1 {
   uint64_t surfel_count;
 } ark_surfel_update_v1;
 
+typedef struct ark_surfel_hit_v1 {
+  uint32_t struct_size;
+  uint64_t surfel_id;
+  double position_x_world_m;
+  double position_y_world_m;
+  double position_z_world_m;
+  double normal_x_world;
+  double normal_y_world;
+  double normal_z_world;
+  double distance_m;
+  double confidence;
+  uint32_t normal_valid;
+} ark_surfel_hit_v1;
+
 typedef struct ark_surfel_v1 {
   uint32_t struct_size;
   uint64_t id;
@@ -465,6 +479,11 @@ ark_result ark_visual_integrate_surfels(ark_visual_handle* handle,
 ark_result ark_visual_get_surfel_count(ark_visual_handle* handle, size_t* out_count);
 ark_result ark_visual_get_surfel(ark_visual_handle* handle, size_t index,
                                  ark_surfel_v1* out_surfel);
+ark_result ark_visual_raycast_surfel(ark_visual_handle* handle,
+                                     double origin_x_m, double origin_y_m, double origin_z_m,
+                                     double direction_x, double direction_y, double direction_z,
+                                     double min_distance_m, double max_distance_m,
+                                     ark_surfel_hit_v1* out_hit);
 ark_result ark_visual_project_semantic(ark_visual_handle* handle,
                                        const ark_semantic_projection_v1* projection,
                                        const ark_world_pose_v1* world_from_camera,

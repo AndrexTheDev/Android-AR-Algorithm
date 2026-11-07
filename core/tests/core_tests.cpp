@@ -370,6 +370,13 @@ int main() {
   CHECK(ark_visual_integrate_depth_image(visual_c_handle,&c_depth_image,&c_world_pose,
       c_depth_image.timestamp_ns,&c_surfel_update)==ARK_RESULT_OK);
   CHECK(c_surfel_update.created>0&&c_surfel_update.surfel_count>1);
+  ark_surfel_hit_v1 c_surfel_hit{};c_surfel_hit.struct_size=sizeof(c_surfel_hit);
+  CHECK(ark_visual_raycast_surfel(visual_c_handle,0,0,0,0,0,1,0.05,10,
+      &c_surfel_hit)==ARK_RESULT_OK);
+  CHECK(c_surfel_hit.surfel_id!=0&&c_surfel_hit.distance_m>=1.5&&
+        c_surfel_hit.distance_m<=2.0);
+  CHECK(ark_visual_raycast_surfel(visual_c_handle,0,0,0,0,0,-1,0.05,10,
+      &c_surfel_hit)==ARK_RESULT_NOT_READY);
   ark_semantic_projection_v1 c_projection{};c_projection.struct_size=sizeof(c_projection);
   c_projection.class_id=5;c_projection.source_track_id=77;c_projection.timestamp_ns=c_frame.timestamp_ns;
   c_projection.pixel_x=64;c_projection.pixel_y=48;c_projection.confidence=0.9;
@@ -507,6 +514,17 @@ int main() {
   CHECK(fused_surfels.size()==1&&fused_surfels[0].observation_count==2);
   CHECK(fused_surfels[0].position_world_m.x>1.015&&fused_surfels[0].position_world_m.x<1.016);
   CHECK(fused_surfels[0].normal_valid&&std::abs(fused_surfels[0].normal_world.z-1)<1e-9);
+  const auto surfel_hit=surfel_map.raycast({0,0,0},fused_surfels[0].position_world_m);
+  CHECK(surfel_hit.has_value()&&surfel_hit->surfel_id==fused_surfels[0].id);
+  CHECK(std::abs(surfel_hit->distance_m-fused_surfels[0].position_world_m.norm())<1e-8);
+  CHECK(!surfel_map.raycast({0,0,0},{0,0,-1}).has_value());
+  SurfelMapConfig spherical_config;spherical_config.min_confirming_observations=1;
+  SurfelMap spherical_surfel_map(spherical_config);
+  SurfelObservation spherical_observation{{0,0,2},{},0.9,0.1,2400000000LL,false};
+  spherical_surfel_map.integrate({spherical_observation},spherical_observation.timestamp_ns);
+  const auto spherical_hit=spherical_surfel_map.raycast({0,0,0},{0,0,1});
+  CHECK(spherical_hit.has_value()&&!spherical_hit->normal_valid);
+  CHECK(std::abs(spherical_hit->distance_m-1.975)<1e-8);
   auto stale_surface=surface_second;stale_surface.timestamp_ns=surface_first.timestamp_ns-1;
   CHECK(surfel_map.integrate({stale_surface},surface_second.timestamp_ns).rejected==1);
   auto invalid_surface=surface_second;invalid_surface.confidence=0.1;

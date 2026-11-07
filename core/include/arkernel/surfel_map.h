@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 #include "arkernel/types.h"
@@ -53,6 +54,15 @@ struct SurfelMapUpdate {
   std::size_t pruned{0};
 };
 
+struct SurfelHit {
+  SurfelId surfel_id{0};
+  Vec3 position_world_m{};
+  Vec3 normal_world{};
+  double distance_m{0.0};
+  double confidence{0.0};
+  bool normal_valid{false};
+};
+
 // Bounded model-independent surface fusion. Adapters may derive observations
 // from stereo, monocular depth, structured light, ToF or imported point clouds.
 class SurfelMap {
@@ -61,6 +71,10 @@ class SurfelMap {
   SurfelMapUpdate integrate(const std::vector<SurfelObservation>& observations,
                             TimestampNs now_ns);
   std::vector<Surfel> snapshot(bool include_unconfirmed = false) const;
+  std::optional<SurfelHit> raycast(const Vec3& ray_origin_world,
+                                   const Vec3& ray_direction_world,
+                                   double min_distance_m = 0.05,
+                                   double max_distance_m = 20.0) const;
   std::size_t size() const;
   void reset();
  private:

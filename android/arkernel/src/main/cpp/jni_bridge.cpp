@@ -523,3 +523,20 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeIntegrateDepthImage(JNIEnv* 
   env->SetLongArrayRegion(output,0,5,result);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRaycastSurfel(JNIEnv* env,jobject,jlong handle,
+    jdouble ox,jdouble oy,jdouble oz,jdouble dx,jdouble dy,jdouble dz,jdouble min_distance,
+    jdouble max_distance,jlongArray metadata,jdoubleArray values) {
+  if(!metadata||!values||env->GetArrayLength(metadata)<2||env->GetArrayLength(values)<8)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_surfel_hit_v1 hit{};hit.struct_size=sizeof(hit);
+  const auto status=ark_visual_raycast_surfel(fromVisualHandle(handle),ox,oy,oz,dx,dy,dz,
+    min_distance,max_distance,&hit);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[2]={static_cast<jlong>(hit.surfel_id),static_cast<jlong>(hit.normal_valid)};
+  const jdouble data[8]={hit.position_x_world_m,hit.position_y_world_m,hit.position_z_world_m,
+    hit.normal_x_world,hit.normal_y_world,hit.normal_z_world,hit.distance_m,hit.confidence};
+  env->SetLongArrayRegion(metadata,0,2,meta);env->SetDoubleArrayRegion(values,0,8,data);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

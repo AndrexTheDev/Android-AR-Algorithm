@@ -239,6 +239,15 @@ class ArKernelSession(
             minDistanceMeters, maxDistanceMeters)
     }
 
+    /** Returns the nearest finite-disc/sphere hit in the confirmed surfel map. */
+    fun raycastSurfel(originWorldMeters: Vector3, directionWorld: Vector3,
+                      minDistanceMeters: Double = 0.05,
+                      maxDistanceMeters: Double = 20.0): SurfelHitSnapshot? {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.raycastSurfel(originWorldMeters, directionWorld,
+            minDistanceMeters, maxDistanceMeters)
+    }
+
     fun createAnchor(worldPose: WorldPose): Long {
         check(!closed) { "AR kernel session is closed" }
         return visual.createAnchor(worldPose)

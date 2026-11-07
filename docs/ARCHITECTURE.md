@@ -37,6 +37,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `geometry_model_selector.h`: konservatives Gate gegen falsche 3D-Initialisierung;
 - `visual_frontend.h`: zustandsbehaftete Verkettung der Visionmodule und Feature-Lebenszyklus;
 - `vio_estimator.h`: metrischer IMU-Zustand, stationäre Initialisierung und visueller Bootstrap;
+- `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;
@@ -53,3 +54,8 @@ Der Kern speichert keine Pointer auf Kamerabuffer über `processFrame` hinaus. D
 ## VIO-Bootstrap versus Optimizer
 
 Der aktuelle `VioEstimator` initialisiert die Welt-z-Achse aus einem nachweislich stationären IMU-Fenster, schätzt den Gyro-Bias und den entlang der Schwerkraft beobachtbaren Accelerometer-Bias, propagiert Pose/Geschwindigkeit und korrigiert konservativ mit visueller Relativgeometrie. Eine Essential-Translation besitzt nur eine Richtung; der metrische Faktor gilt deshalb für genau dieses Frameintervall und wird nur bei konsistenter inertialer Verschiebung akzeptiert. Das ist ein sicherer Bootstrap, aber noch kein Sliding-Window-Bundle-Adjustment. Kamera-zu-IMU-Rotation ist konfigurierbar; der kleine räumliche Hebelarm wird erst im Optimizer vollständig modelliert.
+
+
+## Fixed-Lag-Fenster
+
+Das Fenster hält eine harte Maximalzahl an Keyframes. Der älteste Zustand ist der feste Prior; bei Überlauf wird er entfernt und der nächste aktuelle Zustand zum neuen Prior. IMU-Faktoren koppeln Rotation, Geschwindigkeit und Position, visuelle Faktoren koppeln Rotation und die zur Essential-Geometrie passende Translationsrichtung. Huber-Verluste begrenzen den Einfluss grober Residuen. Die aktuelle deterministische Forward-Sweep-Lösung ist ein dependency-free Fixed-Lag-Bootstrap. Sie ist ausdrücklich noch keine vollständige sparse Gauss-Newton-Lösung mit Bias-Jakobians und Schur-Komplement-Marginalisierung.

@@ -6,6 +6,7 @@
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
 #include "arkernel/feature_detector.h"
+#include "arkernel/fixed_lag_smoother.h"
 #include "arkernel/epipolar_ransac.h"
 #include "arkernel/essential_pose.h"
 #include "arkernel/geometry_model_selector.h"
@@ -265,6 +266,42 @@ int main() {
     moving_initializer.submitImu({vio_start+i*10000000LL,{0,0,gravity},
                                   {0.2*(i&1?1.0:-1.0),0,0}});
   CHECK(!moving_initializer.initialized());
+
+  // The fixed-lag window reduces adjacent IMU/vision residuals and remains
+  // bounded by promoting an optimized state to the prior on overflow.
+  FixedLagConfig smoother_config;
+  smoother_config.max_keyframes=4;
+  smoother_config.optimization_iterations=10;
+  FixedLagSmoother smoother(smoother_config);
+  RelativePoseEstimate forward_visual;
+  forward_visual.valid=true;
+  forward_visual.rotation_current_from_previous={};
+  forward_visual.translation_direction_current={-1,0,0};
+  PreintegratedImu constant_velocity_imu;
+  constant_velocity_imu.duration_s=0.1;
+  constant_velocity_imu.delta_rotation={};
+  constant_velocity_imu.delta_velocity={0,0,gravity*0.1};
+  constant_velocity_imu.delta_position={0,0,0.5*gravity*0.01};
+  constant_velocity_imu.sample_count=2;
+  for (int i=0;i<6;++i) {
+    VioState keyframe;
+    keyframe.timestamp_ns=5000000000LL+i*100000000LL;
+    keyframe.world_from_body.translation={0.1*i,(i&1)?-0.18:0.18,0};
+    keyframe.world_from_body.rotation=Quaternion::fromRotationVector(
+        {0,0,(i&1)?-0.04:0.04});
+    keyframe.velocity_world_mps={1,0,0};
+    keyframe.status=VioStatus::kVisualInertial;
+    CHECK(smoother.addKeyframe(keyframe,
+          i==0?std::optional<PreintegratedImu>{}:constant_velocity_imu,
+          i==0?std::optional<RelativePoseEstimate>{}:forward_visual));
+  }
+  CHECK(smoother.keyframes().size()==4);
+  CHECK(smoother.marginalizedCount()==2);
+  const auto smoothing=smoother.optimize();
+  CHECK(smoothing.imu_factor_count==3);
+  CHECK(smoothing.visual_factor_count==3);
+  CHECK(smoothing.final_cost<smoothing.initial_cost*0.2);
+  CHECK(smoothing.marginalized_keyframe_count==2);
 
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));

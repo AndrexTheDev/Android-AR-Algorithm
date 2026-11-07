@@ -3,6 +3,7 @@ add_library(arkernel STATIC
     src/clock_aligner.cpp
     src/core_engine.cpp
     src/feature_detector.cpp
+    src/fixed_lag_smoother.cpp
     src/geometry_model_selector.cpp
     src/homography_ransac.cpp
     src/epipolar_ransac.cpp

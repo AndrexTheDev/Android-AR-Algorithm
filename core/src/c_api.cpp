@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <stdexcept>
 #include <string>
 #include "arkernel/vio_estimator.h"
 #include "arkernel/visual_frontend.h"

@@ -63,7 +63,7 @@
 
 - LiteRT/ONNX Runtime Backend SPI;
 - Detektion + Tracking + Segmentierung mit Geräteprofilen;
-- [x] begrenzte semantische 3D-Objektfusion und Unknown-Klasse; konkrete Inferenzadapter bleiben offen;
+- [x] begrenzte semantische 3D-Objektfusion, Unknown-Klasse und kalibrierte Boden-/Wandprojektion; konkrete Inferenzadapter bleiben offen;
 - Modellmanifest: Hash, Lizenz, Labels, Quantisierung, Benchmark.
 
 ## Phase 5 – Outdoor und Produktreife

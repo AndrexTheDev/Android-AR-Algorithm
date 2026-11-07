@@ -8,6 +8,7 @@ import kotlin.math.sqrt
 data class ArKernelSessionResult(
     val visual: VisualFrontendSnapshot,
     val vio: VioSnapshot?,
+    val worldFromCamera: WorldPose?,
     val mappingGate: MappingGateDecision,
     val spatialMap: SpatialMapUpdate?,
     val visualFusionApplied: Boolean,
@@ -146,17 +147,17 @@ class ArKernelSession(
             imuQueueOverflow = queueStatus.third,
         )
         latestMappingGate = mappingGate
-        val spatialMap = if (mappingGate.integrate) snapshot?.let { state ->
+        val worldFromCamera = snapshot?.let { state ->
             val cameraOffsetWorld = rotate(state.rotation, bodyFromCameraTranslationMeters)
-            val worldFromCamera = WorldPose(result.timestampNs,
-                multiply(state.rotation, bodyFromCameraRotation),
+            WorldPose(result.timestampNs, multiply(state.rotation, bodyFromCameraRotation),
                 Vector3(state.positionMeters.x + cameraOffsetWorld.x,
                     state.positionMeters.y + cameraOffsetWorld.y,
                     state.positionMeters.z + cameraOffsetWorld.z))
-            visual.integrateMap(worldFromCamera)
-        } else null
+        }
+        val spatialMap = if (mappingGate.integrate && worldFromCamera != null)
+            visual.integrateMap(worldFromCamera) else null
         onResult(ArKernelSessionResult(
-            result, snapshot, mappingGate, spatialMap, fusionApplied,
+            result, snapshot, worldFromCamera, mappingGate, spatialMap, fusionApplied,
             queueStatus.first, queueStatus.second))
     }
 
@@ -168,6 +169,20 @@ class ArKernelSession(
     fun roomLayout(): RoomLayoutSnapshot {
         check(!closed) { "AR kernel session is closed" }
         return visual.roomLayout()
+    }
+
+    /** Projects a frame-associated calibrated pixel only onto observed requested surfaces. */
+    fun projectSemanticDetection(
+        projection: SemanticPixelProjection,
+        frameWorldFromCamera: WorldPose,
+    ): SemanticMapUpdate? {
+        check(!closed) { "AR kernel session is closed" }
+        require(projection.timestampNs == frameWorldFromCamera.timestampNs) {
+            "Detection and camera pose timestamps must match"
+        }
+        if (!running || !latestMappingGate.integrate) return null
+        return visual.projectSemantic(projection, frameWorldFromCamera,
+            SystemClock.elapsedRealtimeNanos())
     }
 
     /** Returns null while geometric mapping is paused or recovering. */

@@ -5,6 +5,8 @@
 #include <optional>
 #include <unordered_map>
 #include <vector>
+#include "arkernel/camera_model.h"
+#include "arkernel/sparse_map.h"
 #include "arkernel/types.h"
 
 namespace arkernel {
@@ -51,6 +53,26 @@ struct SemanticMapUpdate {
   std::size_t rejected{0};
   std::size_t pruned{0};
 };
+
+enum class SemanticProjectionSurface : std::uint32_t { kAny, kFloor, kWall };
+
+struct SemanticProjectionRequest {
+  std::uint32_t class_id{0};
+  std::int64_t source_track_id{-1};
+  Vec2 pixel{};
+  double confidence{0.0};
+  TimestampNs timestamp_ns{0};
+  bool dynamic{false};
+  SemanticProjectionSurface surface{SemanticProjectionSurface::kAny};
+  double min_distance_m{0.05};
+  double max_distance_m{20.0};
+};
+
+std::optional<SemanticObjectObservation> projectSemanticObservation(
+    const SemanticProjectionRequest& request,
+    const PinholeRadTanCamera& camera,
+    const Pose& world_from_camera,
+    const std::vector<TrackedPlane>& planes);
 
 // Model-independent bounded 3D object fusion. class_id values and labels are
 // defined by the host's versioned model manifest; class_id zero means unknown.

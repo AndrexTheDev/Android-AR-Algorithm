@@ -15,6 +15,8 @@ A `SemanticObjectObservation` contains:
 
 The adapter is responsible for converting image detections into metric 3D observations using trusted depth, triangulation or a bounded plane raycast. A 2D box alone is not a 3D object position.
 
+For plane-supported objects, `projectSemanticObservation` unprojects an in-image calibrated pixel, rotates its ray with the frame-associated `world_from_camera` pose, and chooses the nearest bounded hit. The request can allow any plane or require `FLOOR`/`WALL`; a semantic point is never created outside an observed polygon or when the requested surface class is absent. The adapter chooses the meaningful pixel (for example, bottom-center for a floor-supported detection) and must retain the exact camera pose from that detection frame.
+
 ## Conservative fusion
 
 The bounded map first prefers a matching class/track pair subject to a maximum jump. Otherwise it uses nearest-neighbor association only within the same class and dynamic state. Positions are confidence-weighted. Objects remain unpublished until a configurable number of observations confirms them. Capacity eviction is deterministic and prioritizes unconfirmed, dynamic, weak, sparsely observed and old entries.

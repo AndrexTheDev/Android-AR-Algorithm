@@ -49,6 +49,12 @@ typedef enum ark_plane_semantic {
   ARK_PLANE_SLOPED = 4
 } ark_plane_semantic;
 
+typedef enum ark_semantic_projection_surface {
+  ARK_SEMANTIC_SURFACE_ANY = 0,
+  ARK_SEMANTIC_SURFACE_FLOOR = 1,
+  ARK_SEMANTIC_SURFACE_WALL = 2
+} ark_semantic_projection_surface;
+
 typedef enum ark_mapping_gate_state {
   ARK_MAPPING_PAUSED = 0,
   ARK_MAPPING_RECOVERING = 1,
@@ -248,6 +254,20 @@ typedef struct ark_plane_hit_v1 {
   double plane_v_m;
 } ark_plane_hit_v1;
 
+typedef struct ark_semantic_projection_v1 {
+  uint32_t struct_size;
+  uint32_t class_id;
+  int64_t source_track_id;
+  int64_t timestamp_ns;
+  double pixel_x;
+  double pixel_y;
+  double confidence;
+  uint32_t dynamic;
+  uint32_t surface;
+  double min_distance_m;
+  double max_distance_m;
+} ark_semantic_projection_v1;
+
 typedef struct ark_semantic_observation_v1 {
   uint32_t struct_size;
   uint32_t class_id;
@@ -349,6 +369,11 @@ ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle, size_t index
                                          uint32_t* out_semantic);
 ark_result ark_visual_get_room_layout(ark_visual_handle* handle,
                                       ark_room_layout_v1* out_layout);
+ark_result ark_visual_project_semantic(ark_visual_handle* handle,
+                                       const ark_semantic_projection_v1* projection,
+                                       const ark_world_pose_v1* world_from_camera,
+                                       int64_t now_ns,
+                                       ark_semantic_update_v1* out_update);
 ark_result ark_visual_integrate_semantics(ark_visual_handle* handle,
                                           const ark_semantic_observation_v1* observations,
                                           size_t observation_count,

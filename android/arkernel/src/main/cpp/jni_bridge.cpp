@@ -348,3 +348,30 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetSemanticObject(JNIEnv* en
   env->SetLongArrayRegion(metadata,0,7,meta);env->SetDoubleArrayRegion(values,0,4,data);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeProjectSemantic(JNIEnv* env,jobject,jlong handle,
+    jlong class_id,jlong track_id,jlong timestamp,jlong now_ns,jdouble pixel_x,jdouble pixel_y,
+    jdouble confidence,jboolean dynamic,jint surface,jdouble min_distance,jdouble max_distance,
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,jdouble py,jdouble pz,jlongArray output) {
+  if(class_id<0||static_cast<uint64_t>(class_id)>std::numeric_limits<uint32_t>::max()||
+     !output||env->GetArrayLength(output)<5)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_semantic_projection_v1 projection{};projection.struct_size=sizeof(projection);
+  projection.class_id=static_cast<uint32_t>(class_id);projection.source_track_id=track_id;
+  projection.timestamp_ns=timestamp;projection.pixel_x=pixel_x;projection.pixel_y=pixel_y;
+  projection.confidence=confidence;projection.dynamic=dynamic?1u:0u;
+  projection.surface=static_cast<uint32_t>(surface);projection.min_distance_m=min_distance;
+  projection.max_distance_m=max_distance;
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;
+  ark_semantic_update_v1 update{};update.struct_size=sizeof(update);
+  const auto status=ark_visual_project_semantic(
+    fromVisualHandle(handle),&projection,&pose,now_ns,&update);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong values[5]={static_cast<jlong>(update.created),static_cast<jlong>(update.updated),
+    static_cast<jlong>(update.rejected),static_cast<jlong>(update.pruned),
+    static_cast<jlong>(update.object_count)};
+  env->SetLongArrayRegion(output,0,5,values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

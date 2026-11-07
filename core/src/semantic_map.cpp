@@ -11,6 +11,37 @@ bool finite(const Vec3& value){
 }
 }
 
+std::optional<SemanticObjectObservation> projectSemanticObservation(
+    const SemanticProjectionRequest& request,const PinholeRadTanCamera& camera,
+    const Pose& world_from_camera,const std::vector<TrackedPlane>& planes){
+  const auto& rotation=world_from_camera.rotation;
+  const double rotation_norm=std::sqrt(rotation.w*rotation.w+rotation.x*rotation.x+
+    rotation.y*rotation.y+rotation.z*rotation.z);
+  if(request.timestamp_ns<=0||!std::isfinite(request.confidence)||request.confidence<0||
+     request.confidence>1||request.min_distance_m<0||
+     request.max_distance_m<=request.min_distance_m||!finite(world_from_camera.translation)||
+     !std::isfinite(rotation_norm)||rotation_norm<1e-9||!camera.isInside(request.pixel))
+    return std::nullopt;
+  const auto camera_ray=camera.unproject(request.pixel);
+  if(!camera_ray)return std::nullopt;
+  const Vec3 world_ray=rotation.rotate(*camera_ray);
+  std::optional<PlaneHit> nearest;
+  for(const auto& tracked:planes){
+    const bool surface_matches=request.surface==SemanticProjectionSurface::kAny||
+      (request.surface==SemanticProjectionSurface::kFloor&&
+       tracked.semantic==PlaneSemantic::kFloor)||
+      (request.surface==SemanticProjectionSurface::kWall&&
+       tracked.semantic==PlaneSemantic::kWall);
+    if(!surface_matches)continue;
+    const auto hit=tracked.estimate.raycast(world_from_camera.translation,world_ray,
+                                             request.min_distance_m,request.max_distance_m);
+    if(hit&&(!nearest||hit->distance_m<nearest->distance_m))nearest=hit;
+  }
+  if(!nearest)return std::nullopt;
+  return SemanticObjectObservation{request.class_id,request.source_track_id,
+    nearest->position_world,request.confidence,request.timestamp_ns,request.dynamic};
+}
+
 SemanticObjectMap::SemanticObjectMap(SemanticMapConfig config):config_(config){
   if(config_.max_objects<1||config_.min_confirming_observations<1||
      config_.min_observation_confidence<0||config_.min_observation_confidence>1||

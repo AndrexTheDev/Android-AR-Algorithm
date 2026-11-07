@@ -58,6 +58,19 @@ data class PlaneRaycastHit(
     val planeCoordinatesMeters: Pair<Double, Double>,
 )
 data class WorldAnchorSnapshot(val id: Long, val worldPose: WorldPose)
+enum class SemanticProjectionSurface { ANY, FLOOR, WALL }
+data class SemanticPixelProjection(
+    val classId: Long,
+    val sourceTrackId: Long = -1,
+    val pixelX: Double,
+    val pixelY: Double,
+    val confidence: Double,
+    val timestampNs: Long,
+    val dynamic: Boolean = false,
+    val surface: SemanticProjectionSurface = SemanticProjectionSurface.ANY,
+    val minDistanceMeters: Double = 0.05,
+    val maxDistanceMeters: Double = 20.0,
+)
 data class SemanticObjectObservation3d(
     val classId: Long,
     val sourceTrackId: Long = -1,
@@ -199,6 +212,29 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     }
 
     @Synchronized
+    fun projectSemantic(
+        projection: SemanticPixelProjection,
+        worldFromCamera: WorldPose,
+        nowNs: Long = projection.timestampNs,
+    ): SemanticMapUpdate? {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(projection.classId in 0..0xffff_ffffL) { "Semantic class ID is out of range" }
+        val output = LongArray(5)
+        val rotation = worldFromCamera.rotation
+        val position = worldFromCamera.positionMeters
+        val result = nativeProjectSemantic(nativeHandle, projection.classId,
+            projection.sourceTrackId, projection.timestampNs, nowNs,
+            projection.pixelX, projection.pixelY, projection.confidence, projection.dynamic,
+            projection.surface.ordinal, projection.minDistanceMeters, projection.maxDistanceMeters,
+            rotation.w, rotation.x, rotation.y, rotation.z,
+            position.x, position.y, position.z, output)
+        if (result == RESULT_NOT_READY) return null
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid semantic pixel projection" }
+        check(result == RESULT_OK) { "Native semantic projection error: $result" }
+        return SemanticMapUpdate(output[0], output[1], output[2], output[3], output[4])
+    }
+
+    @Synchronized
     fun integrateSemantic(
         observation: SemanticObjectObservation3d,
         nowNs: Long = observation.timestampNs,
@@ -333,6 +369,12 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeGetRoomLayout(handle: Long,
         metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeProjectSemantic(handle: Long, classId: Long,
+        sourceTrackId: Long, timestampNs: Long, nowNs: Long,
+        pixelX: Double, pixelY: Double, confidence: Double, dynamic: Boolean, surface: Int,
+        minDistance: Double, maxDistance: Double,
+        rw: Double, rx: Double, ry: Double, rz: Double,
+        px: Double, py: Double, pz: Double, output: LongArray): Int
     private external fun nativeIntegrateSemantic(handle: Long, classId: Long,
         sourceTrackId: Long, timestampNs: Long, nowNs: Long,
         x: Double, y: Double, z: Double,

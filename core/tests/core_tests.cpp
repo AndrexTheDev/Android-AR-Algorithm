@@ -293,10 +293,17 @@ int main() {
   ark_room_layout_v1 c_room_layout{};c_room_layout.struct_size=sizeof(c_room_layout);
   CHECK(ark_visual_get_room_layout(visual_c_handle,&c_room_layout)==ARK_RESULT_OK);
   CHECK(!c_room_layout.has_floor && !c_room_layout.has_ceiling && c_room_layout.wall_count==0);
+  ark_semantic_projection_v1 c_projection{};c_projection.struct_size=sizeof(c_projection);
+  c_projection.class_id=5;c_projection.source_track_id=77;c_projection.timestamp_ns=c_frame.timestamp_ns;
+  c_projection.pixel_x=64;c_projection.pixel_y=48;c_projection.confidence=0.9;
+  c_projection.surface=ARK_SEMANTIC_SURFACE_ANY;c_projection.min_distance_m=0.05;
+  c_projection.max_distance_m=20;
+  ark_semantic_update_v1 c_semantic_update{};c_semantic_update.struct_size=sizeof(c_semantic_update);
+  CHECK(ark_visual_project_semantic(visual_c_handle,&c_projection,&c_world_pose,
+      c_projection.timestamp_ns,&c_semantic_update)==ARK_RESULT_NOT_READY);
   ark_semantic_observation_v1 c_semantic{};c_semantic.struct_size=sizeof(c_semantic);
   c_semantic.class_id=5;c_semantic.source_track_id=77;c_semantic.timestamp_ns=c_frame.timestamp_ns;
   c_semantic.position_z_m=2;c_semantic.confidence=0.9;
-  ark_semantic_update_v1 c_semantic_update{};c_semantic_update.struct_size=sizeof(c_semantic_update);
   CHECK(ark_visual_integrate_semantics(visual_c_handle,&c_semantic,1,c_semantic.timestamp_ns,
                                         &c_semantic_update)==ARK_RESULT_OK);
   CHECK(c_semantic_update.object_count==0);
@@ -490,6 +497,21 @@ int main() {
   CHECK(std::abs(plane_hit->position_world.z-3.0)<1e-8);
   CHECK(!plane.raycast({5,0,0},{0,0,1}).has_value());
   CHECK(!plane.raycast({0,0,0},{1,0,0}).has_value());
+  SemanticProjectionRequest projection_request;
+  projection_request.class_id=8;projection_request.source_track_id=91;
+  projection_request.pixel={64,48};projection_request.confidence=0.9;
+  projection_request.timestamp_ns=2400000000LL;
+  projection_request.surface=SemanticProjectionSurface::kFloor;
+  const std::vector<TrackedPlane> projection_planes{{1,plane,PlaneSemantic::kFloor}};
+  const auto projected_semantic=projectSemanticObservation(
+      projection_request,frontend_camera,{},projection_planes);
+  CHECK(projected_semantic.has_value());
+  CHECK(std::abs(projected_semantic->position_world_m.z-3.0)<1e-8);
+  projection_request.surface=SemanticProjectionSurface::kWall;
+  CHECK(!projectSemanticObservation(projection_request,frontend_camera,{},projection_planes));
+  projection_request.surface=SemanticProjectionSurface::kAny;
+  projection_request.pixel={-1,48};
+  CHECK(!projectSemanticObservation(projection_request,frontend_camera,{},projection_planes));
   AnchorStore anchors;
   const AnchorId anchor_id=anchors.create({{},plane_hit->position_world},2200000000LL);
   CHECK(anchor_id==1 && anchors.find(anchor_id).has_value());

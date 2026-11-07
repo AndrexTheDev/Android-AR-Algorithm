@@ -181,6 +181,76 @@ std::optional<SurfelHit> SurfelMap::raycast(const Vec3& origin,const Vec3& direc
   return nearest;
 }
 
+SurfelDepthImage SurfelMap::renderDepth(const PinholeRadTanCamera& camera,
+    const Pose& world_from_camera,SurfelDepthRenderConfig config) const {
+  SurfelDepthImage output;const auto& intrinsics=camera.intrinsics();
+  output.width=intrinsics.width;output.height=intrinsics.height;
+  const auto& q=world_from_camera.rotation;
+  const double quaternion_norm=std::sqrt(q.w*q.w+q.x*q.x+q.y*q.y+q.z*q.z);
+  if(!finite(world_from_camera.translation)||!std::isfinite(quaternion_norm)||
+     quaternion_norm<1e-9||!std::isfinite(config.min_depth_m)||
+     !std::isfinite(config.max_depth_m)||config.min_depth_m<=0||
+     config.max_depth_m<=config.min_depth_m||config.max_projected_radius_px<=0||
+     config.max_output_pixels==0||config.max_rasterized_pixels==0)return output;
+  const auto width=static_cast<std::size_t>(intrinsics.width);
+  const auto height=static_cast<std::size_t>(intrinsics.height);
+  if(width>std::numeric_limits<std::size_t>::max()/height)return output;
+  const std::size_t pixel_count=width*height;
+  if(pixel_count>config.max_output_pixels)return output;
+  output.depth_z_m.assign(pixel_count,0.0F);output.valid=true;
+  const Quaternion camera_from_world=q.inverse();
+  for(const auto& surfel:snapshot()){
+    if(!surfel.normal_valid)continue;
+    const Vec3 center_camera=camera_from_world.rotate(
+      surfel.position_world_m-world_from_camera.translation);
+    if(center_camera.z+surfel.radius_m<config.min_depth_m||
+       center_camera.z-surfel.radius_m>config.max_depth_m||center_camera.z<=1e-9)continue;
+    const auto center_pixel=camera.project(center_camera);if(!center_pixel)continue;
+    const double projected_radius=std::max(intrinsics.fx,intrinsics.fy)*surfel.radius_m/
+      std::max(config.min_depth_m,center_camera.z-surfel.radius_m);
+    if(!std::isfinite(projected_radius))continue;
+    int radius=config.max_projected_radius_px;
+    if(projected_radius>config.max_projected_radius_px)output.truncated=true;
+    else radius=std::max(1,static_cast<int>(std::ceil(projected_radius)));
+    if(!std::isfinite(center_pixel->x)||!std::isfinite(center_pixel->y)||
+       center_pixel->x<-radius||center_pixel->x>intrinsics.width-1+radius||
+       center_pixel->y<-radius||center_pixel->y>intrinsics.height-1+radius)continue;
+    const int minimum_x=std::max(0,static_cast<int>(std::floor(center_pixel->x))-radius);
+    const int maximum_x=std::min(intrinsics.width-1,
+      static_cast<int>(std::ceil(center_pixel->x))+radius);
+    const int minimum_y=std::max(0,static_cast<int>(std::floor(center_pixel->y))-radius);
+    const int maximum_y=std::min(intrinsics.height-1,
+      static_cast<int>(std::ceil(center_pixel->y))+radius);
+    if(minimum_x>maximum_x||minimum_y>maximum_y)continue;
+    ++output.projected_surfel_count;
+    const Vec3 normal_camera=camera_from_world.rotate(surfel.normal_world);
+    const double plane_numerator=center_camera.x*normal_camera.x+
+      center_camera.y*normal_camera.y+center_camera.z*normal_camera.z;
+    for(int y=minimum_y;y<=maximum_y;++y){
+      for(int x=minimum_x;x<=maximum_x;++x){
+        if(output.rasterized_pixel_count>=config.max_rasterized_pixels){
+          output.truncated=true;return output;
+        }
+        ++output.rasterized_pixel_count;
+        const auto ray=camera.unproject({static_cast<double>(x),static_cast<double>(y)});
+        if(!ray)continue;
+        const double denominator=ray->x*normal_camera.x+ray->y*normal_camera.y+
+                                 ray->z*normal_camera.z;
+        if(std::abs(denominator)<1e-8)continue;
+        const double distance=plane_numerator/denominator;
+        if(distance<=0)continue;
+        const Vec3 point=*ray*distance;
+        if(point.z<config.min_depth_m||point.z>config.max_depth_m||
+           (point-center_camera).norm()>surfel.radius_m)continue;
+        float& depth=output.depth_z_m[static_cast<std::size_t>(y)*width+x];
+        const float value=static_cast<float>(point.z);
+        if(depth==0.0F||value<depth)depth=value;
+      }
+    }
+  }
+  return output;
+}
+
 std::size_t SurfelMap::size() const {
   std::size_t count=0;for(const auto& item:surfels_)if(item.second.confirmed)++count;return count;
 }

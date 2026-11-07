@@ -377,6 +377,15 @@ int main() {
         c_surfel_hit.distance_m<=2.0);
   CHECK(ark_visual_raycast_surfel(visual_c_handle,0,0,0,0,0,-1,0.05,10,
       &c_surfel_hit)==ARK_RESULT_NOT_READY);
+  ark_surfel_depth_render_v1 c_depth_render{};c_depth_render.struct_size=sizeof(c_depth_render);
+  CHECK(ark_visual_render_surfel_depth(visual_c_handle,&c_world_pose,0.05,10,64,1000000,
+      nullptr,0,&c_depth_render)==ARK_RESULT_OK);
+  CHECK(c_depth_render.required_pixel_count==static_cast<std::uint64_t>(flow_width*flow_height));
+  std::vector<float> c_rendered_depth(c_depth_render.required_pixel_count);
+  CHECK(ark_visual_render_surfel_depth(visual_c_handle,&c_world_pose,0.05,10,64,1000000,
+      c_rendered_depth.data(),c_rendered_depth.size(),&c_depth_render)==ARK_RESULT_OK);
+  CHECK(std::any_of(c_rendered_depth.begin(),c_rendered_depth.end(),
+                    [](float depth){return depth>0;}));
   ark_semantic_projection_v1 c_projection{};c_projection.struct_size=sizeof(c_projection);
   c_projection.class_id=5;c_projection.source_track_id=77;c_projection.timestamp_ns=c_frame.timestamp_ns;
   c_projection.pixel_x=64;c_projection.pixel_y=48;c_projection.confidence=0.9;
@@ -525,6 +534,20 @@ int main() {
   const auto spherical_hit=spherical_surfel_map.raycast({0,0,0},{0,0,1});
   CHECK(spherical_hit.has_value()&&!spherical_hit->normal_valid);
   CHECK(std::abs(spherical_hit->distance_m-1.975)<1e-8);
+  SurfelMap render_surfel_map(spherical_config);
+  SurfelObservation render_surface{{0,0,2},{0,0,1},0.9,0.2,2400000000LL,true};
+  render_surfel_map.integrate({render_surface},render_surface.timestamp_ns);
+  const PinholeRadTanCamera render_camera({64,48,50,50,32,24});
+  const auto rendered_depth=render_surfel_map.renderDepth(render_camera,{});
+  CHECK(rendered_depth.valid&&rendered_depth.projected_surfel_count==1);
+  CHECK(std::abs(rendered_depth.depth_z_m[24*64+32]-2.0F)<1e-6F);
+  CHECK(std::count_if(rendered_depth.depth_z_m.begin(),rendered_depth.depth_z_m.end(),
+                      [](float depth){return depth>0;})>20);
+  SurfelDepthRenderConfig tiny_render_budget;tiny_render_budget.max_rasterized_pixels=1;
+  CHECK(render_surfel_map.renderDepth(render_camera,{},tiny_render_budget).truncated);
+  const auto no_normal_depth=spherical_surfel_map.renderDepth(render_camera,{});
+  CHECK(std::none_of(no_normal_depth.depth_z_m.begin(),no_normal_depth.depth_z_m.end(),
+                     [](float depth){return depth>0;}));
   auto stale_surface=surface_second;stale_surface.timestamp_ns=surface_first.timestamp_ns-1;
   CHECK(surfel_map.integrate({stale_surface},surface_second.timestamp_ns).rejected==1);
   auto invalid_surface=surface_second;invalid_surface.confidence=0.1;

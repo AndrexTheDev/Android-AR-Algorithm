@@ -5,6 +5,7 @@
 #include <optional>
 #include <unordered_map>
 #include <vector>
+#include "arkernel/camera_model.h"
 #include "arkernel/types.h"
 
 namespace arkernel {
@@ -63,6 +64,24 @@ struct SurfelHit {
   bool normal_valid{false};
 };
 
+struct SurfelDepthRenderConfig {
+  double min_depth_m{0.05};
+  double max_depth_m{20.0};
+  int max_projected_radius_px{64};
+  std::size_t max_output_pixels{4000000};
+  std::size_t max_rasterized_pixels{4000000};
+};
+
+struct SurfelDepthImage {
+  int width{0};
+  int height{0};
+  std::vector<float> depth_z_m;
+  std::size_t projected_surfel_count{0};
+  std::size_t rasterized_pixel_count{0};
+  bool truncated{false};
+  bool valid{false};
+};
+
 // Bounded model-independent surface fusion. Adapters may derive observations
 // from stereo, monocular depth, structured light, ToF or imported point clouds.
 class SurfelMap {
@@ -75,6 +94,9 @@ class SurfelMap {
                                    const Vec3& ray_direction_world,
                                    double min_distance_m = 0.05,
                                    double max_distance_m = 20.0) const;
+  SurfelDepthImage renderDepth(const PinholeRadTanCamera& camera,
+                               const Pose& world_from_camera,
+                               SurfelDepthRenderConfig config = {}) const;
   std::size_t size() const;
   void reset();
  private:

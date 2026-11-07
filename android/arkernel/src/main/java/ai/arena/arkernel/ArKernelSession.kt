@@ -248,6 +248,15 @@ class ArKernelSession(
             minDistanceMeters, maxDistanceMeters)
     }
 
+    /** Builds a metric camera Z-buffer; zero pixels mean unknown, not free space. */
+    fun renderSurfelDepth(
+        worldFromCamera: WorldPose,
+        options: SurfelDepthRenderOptions = SurfelDepthRenderOptions(),
+    ): SurfelDepthImage {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.renderSurfelDepth(worldFromCamera, options)
+    }
+
     fun createAnchor(worldPose: WorldPose): Long {
         check(!closed) { "AR kernel session is closed" }
         return visual.createAnchor(worldPose)

@@ -435,6 +435,46 @@ ark_result ark_visual_raycast_surfel(ark_visual_handle* handle,
   handle->error.clear();return ARK_RESULT_OK;
 }
 
+ark_result ark_visual_render_surfel_depth(ark_visual_handle* handle,
+    const ark_world_pose_v1* pose,double min_depth,double max_depth,int32_t max_radius,
+    size_t max_work,float* buffer,size_t capacity,ark_surfel_depth_render_v1* out){
+  if(!handle||!validStruct(pose)||!validStruct(out)||max_radius<=0||max_work==0)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);arkernel::Pose world_from_camera;
+  if(!convertPose(*pose,world_from_camera))
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"World-from-camera pose is invalid");
+  const auto& intrinsics=handle->camera.intrinsics();
+  const size_t width=static_cast<size_t>(intrinsics.width);
+  const size_t height=static_cast<size_t>(intrinsics.height);
+  if(!std::isfinite(min_depth)||!std::isfinite(max_depth)||min_depth<=0||
+     max_depth<=min_depth||width>std::numeric_limits<size_t>::max()/height||
+     width*height>4000000)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,
+       "Surfel depth render configuration or output size is invalid");
+  if(!buffer){const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->width=intrinsics.width;out->height=intrinsics.height;out->required_pixel_count=width*height;
+    handle->error.clear();return ARK_RESULT_OK;}
+  try{
+    arkernel::SurfelDepthRenderConfig config;config.min_depth_m=min_depth;
+    config.max_depth_m=max_depth;config.max_projected_radius_px=max_radius;
+    config.max_rasterized_pixels=max_work;
+    const auto rendered=handle->surfel_map.renderDepth(handle->camera,world_from_camera,config);
+    if(!rendered.valid)return fail(handle,ARK_RESULT_INVALID_ARGUMENT,
+      "Surfel depth render configuration or output size is invalid");
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->width=rendered.width;out->height=rendered.height;
+    out->required_pixel_count=rendered.depth_z_m.size();
+    out->projected_surfel_count=rendered.projected_surfel_count;
+    out->rasterized_pixel_count=rendered.rasterized_pixel_count;
+    out->truncated=rendered.truncated?1u:0u;
+    if(capacity<rendered.depth_z_m.size())
+      return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Surfel depth output buffer is too small");
+    std::copy(rendered.depth_z_m.begin(),rendered.depth_z_m.end(),buffer);
+    handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown surfel depth render error");}
+}
+
 ark_result ark_visual_project_semantic(ark_visual_handle* handle,
     const ark_semantic_projection_v1* projection,const ark_world_pose_v1* pose,
     int64_t now_ns,ark_semantic_update_v1* out){

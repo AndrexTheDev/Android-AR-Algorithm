@@ -540,3 +540,30 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRaycastSurfel(JNIEnv* env,jo
   env->SetLongArrayRegion(metadata,0,2,meta);env->SetDoubleArrayRegion(values,0,8,data);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRenderSurfelDepth(JNIEnv* env,jobject,
+    jlong handle,jlong timestamp,jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,
+    jdouble py,jdouble pz,jdouble min_depth,jdouble max_depth,jint max_radius,jlong max_work,
+    jlongArray metadata) {
+  if(!metadata||env->GetArrayLength(metadata)<5||max_work<=0||
+     static_cast<uint64_t>(max_work)>std::numeric_limits<size_t>::max())return nullptr;
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;
+  ark_surfel_depth_render_v1 render{};render.struct_size=sizeof(render);
+  auto status=ark_visual_render_surfel_depth(fromVisualHandle(handle),&pose,min_depth,max_depth,
+    max_radius,static_cast<size_t>(max_work),nullptr,0,&render);
+  if(status!=ARK_RESULT_OK||render.required_pixel_count>
+     static_cast<uint64_t>(std::numeric_limits<jsize>::max()))return nullptr;
+  std::vector<float> depth(static_cast<size_t>(render.required_pixel_count));
+  status=ark_visual_render_surfel_depth(fromVisualHandle(handle),&pose,min_depth,max_depth,
+    max_radius,static_cast<size_t>(max_work),depth.data(),depth.size(),&render);
+  if(status!=ARK_RESULT_OK)return nullptr;
+  jfloatArray result=env->NewFloatArray(static_cast<jsize>(depth.size()));if(!result)return nullptr;
+  env->SetFloatArrayRegion(result,0,static_cast<jsize>(depth.size()),depth.data());
+  const jlong meta[5]={render.width,render.height,static_cast<jlong>(render.projected_surfel_count),
+    static_cast<jlong>(render.rasterized_pixel_count),static_cast<jlong>(render.truncated)};
+  env->SetLongArrayRegion(metadata,0,5,meta);
+  return env->ExceptionCheck()?nullptr:result;
+}

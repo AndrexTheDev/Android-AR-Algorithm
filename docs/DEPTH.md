@@ -24,7 +24,13 @@ When full, deterministic eviction prefers unconfirmed, weakly observed, low-conf
 
 `SurfelMap::raycast`, the C ABI, and Android `raycastSurfel` return only the nearest hit among confirmed entries and enforce finite origins/directions plus explicit minimum and maximum distance. Surfels with reliable normals are intersected as finite two-sided discs using their fused radius. Surfels without normals are conservatively intersected as spheres whose collision radius is capped to half a voxel, even when their sampling footprint is larger; the returned radial normal is marked as approximate through `normal_valid = false`. Parallel rays, misses outside a disc radius, unconfirmed entries, and out-of-range intersections are ignored. Stable Surfel ID and confidence are returned with the world-space hit.
 
-This query supports placement and collision tests but is not a screen-space occlusion depth buffer; apps must not treat a sparse miss as proof that free space is observed.
+Apps must not treat a sparse ray miss as proof that free space is observed.
+
+## Screen-space metric depth
+
+`SurfelMap::renderDepth`, the C ABI, and Android `renderSurfelDepth` rasterize confirmed surfels with reliable normals into a camera-aligned optical Z-depth image. For every candidate pixel the implementation distortion-aware unprojects a ray, intersects the actual finite surfel disc, rejects points outside its radius or configured depth interval, and retains the nearest Z value. It does not merely splat a center point. Surfels without reliable normals are omitted from this occlusion path because approximate spheres would create false screen-space occluders.
+
+Depth `0` means unknown, never measured free space. Defaults cap output to 4 million pixels, each projected bounding radius to 64 pixels, and examined raster pixels to 4 million. Radius clipping or work-budget exhaustion sets `truncated`; consumers must then treat the image as incomplete. The output is suitable as a metric CPU-side input to a future renderer adapter, but no GPU upload, temporal filtering, hole filling, or Filament material integration is claimed yet.
 
 ## Safety and current limits
 

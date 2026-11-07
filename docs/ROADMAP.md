@@ -57,7 +57,7 @@
 - [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; TSDF bleibt offen;
 - optional Depth Anything V2 Small quantisiert als Prior;
 - Skalen-/Confidence-Fusion, dynamische Masken, Mesh-LOD;
-- Filament-Occlusionadapter.
+- [x] begrenzter metrischer CPU-Z-Depthbuffer aus endlichen Surfelscheiben; Filament-/GPU-Occlusionadapter bleibt offen.
 
 ## Phase 4 – Semantik
 

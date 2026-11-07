@@ -113,6 +113,20 @@ data class SurfelMapUpdate(
     val pruned: Long,
     val surfelCount: Long,
 )
+data class SurfelDepthRenderOptions(
+    val minDepthMeters: Double = 0.05,
+    val maxDepthMeters: Double = 20.0,
+    val maxProjectedRadiusPixels: Int = 64,
+    val maxRasterizedPixels: Long = 4_000_000,
+)
+data class SurfelDepthImage(
+    val width: Int,
+    val height: Int,
+    val depthZMeters: FloatArray,
+    val projectedSurfelCount: Long,
+    val rasterizedPixelCount: Long,
+    val truncated: Boolean,
+)
 data class SurfelHitSnapshot(
     val surfelId: Long,
     val positionWorldMeters: Vector3,
@@ -378,6 +392,30 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     }
 
     @Synchronized
+    fun renderSurfelDepth(
+        worldFromCamera: WorldPose,
+        options: SurfelDepthRenderOptions = SurfelDepthRenderOptions(),
+    ): SurfelDepthImage {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(options.minDepthMeters > 0.0 &&
+            options.maxDepthMeters > options.minDepthMeters)
+        require(options.maxProjectedRadiusPixels > 0 && options.maxRasterizedPixels > 0)
+        val rotation = worldFromCamera.rotation
+        val position = worldFromCamera.positionMeters
+        val metadata = LongArray(5)
+        val depth = checkNotNull(nativeRenderSurfelDepth(nativeHandle, worldFromCamera.timestampNs,
+            rotation.w, rotation.x, rotation.y, rotation.z,
+            position.x, position.y, position.z, options.minDepthMeters,
+            options.maxDepthMeters, options.maxProjectedRadiusPixels,
+            options.maxRasterizedPixels, metadata)) { "Could not render native surfel depth" }
+        check(metadata[0] in 1L..Int.MAX_VALUE.toLong() &&
+            metadata[1] in 1L..Int.MAX_VALUE.toLong())
+        check(depth.size.toLong() == metadata[0] * metadata[1])
+        return SurfelDepthImage(metadata[0].toInt(), metadata[1].toInt(), depth,
+            metadata[2], metadata[3], metadata[4] != 0L)
+    }
+
+    @Synchronized
     fun projectSemantic(
         projection: SemanticPixelProjection,
         worldFromCamera: WorldPose,
@@ -600,6 +638,10 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
         ox: Double, oy: Double, oz: Double, dx: Double, dy: Double, dz: Double,
         minDistance: Double, maxDistance: Double,
         metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeRenderSurfelDepth(handle: Long, timestampNs: Long,
+        rw: Double, rx: Double, ry: Double, rz: Double,
+        px: Double, py: Double, pz: Double, minDepth: Double, maxDepth: Double,
+        maxRadiusPixels: Int, maxRasterizedPixels: Long, metadata: LongArray): FloatArray?
     private external fun nativeProjectSemantic(handle: Long, classId: Long,
         sourceTrackId: Long, timestampNs: Long, nowNs: Long,
         pixelX: Double, pixelY: Double, confidence: Double, dynamic: Boolean, surface: Int,

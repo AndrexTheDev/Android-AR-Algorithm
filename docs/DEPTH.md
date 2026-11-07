@@ -32,7 +32,9 @@ Apps must not treat a sparse ray miss as proof that free space is observed.
 
 `SurfelMap::renderDepth`, the C ABI, and Android `renderSurfelDepth` rasterize confirmed surfels with reliable normals into a camera-aligned optical Z-depth image. For every candidate pixel the implementation distortion-aware unprojects a ray, intersects the actual finite surfel disc, rejects points outside its radius or configured depth interval, and retains the nearest Z value. It does not merely splat a center point. Surfels without reliable normals are omitted from this occlusion path because approximate spheres would create false screen-space occluders.
 
-Depth `0` means unknown, never measured free space. Defaults cap output to 4 million pixels, each projected bounding radius to 64 pixels, and examined raster pixels to 4 million. Radius clipping or work-budget exhaustion sets `truncated`; consumers must then treat the image as incomplete. The output is suitable as a metric CPU-side input to a future renderer adapter, but no GPU upload, temporal filtering, hole filling, or Filament material integration is claimed yet.
+Depth `0` means unknown, never measured free space. Defaults cap output to 4 million pixels, each projected bounding radius to 64 pixels, and examined raster pixels to 4 million. Radius clipping or work-budget exhaustion sets `truncated`; consumers must then treat the image as incomplete. The convenient Android call returns a `FloatArray`. `renderSurfelDepthInto` instead writes synchronously from the output buffer's current position into a writable direct native-order `FloatBuffer` without allocating or copying a complete JNI result array; position is not advanced. The host must provide at least `cameraWidth * cameraHeight` remaining floats and keep the buffer alive and unmodified until return. This enables reuse of renderer staging memory.
+
+The output is suitable as a metric CPU-side input to a future renderer adapter, but no GPU upload, temporal filtering, hole filling, or Filament material integration is claimed yet.
 
 ## Safety and current limits
 

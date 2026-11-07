@@ -269,6 +269,16 @@ class ArKernelSession(
         return visual.renderSurfelDepth(worldFromCamera, options)
     }
 
+    /** Writes metric camera Z into a reusable direct renderer buffer. */
+    fun renderSurfelDepthInto(
+        worldFromCamera: WorldPose,
+        output: java.nio.FloatBuffer,
+        options: SurfelDepthRenderOptions = SurfelDepthRenderOptions(),
+    ): SurfelDepthRenderResult {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.renderSurfelDepthInto(worldFromCamera, output, options)
+    }
+
     fun createAnchor(worldPose: WorldPose): Long {
         check(!closed) { "AR kernel session is closed" }
         return visual.createAnchor(worldPose)

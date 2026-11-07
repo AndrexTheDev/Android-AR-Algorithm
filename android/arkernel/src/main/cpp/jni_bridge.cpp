@@ -614,3 +614,30 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeIntegrateDepthBuffer(JNIEnv*
   env->SetLongArrayRegion(output,0,5,result);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRenderSurfelDepthInto(JNIEnv* env,jobject,
+    jlong handle,jlong timestamp,jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,
+    jdouble py,jdouble pz,jdouble min_depth,jdouble max_depth,jint max_radius,jlong max_work,
+    jobject output,jint output_offset,jint output_count,jlongArray metadata) {
+  if(!output||!metadata||env->GetArrayLength(metadata)<5||output_offset<0||output_count<0||
+     max_work<=0||static_cast<uint64_t>(max_work)>std::numeric_limits<size_t>::max())
+    return ARK_RESULT_INVALID_ARGUMENT;
+  void* address=env->GetDirectBufferAddress(output);
+  const jlong capacity=env->GetDirectBufferCapacity(output);
+  if(!address||capacity<0||static_cast<jlong>(output_offset)+output_count>capacity||
+     reinterpret_cast<uintptr_t>(address)%alignof(float)!=0)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;
+  ark_surfel_depth_render_v1 render{};render.struct_size=sizeof(render);
+  const auto status=ark_visual_render_surfel_depth(fromVisualHandle(handle),&pose,min_depth,
+    max_depth,max_radius,static_cast<size_t>(max_work),
+    static_cast<float*>(address)+output_offset,static_cast<size_t>(output_count),&render);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong values[5]={render.width,render.height,
+    static_cast<jlong>(render.projected_surfel_count),
+    static_cast<jlong>(render.rasterized_pixel_count),static_cast<jlong>(render.truncated)};
+  env->SetLongArrayRegion(metadata,0,5,values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

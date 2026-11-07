@@ -19,6 +19,7 @@ add_library(arkernel STATIC
     src/sparse_map.cpp
     src/spatial_snapshot.cpp
     src/surfel_map.cpp
+    src/tensor_preprocessor.cpp
     src/tracking_quality.cpp
     src/visual_frontend.cpp
     src/vio_estimator.cpp

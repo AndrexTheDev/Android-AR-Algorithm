@@ -641,3 +641,50 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRenderSurfelDepthInto(JNIEnv
   env->SetLongArrayRegion(metadata,0,5,values);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelTensorPreprocessor_nativePreprocess(JNIEnv* env,jobject,
+    jobject image,jint image_offset,jint image_size,jint width,jint height,jint row_stride,
+    jint image_format,jint output_width,jint output_height,jint output_channels,
+    jdoubleArray mean,jdoubleArray standard_deviation,jint element_type,
+    jdouble quantization_scale,jint quantization_zero_point,jboolean swap_red_blue,
+    jlong max_output_elements,jobject output,jint output_offset,jint output_capacity,
+    jlongArray metadata) {
+  if(!image||!output||!mean||!standard_deviation||!metadata||image_offset<0||image_size<0||
+     output_offset<0||output_capacity<0||max_output_elements<=0||output_channels<1||
+     env->GetArrayLength(mean)<output_channels||
+     env->GetArrayLength(standard_deviation)<output_channels||
+     env->GetArrayLength(metadata)<5)return ARK_RESULT_INVALID_ARGUMENT;
+  auto* image_base=static_cast<std::uint8_t*>(env->GetDirectBufferAddress(image));
+  auto* output_base=static_cast<std::uint8_t*>(env->GetDirectBufferAddress(output));
+  const jlong image_capacity=env->GetDirectBufferCapacity(image);
+  const jlong direct_output_capacity=env->GetDirectBufferCapacity(output);
+  if(!image_base||!output_base||image_capacity<0||direct_output_capacity<0||
+     static_cast<jlong>(image_offset)+image_size>image_capacity||
+     static_cast<jlong>(output_offset)+output_capacity>direct_output_capacity||
+     static_cast<unsigned long long>(max_output_elements)>
+       static_cast<unsigned long long>(std::numeric_limits<size_t>::max()))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_tensor_image_v1 input{};input.struct_size=sizeof(input);input.width=width;input.height=height;
+  input.row_stride_bytes=row_stride;input.format=static_cast<uint32_t>(image_format);
+  input.data=image_base+image_offset;input.data_size=static_cast<size_t>(image_size);
+  ark_tensor_preprocess_config_v1 config{};config.struct_size=sizeof(config);
+  config.output_width=output_width;config.output_height=output_height;
+  config.output_channels=output_channels;
+  for(double& value:config.standard_deviation)value=1.0;
+  env->GetDoubleArrayRegion(mean,0,output_channels,config.mean);
+  env->GetDoubleArrayRegion(standard_deviation,0,output_channels,config.standard_deviation);
+  if(env->ExceptionCheck())return ARK_RESULT_INVALID_ARGUMENT;
+  config.element_type=static_cast<uint32_t>(element_type);
+  config.quantization_scale=quantization_scale;
+  config.quantization_zero_point=quantization_zero_point;
+  config.swap_red_blue=swap_red_blue?1u:0u;
+  config.max_output_elements=static_cast<size_t>(max_output_elements);
+  ark_tensor_output_v1 tensor{};tensor.struct_size=sizeof(tensor);
+  const ark_result result=ark_preprocess_tensor(&input,&config,output_base+output_offset,
+    static_cast<size_t>(output_capacity),&tensor);
+  const jlong values[5]={tensor.width,tensor.height,tensor.channels,
+    static_cast<jlong>(tensor.element_count),static_cast<jlong>(tensor.required_bytes)};
+  env->SetLongArrayRegion(metadata,0,5,values);
+  return result;
+}

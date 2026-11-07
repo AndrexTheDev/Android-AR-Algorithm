@@ -22,6 +22,7 @@
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
 #include "arkernel/surfel_map.h"
+#include "arkernel/tensor_preprocessor.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
@@ -97,6 +98,69 @@ int main() {
                     [](const auto& value){return value.normal_valid;}));
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
+
+  const std::vector<std::uint8_t> tensor_rgb{
+    255,0,0, 0,255,0,
+    0,0,255, 255,255,255};
+  const TensorImageView tensor_view{2,2,6,TensorImageFormat::kRgb888,
+    tensor_rgb.data(),tensor_rgb.size()};
+  TensorPreprocessConfig tensor_config;tensor_config.output_width=1;
+  tensor_config.output_height=1;tensor_config.output_channels=3;
+  const auto float_tensor=preprocessTensorImage(tensor_view,tensor_config);
+  CHECK(float_tensor.valid&&float_tensor.elementCount()==3);
+  CHECK(std::abs(float_tensor.float_values[0]-0.5F)<1e-6F);
+  CHECK(std::abs(float_tensor.float_values[1]-0.5F)<1e-6F);
+  CHECK(std::abs(float_tensor.float_values[2]-0.5F)<1e-6F);
+  tensor_config.element_type=TensorElementType::kUInt8;
+  tensor_config.quantization_scale=1.0/255.0;
+  const auto quantized_tensor=preprocessTensorImage(tensor_view,tensor_config);
+  CHECK(quantized_tensor.uint8_values.size()==3&&quantized_tensor.uint8_values[0]==128&&
+        quantized_tensor.uint8_values[1]==128&&quantized_tensor.uint8_values[2]==128);
+  tensor_config.element_type=TensorElementType::kFloat32;tensor_config.swap_red_blue=true;
+  tensor_config.output_width=2;tensor_config.output_height=2;
+  const auto swapped_tensor=preprocessTensorImage(tensor_view,tensor_config);
+  CHECK(swapped_tensor.float_values[0]==0.0F&&swapped_tensor.float_values[2]==1.0F);
+  bool tensor_budget_rejected=false;tensor_config.max_output_elements=1;
+  try{(void)preprocessTensorImage(tensor_view,tensor_config);}
+  catch(const std::length_error&){tensor_budget_rejected=true;}
+  CHECK(tensor_budget_rejected);
+  const std::vector<std::uint8_t> padded_gray{0,255,77};
+  const TensorImageView gray_tensor_view{2,1,3,TensorImageFormat::kGray8,
+    padded_gray.data(),padded_gray.size()};
+  TensorPreprocessConfig gray_tensor_config;gray_tensor_config.output_width=2;
+  gray_tensor_config.output_height=1;gray_tensor_config.output_channels=3;
+  gray_tensor_config.mean={0.5,0.5,0.5,0.0};
+  gray_tensor_config.standard_deviation={0.5,0.5,0.5,1.0};
+  const auto gray_tensor=preprocessTensorImage(gray_tensor_view,gray_tensor_config);
+  CHECK(gray_tensor.float_values[0]==-1.0F&&gray_tensor.float_values[1]==-1.0F&&
+        gray_tensor.float_values[2]==-1.0F&&gray_tensor.float_values[3]==1.0F);
+  gray_tensor_config.element_type=TensorElementType::kInt8;
+  gray_tensor_config.quantization_scale=0.001;
+  const auto clamped_tensor=preprocessTensorImage(gray_tensor_view,gray_tensor_config);
+  CHECK(clamped_tensor.int8_values.front()==-128&&clamped_tensor.int8_values.back()==127);
+  bool malformed_tensor_rejected=false;
+  try{const TensorImageView malformed{2,1,3,TensorImageFormat::kGray8,
+      padded_gray.data(),1};(void)preprocessTensorImage(malformed,gray_tensor_config);}
+  catch(const std::invalid_argument&){malformed_tensor_rejected=true;}
+  CHECK(malformed_tensor_rejected);
+  ark_tensor_image_v1 c_tensor_image{};c_tensor_image.struct_size=sizeof(c_tensor_image);
+  c_tensor_image.width=2;c_tensor_image.height=2;c_tensor_image.row_stride_bytes=6;
+  c_tensor_image.format=ARK_TENSOR_RGB888;c_tensor_image.data=tensor_rgb.data();
+  c_tensor_image.data_size=tensor_rgb.size();
+  ark_tensor_preprocess_config_v1 c_tensor_config{};
+  c_tensor_config.struct_size=sizeof(c_tensor_config);c_tensor_config.output_width=1;
+  c_tensor_config.output_height=1;c_tensor_config.output_channels=3;
+  for(int i=0;i<4;++i)c_tensor_config.standard_deviation[i]=1;
+  c_tensor_config.element_type=ARK_TENSOR_FLOAT32;c_tensor_config.quantization_scale=1;
+  c_tensor_config.max_output_elements=16;
+  ark_tensor_output_v1 c_tensor_output{};c_tensor_output.struct_size=sizeof(c_tensor_output);
+  CHECK(ark_preprocess_tensor(&c_tensor_image,&c_tensor_config,nullptr,0,
+                              &c_tensor_output)==ARK_RESULT_OK);
+  CHECK(c_tensor_output.required_bytes==3*sizeof(float));
+  std::array<float,3> c_tensor_values{};
+  CHECK(ark_preprocess_tensor(&c_tensor_image,&c_tensor_config,c_tensor_values.data(),
+                              sizeof(c_tensor_values),&c_tensor_output)==ARK_RESULT_OK);
+  CHECK(std::abs(c_tensor_values[0]-0.5F)<1e-6F);
 
   std::vector<std::uint8_t> descriptor_image(96*80);
   for(int y=0;y<80;++y)for(int x=0;x<96;++x)

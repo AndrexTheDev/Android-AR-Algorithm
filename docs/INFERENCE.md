@@ -4,13 +4,19 @@ The Android library defines an inference contract but does not silently download
 
 ## Model manifest
 
-Every backend exposes a validated `ModelManifest` with schema version, stable model/version IDs, lowercase SHA-256, SPDX license identifier, HTTPS source, explicit tasks, tensor dimensions/channels, normalization vectors, quantization, byte size, labels, metric-depth conversion, and measured device profiles. Semantic manifests must define class `0` (Unknown). Label IDs are unsigned 32-bit values. Metric and relative depth are mutually exclusive; only a metric-depth manifest may declare `depthUnitToMeters` or feed the spatial map. The backend must apply that declared conversion before returning the metre-valued `MetricDepthImage`/`MetricDepthBuffer` contract.
+Every backend exposes a validated `ModelManifest` with schema version, stable model/version IDs, lowercase SHA-256, SPDX license identifier, HTTPS source, explicit tasks, tensor dimensions/channels, normalization vectors, quantization (including mandatory scale and zero point for INT8/UINT8), byte size, labels, metric-depth conversion, and measured device profiles. Semantic manifests must define class `0` (Unknown). Label IDs are unsigned 32-bit values. Metric and relative depth are mutually exclusive; only a metric-depth manifest may declare `depthUnitToMeters` or feed the spatial map. The backend must apply that declared conversion before returning the metre-valued `MetricDepthImage`/`MetricDepthBuffer` contract.
 
 A manifest documents a build; it does not prove a license by itself. `verifyModelBytes` hashes the caller buffer's remaining bytes with SHA-256 without changing its position and checks both declared byte size and digest; packaging/loading code must call it for the actual model and still ship required notices.
 
 ## Frame and ownership contract
 
 `PerceptionFrame.wrap` captures a read-only slice of a direct image buffer, exact camera calibration, pixel format/row stride, timestamp, and the frame-associated world pose. Dimensions, visible byte count, and timestamp equality are checked. The underlying memory remains host-owned and must stay alive and immutable until the result/error callback. A backend may resize or normalize into its own tensor according to its manifest, but may not replace the associated pose.
+
+## Shared native tensor preprocessing
+
+`ArKernelTensorPreprocessor` gives backend adapters a dependency-free, deterministic path from a direct `GRAY8`, `RGB888`, or `RGBA8888` frame to a direct NHWC tensor. It performs half-pixel bilinear resize, Rec. 601 grayscale conversion, optional red/blue swap, `(pixel - mean) / standardDeviation`, and FLOAT32, INT8, or UINT8 encoding. Quantized values use `round(normalized / scale) + zeroPoint` and saturate to the destination range. The native core also exposes the same operation through `tensor_preprocessor.h` and the versioned C ABI.
+
+The implementation validates row stride and visible input extent, finite normalization, quantization parameters/zero-point range, output shape, direct-buffer offsets/capacity, and a hard output-element budget (16 million on Android). It supports one- or three-channel output; FLOAT16 and four-channel model input remain adapter-specific. `preprocessInto` writes at the caller buffer's current position without advancing either buffer. `allocateAndPreprocess` is the bounded convenience path; latency-sensitive adapters should reuse a direct output buffer.
 
 ## Bounded scheduler
 
@@ -29,4 +35,4 @@ A 2D detection that has no requested observed surface produces a semantic miss, 
 
 ## Still adapter-specific
 
-This SPI does not implement tensor preprocessing for a concrete model, GPU delegates, NNAPI selection, model download/update, signature verification, segmentation-mask fusion, or device benchmark collection. Those belong in explicit backend modules with their own dependencies and license notices. The core remains usable without any ML runtime.
+This SPI does not implement model-specific postprocessing, FLOAT16/four-channel tensor encoding, GPU delegates, NNAPI selection, model download/update, signature verification, segmentation-mask fusion, or device benchmark collection. Those belong in explicit backend modules with their own dependencies and license notices. The core remains usable without any ML runtime.

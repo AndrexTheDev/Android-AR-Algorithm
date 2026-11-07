@@ -16,6 +16,7 @@
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
 #include "arkernel/surfel_map.h"
+#include "arkernel/tensor_preprocessor.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/vio_estimator.h"
 #include "arkernel/visual_frontend.h"
@@ -141,6 +142,46 @@ bool installSnapshot(ark_visual_handle* handle,arkernel::SpatialSnapshot snapsho
 
 extern "C" {
 uint32_t ark_c_api_version(void){return ARKERNEL_C_API_VERSION;}
+
+ark_result ark_preprocess_tensor(const ark_tensor_image_v1* image,
+    const ark_tensor_preprocess_config_v1* config,void* buffer,size_t capacity,
+    ark_tensor_output_v1* out){
+  if(!validStruct(image)||!validStruct(config)||!validStruct(out)||
+     image->format>ARK_TENSOR_RGBA8888||config->element_type>ARK_TENSOR_UINT8)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    const arkernel::TensorImageView view{image->width,image->height,image->row_stride_bytes,
+      static_cast<arkernel::TensorImageFormat>(image->format),image->data,image->data_size};
+    arkernel::TensorPreprocessConfig converted;converted.output_width=config->output_width;
+    converted.output_height=config->output_height;converted.output_channels=config->output_channels;
+    for(size_t i=0;i<4;++i){converted.mean[i]=config->mean[i];
+      converted.standard_deviation[i]=config->standard_deviation[i];}
+    converted.element_type=static_cast<arkernel::TensorElementType>(config->element_type);
+    converted.quantization_scale=config->quantization_scale;
+    converted.quantization_zero_point=config->quantization_zero_point;
+    converted.swap_red_blue=config->swap_red_blue!=0;
+    converted.max_output_elements=config->max_output_elements;
+    const auto tensor=arkernel::preprocessTensorImage(view,converted);
+    const size_t element_size=tensor.element_type==arkernel::TensorElementType::kFloat32?
+      sizeof(float):sizeof(std::uint8_t);
+    const size_t required=tensor.elementCount()*element_size;
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->width=tensor.width;out->height=tensor.height;out->channels=tensor.channels;
+    out->element_type=static_cast<uint32_t>(tensor.element_type);
+    out->element_count=tensor.elementCount();out->required_bytes=required;
+    if(!buffer)return ARK_RESULT_OK;
+    if(capacity<required)return ARK_RESULT_INVALID_ARGUMENT;
+    if(tensor.element_type==arkernel::TensorElementType::kFloat32)
+      std::memcpy(buffer,tensor.float_values.data(),required);
+    else if(tensor.element_type==arkernel::TensorElementType::kInt8)
+      std::memcpy(buffer,tensor.int8_values.data(),required);
+    else std::memcpy(buffer,tensor.uint8_values.data(),required);
+    return ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::bad_alloc&){return ARK_RESULT_INTERNAL_ERROR;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
 
 ark_result ark_visual_default_config(int32_t width,int32_t height,double fx,double fy,
     double cx,double cy,ark_visual_config_v1* out){

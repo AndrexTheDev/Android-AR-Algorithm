@@ -41,6 +41,18 @@ typedef enum ark_scene_geometry {
   ARK_GEOMETRY_PLANAR_OR_ROTATION = 2
 } ark_scene_geometry;
 
+typedef enum ark_tensor_image_format {
+  ARK_TENSOR_GRAY8 = 0,
+  ARK_TENSOR_RGB888 = 1,
+  ARK_TENSOR_RGBA8888 = 2
+} ark_tensor_image_format;
+
+typedef enum ark_tensor_element_type {
+  ARK_TENSOR_FLOAT32 = 0,
+  ARK_TENSOR_INT8 = 1,
+  ARK_TENSOR_UINT8 = 2
+} ark_tensor_element_type;
+
 typedef enum ark_plane_semantic {
   ARK_PLANE_UNKNOWN = 0,
   ARK_PLANE_FLOOR = 1,
@@ -70,6 +82,40 @@ typedef enum ark_mapping_pause_reason {
   ARK_MAPPING_REASON_IMU_OVERFLOW = 5,
   ARK_MAPPING_REASON_RECOVERING = 6
 } ark_mapping_pause_reason;
+
+typedef struct ark_tensor_image_v1 {
+  uint32_t struct_size;
+  int32_t width;
+  int32_t height;
+  int32_t row_stride_bytes;
+  uint32_t format;
+  const uint8_t* data;
+  size_t data_size;
+} ark_tensor_image_v1;
+
+typedef struct ark_tensor_preprocess_config_v1 {
+  uint32_t struct_size;
+  int32_t output_width;
+  int32_t output_height;
+  int32_t output_channels;
+  double mean[4];
+  double standard_deviation[4];
+  uint32_t element_type;
+  double quantization_scale;
+  int32_t quantization_zero_point;
+  uint32_t swap_red_blue;
+  size_t max_output_elements;
+} ark_tensor_preprocess_config_v1;
+
+typedef struct ark_tensor_output_v1 {
+  uint32_t struct_size;
+  int32_t width;
+  int32_t height;
+  int32_t channels;
+  uint32_t element_type;
+  size_t element_count;
+  size_t required_bytes;
+} ark_tensor_output_v1;
 
 typedef struct ark_vio_config_v1 {
   uint32_t struct_size;
@@ -448,6 +494,10 @@ typedef struct ark_vio_state_v1 {
 } ark_vio_state_v1;
 
 uint32_t ark_c_api_version(void);
+ark_result ark_preprocess_tensor(const ark_tensor_image_v1* image,
+                                 const ark_tensor_preprocess_config_v1* config,
+                                 void* output_buffer, size_t output_capacity_bytes,
+                                 ark_tensor_output_v1* out_tensor);
 ark_result ark_visual_default_config(int32_t width, int32_t height,
                                      double fx, double fy, double cx, double cy,
                                      ark_visual_config_v1* out_config);

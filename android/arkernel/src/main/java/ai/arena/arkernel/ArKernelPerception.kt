@@ -49,6 +49,8 @@ class ModelManifest(
     val depthUnitToMeters: Double? = null,
     val modelByteSize: Long,
     deviceProfiles: List<InferenceDeviceProfile> = emptyList(),
+    val quantizationScale: Double? = null,
+    val quantizationZeroPoint: Int? = null,
 ) {
     val tasks: Set<InferenceTask> = tasks.toSet()
     val inputMean: List<Double> = inputMean.toList()
@@ -70,6 +72,15 @@ class ModelManifest(
         require(inputMean.size == inputChannels && inputStd.size == inputChannels)
         require(inputMean.all { it.isFinite() })
         require(inputStd.all { it.isFinite() && it > 0.0 })
+        if (quantization == TensorQuantization.INT8 || quantization == TensorQuantization.UINT8) {
+            require(quantizationScale != null && quantizationScale.isFinite() &&
+                quantizationScale > 0.0 && quantizationZeroPoint != null)
+            if (quantization == TensorQuantization.INT8)
+                require(quantizationZeroPoint in -128..127)
+            else require(quantizationZeroPoint in 0..255)
+        } else {
+            require(quantizationScale == null && quantizationZeroPoint == null)
+        }
         require(modelByteSize in 1L..MAX_MODEL_BYTES)
         require(labels.keys.all { it in 0..0xffff_ffffL })
         require(labels.values.all { it.isNotBlank() && it.length <= 256 })

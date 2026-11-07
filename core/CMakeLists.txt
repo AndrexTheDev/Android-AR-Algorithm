@@ -4,6 +4,7 @@ add_library(arkernel STATIC
     src/core_engine.cpp
     src/feature_detector.cpp
     src/imu_preintegrator.cpp
+    src/optical_flow.cpp
     src/tracking_quality.cpp
 )
 target_compile_features(arkernel PUBLIC cxx_std_17)

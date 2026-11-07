@@ -7,6 +7,7 @@
 #include "arkernel/core_engine.h"
 #include "arkernel/feature_detector.h"
 #include "arkernel/imu_preintegrator.h"
+#include "arkernel/optical_flow.h"
 #include "arkernel/tracking_quality.h"
 
 using namespace arkernel;
@@ -60,6 +61,36 @@ int main() {
   bool left = false, right = false;
   for (const auto& f : features) { left |= f.x < 40; right |= f.x >= 40; }
   CHECK(left && right);
+
+  // Coarse-to-fine replay: a textured frame is translated by (3,2) pixels.
+  constexpr int flow_width = 128, flow_height = 96;
+  std::vector<std::uint8_t> flow_a(flow_width*flow_height);
+  std::vector<std::uint8_t> flow_b(flow_width*flow_height, 0);
+  for (int y=0; y<flow_height; ++y) for (int x=0; x<flow_width; ++x) {
+    const double value = 127.0 + 42.0*std::sin(x*0.19) + 38.0*std::cos(y*0.23) +
+                         30.0*std::sin((x+y)*0.11);
+    flow_a[y*flow_width+x] = static_cast<std::uint8_t>(std::max(0.0,std::min(255.0,value)));
+  }
+  for (int y=2; y<flow_height; ++y) for (int x=3; x<flow_width; ++x)
+    flow_b[y*flow_width+x] = flow_a[(y-2)*flow_width+x-3];
+  GrayImageView view_a{flow_width,flow_height,flow_width,flow_a.data(),flow_a.size()};
+  GrayImageView view_b{flow_width,flow_height,flow_width,flow_b.data(),flow_b.size()};
+  PyramidalLucasKanade optical_flow({4,4,20,0.005,1.0,20.0,0.5});
+  const auto tracks = optical_flow.track(view_a, view_b, {{64,48,100,77}});
+  CHECK(tracks.size() == 1);
+  CHECK(tracks[0].status == FlowStatus::kTracked);
+  CHECK(std::abs(tracks[0].current.x-67.0) < 0.15);
+  CHECK(std::abs(tracks[0].current.y-50.0) < 0.15);
+  CHECK(tracks[0].forward_backward_error < 0.15);
+  std::vector<std::uint8_t> flat(flow_width*flow_height, 100);
+  GrayImageView flat_view{flow_width,flow_height,flow_width,flat.data(),flat.size()};
+  const auto flat_track = optical_flow.track(flat_view, flat_view, {{64,48,1,1}});
+  CHECK(flat_track[0].status == FlowStatus::kLowTexture);
+  const std::vector<ImageFeature> edge_features = {
+      {0,0,1,1}, {5,5,1,2}, {127,95,1,3}, {122,90,1,4}};
+  const auto edge_tracks = optical_flow.track(view_a, view_b, edge_features);
+  CHECK(edge_tracks.size() == edge_features.size());
+  for (const auto& track : edge_tracks) CHECK(track.status != FlowStatus::kTracked);
 
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));

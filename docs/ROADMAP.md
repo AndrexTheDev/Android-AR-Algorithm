@@ -11,12 +11,13 @@
 - [x] verzerrtes Kameramodell und numerisch geprüfte Projektion
 - [x] robuste Sensor-Uhrenausrichtung
 - [x] dependency-free FAST-9/Grid-Feature-Detektor als portabler Fallback
+- [x] pyramidenbasiertes Sparse Optical Flow mit Forward/Backward-Gate
 
 ## Phase 1 – messbares VIO-MVP
 
 - Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
-- OpenCV-Frontend: FAST/ORB + KLT + Grid-Auswahl + RANSAC;
+- Vision-Frontend: FAST/Grid und pyramidenbasiertes KLT sind nativ implementiert; ORB-Deskriptor und geometrisches RANSAC folgen;
 - Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
 - EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.

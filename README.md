@@ -36,6 +36,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - kalibriertes Pinhole-/Brown-Conrady-Kameramodell mit Projektion und robuster Rückprojektion;
 - robuste affine Uhrenausrichtung für Sensoren mit fremder Zeitbasis;
 - mobiles FAST-9-Feature-Frontend mit Non-Maximum-Suppression und Grid-Quoten;
+- pyramidenbasiertes Lucas-Kanade-Tracking mit Subpixel-Interpolation, Texturprüfung und Vorwärts-Rückwärts-Kontrolle;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

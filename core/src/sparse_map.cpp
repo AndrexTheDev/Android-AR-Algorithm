@@ -1,0 +1,177 @@
+#include "arkernel/sparse_map.h"
+#include "arkernel/visual_frontend.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
+
+namespace arkernel {
+namespace {
+double dot(const Vec3& a,const Vec3& b){return a.x*b.x+a.y*b.y+a.z*b.z;}
+Vec3 cross(const Vec3& a,const Vec3& b){return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};}
+Vec3 normalized(const Vec3& v){const double n=v.norm();return n>1e-12?v*(1.0/n):Vec3{};}
+double rayDistance(const Vec3& center,const Vec3& direction,const Vec3& point){
+  const Vec3 offset=point-center;return (offset-direction*dot(offset,direction)).norm();
+}
+std::uint32_t nextRandom(std::uint32_t& state){state^=state<<13;state^=state>>17;state^=state<<5;return state;}
+bool finite(const Vec3& v){return std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z);}
+}  // namespace
+
+std::vector<LandmarkObservation> makeLandmarkObservations(
+    const VisualFrontendResult& result,const PinholeRadTanCamera& camera,
+    const Pose& world_from_camera){
+  std::vector<LandmarkObservation> observations;
+  observations.reserve(result.accepted_feature_ids.size());
+  for(const auto id:result.accepted_feature_ids){
+    const auto track=std::find_if(result.tracks.begin(),result.tracks.end(),
+                                  [id](const auto& value){return value.id==id;});
+    if(track==result.tracks.end())continue;
+    const auto ray=camera.unproject(track->current);
+    if(ray)observations.push_back({id,result.timestamp_ns,*ray,world_from_camera});
+  }
+  return observations;
+}
+
+SparseLandmarkMap::SparseLandmarkMap(SparseMapConfig config):config_(config){
+  if(config_.max_landmarks<1||config_.min_triangulation_baseline_m<=0||
+     config_.min_triangulation_parallax_degrees<=0||
+     config_.min_triangulation_parallax_degrees>=90||config_.max_ray_residual_m<=0||
+     config_.pending_observation_lifetime_ns<=0||config_.landmark_lifetime_ns<=0)
+    throw std::invalid_argument("Invalid sparse map configuration");
+}
+
+std::optional<std::pair<Vec3,double>> SparseLandmarkMap::triangulate(
+    const LandmarkObservation& first,const LandmarkObservation& second) const{
+  const Vec3 center1=first.world_from_camera.translation;
+  const Vec3 center2=second.world_from_camera.translation;
+  if((center2-center1).norm()<config_.min_triangulation_baseline_m)return std::nullopt;
+  const Vec3 ray1=normalized(first.world_from_camera.rotation.rotate(first.unit_ray_camera));
+  const Vec3 ray2=normalized(second.world_from_camera.rotation.rotate(second.unit_ray_camera));
+  if(ray1.norm()<0.9||ray2.norm()<0.9)return std::nullopt;
+  const double cosine=std::max(-1.0,std::min(1.0,dot(ray1,ray2)));
+  const double parallax=std::acos(cosine)*180.0/3.14159265358979323846;
+  if(parallax<config_.min_triangulation_parallax_degrees)return std::nullopt;
+  const Vec3 baseline=center2-center1;
+  const double b=dot(ray1,ray2),denominator=1.0-b*b;
+  if(denominator<1e-9)return std::nullopt;
+  const double d=dot(ray1,baseline),e=dot(ray2,baseline);
+  const double depth1=(d-b*e)/denominator;
+  const double depth2=(b*d-e)/denominator;
+  if(depth1<=0||depth2<=0)return std::nullopt;
+  const Vec3 point1=center1+ray1*depth1,point2=center2+ray2*depth2;
+  const double residual=(point1-point2).norm();
+  if(residual>config_.max_ray_residual_m)return std::nullopt;
+  return std::make_pair((point1+point2)*0.5,residual);
+}
+
+MapUpdate SparseLandmarkMap::integrate(const std::vector<LandmarkObservation>& observations,
+                                        TimestampNs now_ns){
+  if(now_ns<=0)throw std::invalid_argument("Map timestamp must be positive");
+  MapUpdate update;
+  for(auto it=pending_.begin();it!=pending_.end();){
+    if(now_ns-it->second.observation.timestamp_ns>config_.pending_observation_lifetime_ns){it=pending_.erase(it);++update.pruned;}
+    else ++it;
+  }
+  for(auto it=landmarks_.begin();it!=landmarks_.end();){
+    if(now_ns-it->second.last_seen_ns>config_.landmark_lifetime_ns){it=landmarks_.erase(it);++update.pruned;}
+    else ++it;
+  }
+  for(const auto& observation:observations){
+    if(observation.timestamp_ns<=0||observation.timestamp_ns>now_ns||
+       !finite(observation.unit_ray_camera)||observation.unit_ray_camera.norm()<1e-9){++update.rejected;continue;}
+    const Vec3 ray=normalized(observation.world_from_camera.rotation.rotate(observation.unit_ray_camera));
+    auto landmark=landmarks_.find(observation.feature_id);
+    if(landmark!=landmarks_.end()){
+      const double residual=rayDistance(observation.world_from_camera.translation,ray,
+                                        landmark->second.position_world_m);
+      if(residual>config_.max_ray_residual_m){++update.rejected;continue;}
+      auto candidate=pending_.find(observation.feature_id);
+      if(candidate!=pending_.end()){
+        const auto triangulated=triangulate(candidate->second.observation,observation);
+        if(triangulated){
+          const double count=static_cast<double>(landmark->second.observation_count);
+          landmark->second.position_world_m=(landmark->second.position_world_m*count+
+                                             triangulated->first)*(1.0/(count+1.0));
+        }
+      }
+      const double count=static_cast<double>(landmark->second.observation_count);
+      landmark->second.mean_ray_residual_m=(landmark->second.mean_ray_residual_m*count+residual)/(count+1.0);
+      ++landmark->second.observation_count;landmark->second.last_seen_ns=observation.timestamp_ns;
+      pending_[observation.feature_id]={observation};++update.updated;continue;
+    }
+    auto pending=pending_.find(observation.feature_id);
+    if(pending==pending_.end()){
+      pending_[observation.feature_id]={observation};continue;
+    }
+    const auto triangulated=triangulate(pending->second.observation,observation);
+    if(!triangulated){pending->second.observation=observation;++update.rejected;continue;}
+    if(landmarks_.size()>=config_.max_landmarks){
+      auto victim=std::min_element(landmarks_.begin(),landmarks_.end(),[](const auto& a,const auto& b){
+        if(a.second.observation_count!=b.second.observation_count)
+          return a.second.observation_count<b.second.observation_count;
+        if(a.second.last_seen_ns!=b.second.last_seen_ns)
+          return a.second.last_seen_ns<b.second.last_seen_ns;
+        return a.second.feature_id<b.second.feature_id;});
+      if(victim!=landmarks_.end()){landmarks_.erase(victim);++update.pruned;}
+    }
+    landmarks_[observation.feature_id]={observation.feature_id,triangulated->first,2,
+                                        triangulated->second,observation.timestamp_ns};
+    pending_[observation.feature_id]={observation};++update.created;
+  }
+  return update;
+}
+
+std::optional<SparseLandmark> SparseLandmarkMap::find(std::uint32_t id) const{
+  const auto found=landmarks_.find(id);return found==landmarks_.end()?std::nullopt:
+    std::optional<SparseLandmark>(found->second);
+}
+std::vector<SparseLandmark> SparseLandmarkMap::snapshot() const{
+  std::vector<SparseLandmark> result;result.reserve(landmarks_.size());
+  for(const auto& entry:landmarks_)result.push_back(entry.second);
+  std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.feature_id<b.feature_id;});return result;
+}
+void SparseLandmarkMap::reset(){pending_.clear();landmarks_.clear();}
+
+SparsePlaneDetector::SparsePlaneDetector(PlaneDetectorConfig config):config_(config){
+  if(config_.ransac_iterations<1||config_.inlier_threshold_m<=0||config_.min_inliers<3)
+    throw std::invalid_argument("Invalid plane detector configuration");
+}
+PlaneEstimate SparsePlaneDetector::detect(const std::vector<SparseLandmark>& landmarks) const{
+  PlaneEstimate best;if(landmarks.size()<3)return best;std::uint32_t state=config_.random_seed?config_.random_seed:1;
+  for(int iteration=0;iteration<config_.ransac_iterations;++iteration){
+    std::size_t a=nextRandom(state)%landmarks.size(),b=nextRandom(state)%landmarks.size(),c=nextRandom(state)%landmarks.size();
+    if(a==b||a==c||b==c)continue;
+    Vec3 normal=normalized(cross(landmarks[b].position_world_m-landmarks[a].position_world_m,
+                                 landmarks[c].position_world_m-landmarks[a].position_world_m));
+    if(normal.norm()<0.9)continue;
+    double distance=-dot(normal,landmarks[a].position_world_m);std::vector<std::uint32_t> ids;double error=0;
+    for(const auto& point:landmarks){const double residual=std::abs(dot(normal,point.position_world_m)+distance);
+      if(residual<=config_.inlier_threshold_m){ids.push_back(point.feature_id);error+=residual;}}
+    if(ids.size()>best.inlier_count||(ids.size()==best.inlier_count&&ids.size()&&error/ids.size()<best.mean_absolute_error_m)){
+      if(normal.z<0){normal=normal*-1.0;distance=-distance;}
+      best.normal_world=normal;best.distance_from_origin_m=distance;best.inlier_count=ids.size();
+      best.mean_absolute_error_m=ids.empty()?0:error/ids.size();best.landmark_ids=std::move(ids);
+    }
+  }
+  best.valid=best.inlier_count>=config_.min_inliers;return best;
+}
+
+AnchorId AnchorStore::create(const Pose& pose,TimestampNs timestamp){
+  const double rotation_norm=std::sqrt(pose.rotation.w*pose.rotation.w+
+      pose.rotation.x*pose.rotation.x+pose.rotation.y*pose.rotation.y+
+      pose.rotation.z*pose.rotation.z);
+  if(timestamp<=0||!finite(pose.translation)||!std::isfinite(rotation_norm)||rotation_norm<1e-9)
+    throw std::invalid_argument("Invalid anchor");
+  const AnchorId id=next_id_++;anchors_[id]={id,{pose.rotation.normalized(),pose.translation},timestamp};return id;
+}
+bool AnchorStore::remove(AnchorId id){return anchors_.erase(id)>0;}
+std::optional<WorldAnchor> AnchorStore::find(AnchorId id) const{
+  const auto found=anchors_.find(id);return found==anchors_.end()?std::nullopt:std::optional<WorldAnchor>(found->second);
+}
+std::vector<WorldAnchor> AnchorStore::snapshot() const{
+  std::vector<WorldAnchor> result;for(const auto& entry:anchors_)result.push_back(entry.second);
+  std::sort(result.begin(),result.end(),[](const auto& a,const auto& b){return a.id<b.id;});return result;
+}
+void AnchorStore::reset(){anchors_.clear();next_id_=1;}
+
+}  // namespace arkernel

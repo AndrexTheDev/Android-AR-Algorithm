@@ -14,6 +14,7 @@
 #include "arkernel/homography_ransac.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
+#include "arkernel/sparse_map.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
@@ -228,6 +229,9 @@ int main() {
   for (auto id:frontend_second.accepted_feature_ids)
     CHECK(std::find(first_feature_ids.begin(),first_feature_ids.end(),id)!=first_feature_ids.end());
   CHECK(frontend_second.active_feature_count>=frontend_second.accepted_track_count);
+  const auto frontend_map_observations=makeLandmarkObservations(
+      frontend_second,frontend_camera,{});
+  CHECK(frontend_map_observations.size()==frontend_second.accepted_track_count);
   const auto frontend_gap=frontend.process(frontend_view_b,2000000000LL);
   CHECK(frontend_gap.state==FrontendState::kReinitialized);
   CHECK(frontend_gap.keyframe);
@@ -258,6 +262,35 @@ int main() {
 
   // VIO starts only from a stationary window, propagates metric inertial state,
   // and accepts monocular scale only when inertial displacement agrees.
+  // Stable feature IDs become metric landmarks, a plane and persistent anchors.
+  SparseLandmarkMap sparse_map;
+  std::vector<LandmarkObservation> map_first,map_second;
+  const Pose map_camera_first{{},{0,0,0}};
+  const Pose map_camera_second{{},{0.2,0,0}};
+  for(std::uint32_t id=1;id<=20;++id){
+    const Vec3 point{-0.8+0.08*id,-0.5+0.1*(id%10),3.0};
+    map_first.push_back({id,2100000000LL,point*(1.0/point.norm()),map_camera_first});
+    const Vec3 ray2=point-map_camera_second.translation;
+    map_second.push_back({id,2200000000LL,ray2*(1.0/ray2.norm()),map_camera_second});
+  }
+  CHECK(sparse_map.integrate(map_first,2100000000LL).created==0);
+  const auto map_update=sparse_map.integrate(map_second,2200000000LL);
+  CHECK(map_update.created==20);
+  CHECK(sparse_map.size()==20);
+  const auto landmark=sparse_map.find(7);
+  CHECK(landmark.has_value());
+  CHECK(std::abs(landmark->position_world_m.z-3.0)<1e-8);
+  SparsePlaneDetector plane_detector({300,0.01,15,123});
+  const auto plane=plane_detector.detect(sparse_map.snapshot());
+  CHECK(plane.valid && plane.inlier_count==20);
+  CHECK(plane.normal_world.z>0.999);
+  CHECK(std::abs(plane.distance_from_origin_m+3.0)<1e-8);
+  AnchorStore anchors;
+  const AnchorId anchor_id=anchors.create({{},landmark->position_world_m},2200000000LL);
+  CHECK(anchor_id==1 && anchors.find(anchor_id).has_value());
+  CHECK(anchors.remove(anchor_id));
+  CHECK(!anchors.find(anchor_id).has_value());
+
   VioConfig vio_config;
   vio_config.min_scale_displacement_m=0.001;
   vio_config.visual_rotation_gain=0.5;

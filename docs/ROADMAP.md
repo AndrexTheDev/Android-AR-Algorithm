@@ -38,10 +38,10 @@
 
 ## Phase 2 – Karten und Relokalisierung
 
-- Keyframe-/Landmark-Store mit Budget und Versionierung;
+- [x] metrischer Sparse-Landmark-Store mit Parallaxen-/Residual-Gates und hartem Budget;
 - DBoW-/Embedding-basierte Kandidatensuche;
 - geometrische Loop-Verifikation, Pose Graph, Map merge;
-- Plane/Raycast/Anchor API; verschlüsselte lokale Persistenz.
+- [x] deterministische Plane- und World-Anchor-API; Raycast und verschlüsselte lokale Persistenz folgen.
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 

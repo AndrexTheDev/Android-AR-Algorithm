@@ -38,6 +38,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `visual_frontend.h`: zustandsbehaftete Verkettung der Visionmodule und Feature-Lebenszyklus;
 - `vio_estimator.h`: metrischer IMU-Zustand, stationäre Initialisierung und visueller Bootstrap;
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
+- `sparse_map.h`: Feature-ID-basierte Triangulation, begrenzte Landmark-Karte, Ebenen und Weltanker;
 - `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO- und Visual-Handles;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: Midpoint-Vorintegration, Referenz-Bias, First-Order-Bias-Jakobians und diagonale Unsicherheitspropagation;
@@ -95,3 +96,8 @@ Jeder IMU-Faktor speichert den Bias seines Linearisierungspunkts sowie 3×3-Jako
 ## IMU-Rauschen und Faktorvertrauen
 
 `ImuNoise` beschreibt kontinuierliche Accelerometer- und Gyroskop-Weißrauschdichten in SI-Einheiten pro √Hz. Die Vorintegration propagiert konservative diagonale Varianzen für Rotation, Geschwindigkeit und Position; längere Intervalle und starke spezifische Beschleunigung erhöhen die Unsicherheit. Der Fixed-Lag-Smoother bildet daraus ein auf `[0,1]` begrenztes Vertrauen relativ zu konfigurierbaren Varianzböden. Unsichere Faktoren werden nur herunter-, niemals über ihre manuelle Basisgewichtung hochgewichtet. Die Diagonalnäherung modelliert noch keine vollständigen Kreuzkovarianzen oder Bias-Random-Walks.
+
+
+## Sparse Map und AR-Anker
+
+Geometrisch akzeptierte Frontend-Tracks werden über ihre stabilen IDs und das kalibrierte Kameramodell in Einheitsstrahlen umgewandelt. Eine Landmark entsteht erst nach ausreichender metrischer Baseline, Parallaxe, positiver Tiefe und kleinem Abstand der beiden Sichtstrahlen. Folgebeobachtungen müssen ein Ray-Residual-Gate bestehen. Pending-Beobachtungen und Landmarken besitzen Zeitbudgets; bei Kapazitätsgrenze werden deterministisch schwach beobachtete und alte Punkte entfernt. Ein deterministischer RANSAC erkennt dominante Ebenen aus dem Snapshot. `AnchorStore` hält normalisierte Posen im Weltframe unabhängig vom Rendering. Dynamische Objektmasken und persistente Map-Serialisierung folgen später.

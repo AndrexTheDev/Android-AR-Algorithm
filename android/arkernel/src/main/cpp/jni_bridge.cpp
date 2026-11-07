@@ -688,3 +688,46 @@ Java_ai_arena_arkernel_ArKernelTensorPreprocessor_nativePreprocess(JNIEnv* env,j
   env->SetLongArrayRegion(metadata,0,5,values);
   return result;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelDepthPostprocessor_nativePostprocess(JNIEnv* env,jobject,
+    jobject tensor,jint tensor_offset,jint tensor_size,jint width,jint height,jint row_stride,
+    jint element_type,jdouble quantization_scale,jint quantization_zero_point,
+    jint output_width,jint output_height,jint transform,jdouble unit_to_meters,
+    jdouble min_depth,jdouble max_depth,jdouble max_relative_discontinuity,
+    jlong max_output_elements,jobject depth_output,
+    jobject confidence_output,jint output_capacity_elements,jlongArray metadata) {
+  if(!tensor||!depth_output||!confidence_output||!metadata||tensor_offset<0||tensor_size<0||
+     output_capacity_elements<0||max_output_elements<=0||env->GetArrayLength(metadata)<3)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  auto* tensor_base=static_cast<std::uint8_t*>(env->GetDirectBufferAddress(tensor));
+  auto* depth_base=static_cast<std::uint8_t*>(env->GetDirectBufferAddress(depth_output));
+  auto* confidence_base=static_cast<std::uint8_t*>(env->GetDirectBufferAddress(confidence_output));
+  const jlong tensor_capacity=env->GetDirectBufferCapacity(tensor);
+  const jlong depth_capacity=env->GetDirectBufferCapacity(depth_output);
+  const jlong confidence_capacity=env->GetDirectBufferCapacity(confidence_output);
+  const jlong required_output_bytes=static_cast<jlong>(output_capacity_elements)*sizeof(float);
+  if(!tensor_base||!depth_base||!confidence_base||tensor_capacity<0||depth_capacity<0||
+     confidence_capacity<0||static_cast<jlong>(tensor_offset)+tensor_size>tensor_capacity||
+     required_output_bytes>depth_capacity||required_output_bytes>confidence_capacity||
+     static_cast<unsigned long long>(max_output_elements)>
+       static_cast<unsigned long long>(std::numeric_limits<size_t>::max()))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_depth_tensor_v1 input{};input.struct_size=sizeof(input);input.width=width;input.height=height;
+  input.row_stride_elements=row_stride;input.element_type=static_cast<uint32_t>(element_type);
+  input.data=tensor_base+tensor_offset;input.data_size_bytes=static_cast<size_t>(tensor_size);
+  input.quantization_scale=quantization_scale;input.quantization_zero_point=quantization_zero_point;
+  ark_depth_postprocess_config_v1 config{};config.struct_size=sizeof(config);
+  config.output_width=output_width;config.output_height=output_height;
+  config.transform=static_cast<uint32_t>(transform);config.unit_to_meters=unit_to_meters;
+  config.min_depth_meters=min_depth;config.max_depth_meters=max_depth;
+  config.max_relative_discontinuity=max_relative_discontinuity;
+  config.max_output_elements=static_cast<size_t>(max_output_elements);
+  ark_depth_postprocess_output_v1 result{};result.struct_size=sizeof(result);
+  const ark_result status=ark_postprocess_depth_tensor(&input,&config,
+    reinterpret_cast<float*>(depth_base),reinterpret_cast<float*>(confidence_base),
+    static_cast<size_t>(output_capacity_elements),&result);
+  const jlong values[3]={result.width,result.height,static_cast<jlong>(result.required_elements)};
+  env->SetLongArrayRegion(metadata,0,3,values);
+  return status;
+}

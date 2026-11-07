@@ -63,6 +63,7 @@
 
 - [x] backend-unabhängiges Android-Inferenz-SPI und begrenzter Single-Flight-Scheduler; konkrete LiteRT-/ONNX-Runtime-Adapter bleiben offen;
 - [x] dependency-freies, begrenztes Native-Preprocessing für bilineares Resize, Normalisierung sowie FLOAT32-/INT8-/UINT8-NHWC-Ausgabe;
+- [x] ungültigkeitsbewusstes, begrenztes Depth-Tensor-Postprocessing für quantisierte/direct/inverse Modellausgaben zu kameragroßer metrischer Tiefe plus Konfidenz;
 - Detektion + Tracking + Segmentierung mit gemessenen Geräteprofilen;
 - [x] begrenzte semantische 3D-Objektfusion, Unknown-Klasse und kalibrierte Boden-/Wandprojektion; konkrete Inferenzadapter bleiben offen;
 - [x] validiertes Modellmanifest für Hash, Lizenz, Labels, Quantisierung, metrische Tiefe und Geräteprofile; Paketierung muss Modellbytes/Notices weiterhin verifizieren.

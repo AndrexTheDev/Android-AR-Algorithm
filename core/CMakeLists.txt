@@ -3,6 +3,7 @@ add_library(arkernel STATIC
     src/camera_model.cpp
     src/clock_aligner.cpp
     src/core_engine.cpp
+    src/depth_postprocessor.cpp
     src/depth_sampling.cpp
     src/feature_detector.cpp
     src/fixed_lag_smoother.cpp

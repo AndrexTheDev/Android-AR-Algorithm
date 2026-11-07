@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include "arkernel/depth_postprocessor.h"
 #include "arkernel/depth_sampling.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
@@ -176,6 +177,40 @@ ark_result ark_preprocess_tensor(const ark_tensor_image_v1* image,
     else if(tensor.element_type==arkernel::TensorElementType::kInt8)
       std::memcpy(buffer,tensor.int8_values.data(),required);
     else std::memcpy(buffer,tensor.uint8_values.data(),required);
+    return ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::bad_alloc&){return ARK_RESULT_INTERNAL_ERROR;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+ark_result ark_postprocess_depth_tensor(const ark_depth_tensor_v1* tensor,
+    const ark_depth_postprocess_config_v1* config,float* depth,float* confidence,
+    size_t capacity,ark_depth_postprocess_output_v1* out){
+  if(!validStruct(tensor)||!validStruct(config)||!validStruct(out)||
+     tensor->element_type>ARK_TENSOR_UINT8||config->transform>ARK_DEPTH_INVERSE)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    const arkernel::DepthTensorView view{tensor->width,tensor->height,
+      tensor->row_stride_elements,static_cast<arkernel::DepthTensorElementType>(tensor->element_type),
+      tensor->data,tensor->data_size_bytes,tensor->quantization_scale,
+      tensor->quantization_zero_point};
+    arkernel::DepthPostprocessConfig converted;converted.output_width=config->output_width;
+    converted.output_height=config->output_height;
+    converted.transform=static_cast<arkernel::DepthValueTransform>(config->transform);
+    converted.unit_to_meters=config->unit_to_meters;
+    converted.min_depth_meters=config->min_depth_meters;
+    converted.max_depth_meters=config->max_depth_meters;
+    converted.max_relative_discontinuity=config->max_relative_discontinuity;
+    converted.max_output_elements=config->max_output_elements;
+    const auto result=arkernel::postprocessDepthTensor(view,converted);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->width=result.width;out->height=result.height;
+    out->required_elements=result.depth_meters.size();
+    if(!depth&&!confidence)return ARK_RESULT_OK;
+    if(!depth||!confidence||capacity<out->required_elements)return ARK_RESULT_INVALID_ARGUMENT;
+    std::memcpy(depth,result.depth_meters.data(),out->required_elements*sizeof(float));
+    std::memcpy(confidence,result.confidence.data(),out->required_elements*sizeof(float));
     return ARK_RESULT_OK;
   }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}

@@ -7,6 +7,7 @@
 #include "arkernel/camera_model.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
+#include "arkernel/depth_postprocessor.h"
 #include "arkernel/depth_sampling.h"
 #include "arkernel/feature_detector.h"
 #include "arkernel/fixed_lag_smoother.h"
@@ -98,6 +99,55 @@ int main() {
                     [](const auto& value){return value.normal_valid;}));
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
+
+  const std::array<float,4> raw_depth{1.0F,2.0F,3.0F,4.0F};
+  const DepthTensorView depth_tensor{2,2,2,DepthTensorElementType::kFloat32,
+    raw_depth.data(),sizeof(raw_depth),1.0,0};
+  DepthPostprocessConfig depth_post_config;depth_post_config.output_width=1;
+  depth_post_config.output_height=1;depth_post_config.max_relative_discontinuity=10;
+  const auto resized_depth=postprocessDepthTensor(depth_tensor,depth_post_config);
+  CHECK(resized_depth.valid&&resized_depth.depth_meters.size()==1);
+  CHECK(std::abs(resized_depth.depth_meters[0]-2.5F)<1e-6F);
+  CHECK(resized_depth.confidence[0]==1.0F);
+  const std::array<float,4> sparse_raw_depth{1.0F,0.0F,
+    std::numeric_limits<float>::quiet_NaN(),3.0F};
+  const DepthTensorView sparse_depth_tensor{2,2,2,DepthTensorElementType::kFloat32,
+    sparse_raw_depth.data(),sizeof(sparse_raw_depth),1.0,0};
+  const auto sparse_resized_depth=postprocessDepthTensor(sparse_depth_tensor,depth_post_config);
+  CHECK(std::abs(sparse_resized_depth.depth_meters[0]-2.0F)<1e-6F);
+  CHECK(std::abs(sparse_resized_depth.confidence[0]-0.5F)<1e-6F);
+  depth_post_config.max_relative_discontinuity=0.1;
+  const auto edge_safe_depth=postprocessDepthTensor(depth_tensor,depth_post_config);
+  CHECK(std::abs(edge_safe_depth.depth_meters[0]-1.0F)<1e-6F);
+  const std::array<std::uint8_t,3> quantized_inverse{2,4,99};
+  const DepthTensorView quantized_depth_tensor{2,1,3,DepthTensorElementType::kUInt8,
+    quantized_inverse.data(),quantized_inverse.size(),0.5,0};
+  depth_post_config.output_width=2;depth_post_config.output_height=1;
+  depth_post_config.transform=DepthValueTransform::kInverse;
+  depth_post_config.unit_to_meters=2.0;
+  const auto inverse_depth=postprocessDepthTensor(quantized_depth_tensor,depth_post_config);
+  CHECK(std::abs(inverse_depth.depth_meters[0]-2.0F)<1e-6F);
+  CHECK(std::abs(inverse_depth.depth_meters[1]-1.0F)<1e-6F);
+  bool depth_budget_rejected=false;depth_post_config.max_output_elements=1;
+  try{(void)postprocessDepthTensor(quantized_depth_tensor,depth_post_config);}
+  catch(const std::length_error&){depth_budget_rejected=true;}
+  CHECK(depth_budget_rejected);
+  ark_depth_tensor_v1 c_depth_tensor{};c_depth_tensor.struct_size=sizeof(c_depth_tensor);
+  c_depth_tensor.width=2;c_depth_tensor.height=2;c_depth_tensor.row_stride_elements=2;
+  c_depth_tensor.element_type=ARK_TENSOR_FLOAT32;c_depth_tensor.data=raw_depth.data();
+  c_depth_tensor.data_size_bytes=sizeof(raw_depth);c_depth_tensor.quantization_scale=1;
+  ark_depth_postprocess_config_v1 c_depth_config{};
+  c_depth_config.struct_size=sizeof(c_depth_config);c_depth_config.output_width=1;
+  c_depth_config.output_height=1;c_depth_config.transform=ARK_DEPTH_DIRECT;
+  c_depth_config.unit_to_meters=1;c_depth_config.min_depth_meters=0.05;
+  c_depth_config.max_depth_meters=20;c_depth_config.max_relative_discontinuity=10;
+  c_depth_config.max_output_elements=16;
+  ark_depth_postprocess_output_v1 c_depth_output{};
+  c_depth_output.struct_size=sizeof(c_depth_output);float c_depth_value=0,c_depth_confidence=0;
+  CHECK(ark_postprocess_depth_tensor(&c_depth_tensor,&c_depth_config,&c_depth_value,
+    &c_depth_confidence,1,&c_depth_output)==ARK_RESULT_OK);
+  CHECK(std::abs(c_depth_value-2.5F)<1e-6F&&c_depth_confidence==1.0F&&
+        c_depth_output.required_elements==1);
 
   const std::vector<std::uint8_t> tensor_rgb{
     255,0,0, 0,255,0,

@@ -6,7 +6,7 @@ The core does not require LiDAR and does not assume a particular depth model. St
 
 Each sample contains a positive-depth metric point in the optical camera frame, confidence, radius, frame timestamp, and an optional camera-frame unit normal. The exact `world_from_camera` pose associated with that depth frame is supplied separately. JNI/native code rotates points and normals into the current world frame; timestamps must match, so delayed inference cannot silently use the latest pose.
 
-Adapters must establish metric scale and calibration. Relative monocular depth values, disparity values, raw 16-bit sensor units, and image pixels are not metric 3D observations until converted by the adapter. A batch is limited to 100,000 observations.
+Adapters must establish metric scale and calibration. Relative monocular depth values, disparity values, raw 16-bit sensor units, and image pixels are not metric 3D observations until converted by the adapter. `ArKernelDepthPostprocessor` provides a bounded conversion primitive for documented FLOAT32/INT8/UINT8 direct-depth or inverse-depth tensors: it dequantizes, applies the declared unit conversion, rejects invalid/range-violating samples, and invalid-aware resizes to camera resolution while producing interpolation-validity confidence. It does not make relative output metric. A surfel batch is limited to 100,000 observations.
 
 ## Aligned metric depth images
 

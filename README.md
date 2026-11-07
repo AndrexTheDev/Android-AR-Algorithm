@@ -46,6 +46,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - speicherbegrenztes Fixed-Lag-Fenster mit IMU-/Vision-Faktoren, Huber-Gewichtung und Prior-Promotion;
 - versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
+- gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation und visueller Rückkopplung;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

@@ -23,7 +23,7 @@ class Camera2FrameSource(
     context: Context,
     private val calibration: CameraCalibration,
     private val frontend: ArKernelVisualFrontend,
-    private val rotationPrediction: () -> Rotation? = { null },
+    private val rotationPrediction: (timestampNs: Long) -> Rotation? = { null },
     private val onResult: (VisualFrontendSnapshot) -> Unit,
     private val onError: (Throwable) -> Unit = {},
 ) : AutoCloseable {
@@ -103,7 +103,8 @@ class Camera2FrameSource(
             val y = image.planes[0]
             check(y.pixelStride == 1) { "Unsupported Camera2 Y-plane pixel stride ${y.pixelStride}" }
             lastTimestampNs = image.timestamp
-            onResult(frontend.processGray(y.buffer, image.timestamp, y.rowStride, rotationPrediction()))
+            onResult(frontend.processGray(
+                y.buffer, image.timestamp, y.rowStride, rotationPrediction(image.timestamp)))
         } catch (error: Throwable) {
             if (running) onError(error)
         } finally {

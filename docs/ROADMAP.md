@@ -24,6 +24,7 @@
 ## Phase 1 – messbares VIO-MVP
 
 - [x] Camera2-ImageReader mit direktem Y-Plane-JNI-Pfad und expliziter Kalibrierung; ein optionaler NDK-AImageReader-Pfad bleibt offen;
+- [x] gemeinsame Android-Session mit capture-synchroner IMU-Drainage und visueller VIO-Rückkopplung;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - Vision-Frontend inklusive Feature-Lebenszyklus ist nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
 - Sparse Sliding-Window-Gauss-Newton, Bias-Jakobians und Schur-Marginalisierung; ein begrenzter robuster Fixed-Lag-Bootstrap ist implementiert;

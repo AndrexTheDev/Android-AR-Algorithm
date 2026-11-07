@@ -70,3 +70,8 @@ Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine ex
 ## Camera2-Puffervertrag
 
 `Camera2FrameSource` fordert exakt die Auflösung der übergebenen `CameraCalibration` an. Der Host muss Kamera-ID, Crop, Stabilisierung und Intrinsics konsistent wählen; der Kern rät keine Brennweite. Der direkte Y-Plane-`ByteBuffer` wird synchron über JNI verarbeitet und das `Image` erst danach geschlossen. `rowStride` und ein möglicherweise ungepolstertes letztes Bildsegment werden korrekt berücksichtigt. Das Visual-Frontend kopiert nur den benötigten Grauwertzustand für den nächsten Frame; kein Android-Pufferpointer wird gespeichert.
+
+
+## Android-Session und zeitliche Ordnung
+
+`ArKernelSession` puffert kombinierte IMU-Samples begrenzt. Vor einem Bild mit Capture-Zeit `t` werden ausschließlich Samples mit `timestamp <= t` in VIO propagiert; erst danach entstehen Rotationsvorhersage und visuelle Messung. Eine allgemeine 3D-Relativpose wird anschließend am gleichen Zeitstempel fusioniert. Später eintreffende IMU-Samples bleiben für das nächste Bild sortiert. Queue-Überläufe werden gezählt und im Session-Ergebnis sichtbar. Die kalibrierte Rotation `body_from_camera` ist Pflicht: Android-Body- und optische Kameraachsen dürfen niemals stillschweigend gleichgesetzt werden.

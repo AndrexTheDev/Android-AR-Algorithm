@@ -25,3 +25,7 @@ The next adapter will feed Camera2 Y-plane frames into the native visual fronten
 ## Calibrated Camera2 stream
 
 `Camera2FrameSource` opens a back camera (or an explicit camera ID), requests the exact calibrated YUV size, consumes only the Y plane, and closes each `Image` after the synchronous native call. The host must pass intrinsics/distortion for that exact camera ID, output size, crop and stabilization mode; the adapter intentionally refuses to guess calibration. The requested size must be listed by that camera's `StreamConfigurationMap`.
+
+## Coordinated session
+
+`ArKernelSession` queues IMU samples and drains only samples with `timestamp <= Image.timestamp` before each visual frame. It then computes an IMU rotation prediction, runs the visual frontend, and feeds valid general-3D relative poses back into VIO. A calibrated `bodyFromCameraRotation` is mandatory because Android device axes and optical camera axes are generally not aligned. Result callbacks run on the camera worker thread.

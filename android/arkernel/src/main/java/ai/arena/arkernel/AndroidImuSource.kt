@@ -17,6 +17,10 @@ class AndroidImuSource(
     context: Context,
     private val vio: ArKernelVio,
     private val sensorDelay: Int = SensorManager.SENSOR_DELAY_FASTEST,
+    private val sampleSink: (Long, Vector3, Vector3) -> Unit = { timestamp, acceleration, angularVelocity ->
+        vio.submitImu(timestamp, acceleration, angularVelocity)
+        Unit
+    },
 ) : SensorEventListener, AutoCloseable {
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -73,7 +77,7 @@ class AndroidImuSource(
         val angularVelocity = latestAngularVelocity ?: return
         if (event.timestamp <= lastTimestampNs) return
         lastTimestampNs = event.timestamp
-        vio.submitImu(event.timestamp, acceleration, angularVelocity)
+        sampleSink(event.timestamp, acceleration, angularVelocity)
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit

@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include "arkernel/c_api.h"
 #include "arkernel/camera_model.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
@@ -266,6 +267,37 @@ int main() {
     moving_initializer.submitImu({vio_start+i*10000000LL,{0,0,gravity},
                                   {0.2*(i&1?1.0:-1.0),0,0}});
   CHECK(!moving_initializer.initialized());
+
+  // Versioned C ABI owns exceptions, validates struct sizes and preserves
+  // nanosecond timestamps without converting them to floating point.
+  CHECK(ark_c_api_version()==ARKERNEL_C_API_VERSION);
+  ark_vio_config_v1 c_config{};
+  CHECK(ark_vio_default_config(&c_config)==ARK_RESULT_OK);
+  c_config.initialization_samples=10;
+  c_config.initialization_duration_s=0.08;
+  ark_vio_handle* c_handle=nullptr;
+  CHECK(ark_vio_create(&c_config,&c_handle)==ARK_RESULT_OK);
+  CHECK(c_handle!=nullptr);
+  ark_imu_sample_v1 c_sample{};
+  c_sample.struct_size=sizeof(c_sample);
+  c_sample.acceleration_z_mps2=gravity;
+  for (int i=0;i<10;++i) {
+    c_sample.timestamp_ns=7000000000LL+i*10000000LL;
+    const auto result=ark_vio_submit_imu(c_handle,&c_sample);
+    CHECK(result==(i==9?ARK_RESULT_OK:ARK_RESULT_NOT_READY));
+  }
+  CHECK(ark_vio_submit_imu(c_handle,&c_sample)==ARK_RESULT_OUT_OF_ORDER);
+  char c_error[64]{};
+  CHECK(ark_vio_copy_last_error(c_handle,c_error,sizeof(c_error))>1);
+  CHECK(std::string(c_error).find("timestamp")!=std::string::npos);
+  ark_vio_state_v1 c_state{};
+  c_state.struct_size=sizeof(c_state);
+  CHECK(ark_vio_get_state(c_handle,&c_state)==ARK_RESULT_OK);
+  CHECK(c_state.status==ARK_VIO_INERTIAL);
+  CHECK(c_state.timestamp_ns==c_sample.timestamp_ns);
+  CHECK(ark_vio_reset(c_handle)==ARK_RESULT_OK);
+  CHECK(ark_vio_get_state(c_handle,&c_state)==ARK_RESULT_NOT_READY);
+  ark_vio_destroy(c_handle);
 
   // The fixed-lag window reduces adjacent IMU/vision residuals and remains
   // bounded by promoting an optimized state to the prior on overflow.

@@ -7,7 +7,7 @@
 - [x] IMU-Vorintegration, Qualitätsgate, Sensor-Orchestrator
 - [x] Unit-Tests ohne Drittanbieterabhängigkeiten
 - [ ] CI-Matrix Linux + Android NDK
-- [ ] stabile C-ABI und Kotlin/JNI-Wrapper
+- [x] stabile C-ABI und Kotlin/JNI-Wrapper
 - [x] verzerrtes Kameramodell und numerisch geprüfte Projektion
 - [x] robuste Sensor-Uhrenausrichtung
 - [x] dependency-free FAST-9/Grid-Feature-Detektor als portabler Fallback
@@ -23,7 +23,7 @@
 
 ## Phase 1 – messbares VIO-MVP
 
-- Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
+- Camera2/NDK ImageReader Zero-Copy-Adapter; SensorManager/JNI/VIO-Lifecycle sind implementiert;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - Vision-Frontend inklusive Feature-Lebenszyklus ist nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
 - Sparse Sliding-Window-Gauss-Newton, Bias-Jakobians und Schur-Marginalisierung; ein begrenzter robuster Fixed-Lag-Bootstrap ist implementiert;

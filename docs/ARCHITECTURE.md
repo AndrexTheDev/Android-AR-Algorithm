@@ -38,6 +38,7 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `visual_frontend.h`: zustandsbehaftete Verkettung der Visionmodule und Feature-Lebenszyklus;
 - `vio_estimator.h`: metrischer IMU-Zustand, stationäre Initialisierung und visueller Bootstrap;
 - `fixed_lag_smoother.h`: begrenztes Keyframe-Fenster, angrenzende IMU-/Vision-Faktoren und robuste Residuen;
+- `c_api.h`: versionierte C-Grenze mit opaken, thread-sicheren VIO-Handles;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;
@@ -59,3 +60,8 @@ Der aktuelle `VioEstimator` initialisiert die Welt-z-Achse aus einem nachweislic
 ## Fixed-Lag-Fenster
 
 Das Fenster hält eine harte Maximalzahl an Keyframes. Der älteste Zustand ist der feste Prior; bei Überlauf wird er entfernt und der nächste aktuelle Zustand zum neuen Prior. IMU-Faktoren koppeln Rotation, Geschwindigkeit und Position, visuelle Faktoren koppeln Rotation und die zur Essential-Geometrie passende Translationsrichtung. Huber-Verluste begrenzen den Einfluss grober Residuen. Die aktuelle deterministische Forward-Sweep-Lösung ist ein dependency-free Fixed-Lag-Bootstrap. Sie ist ausdrücklich noch keine vollständige sparse Gauss-Newton-Lösung mit Bias-Jakobians und Schur-Komplement-Marginalisierung.
+
+
+## Android- und ABI-Grenze
+
+Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine explizite API-Version. C++-Exceptions verlassen die Bibliothek nie. Handles sind opak und intern per Mutex geschützt; Fehlertexte werden in Caller-Speicher kopiert. JNI transportiert Nanosekunden als `Long`, nicht als ungenaues `Double`. Die Kotlin-Fassade besitzt den nativen Handle eindeutig und implementiert `AutoCloseable`. `AndroidImuSource` registriert beide Sensoren auf einem eigenen `HandlerThread`; Pause/Resume setzt den Zustand zurück, damit Boot-Time-Sequenzen verschiedener Kamera-/App-Sessions nie vermischt werden.

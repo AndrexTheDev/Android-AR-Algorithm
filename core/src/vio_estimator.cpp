@@ -43,7 +43,10 @@ VioEstimator::VioEstimator(VioConfig config):config_(config){
 }
 
 bool VioEstimator::submitImu(const ImuSample& sample){
-  if(sample.timestamp_ns<=0)return false;
+  if(sample.timestamp_ns<=0||!std::isfinite(sample.acceleration_mps2.x)||
+     !std::isfinite(sample.acceleration_mps2.y)||!std::isfinite(sample.acceleration_mps2.z)||
+     !std::isfinite(sample.angular_velocity_rps.x)||!std::isfinite(sample.angular_velocity_rps.y)||
+     !std::isfinite(sample.angular_velocity_rps.z))return false;
   if(previous_imu_&&sample.timestamp_ns<=previous_imu_->timestamp_ns)return false;
   if(!initialized()){
     initialization_buffer_.push_back(sample);previous_imu_=sample;
@@ -108,15 +111,22 @@ void VioEstimator::propagate(const ImuSample& previous,const ImuSample& current)
 VisualFusionResult VioEstimator::fuseVisual(TimestampNs timestamp_ns,
                                              const RelativePoseEstimate& visual){
   VisualFusionResult result;
-  if(!initialized()||!visual.valid||std::llabs(timestamp_ns-state_.timestamp_ns)>
-      config_.visual_sync_tolerance_ns)return result;
+  const double rotation_norm=std::sqrt(
+      visual.rotation_current_from_previous.w*visual.rotation_current_from_previous.w+
+      visual.rotation_current_from_previous.x*visual.rotation_current_from_previous.x+
+      visual.rotation_current_from_previous.y*visual.rotation_current_from_previous.y+
+      visual.rotation_current_from_previous.z*visual.rotation_current_from_previous.z);
+  const double translation_norm=visual.translation_direction_current.norm();
+  if(!initialized()||!visual.valid||!std::isfinite(rotation_norm)||
+     !std::isfinite(translation_norm)||rotation_norm<1e-9||translation_norm<1e-9||
+     std::llabs(timestamp_ns-state_.timestamp_ns)>config_.visual_sync_tolerance_ns)return result;
   if(!previous_visual_world_pose_){previous_visual_world_pose_=state_.world_from_body;return result;}
   const Pose anchor=*previous_visual_world_pose_;
   const Quaternion camera_to_body=config_.body_from_camera_rotation;
   const Quaternion visual_body_rotation=(camera_to_body*
       visual.rotation_current_from_previous*camera_to_body.inverse()).normalized();
   const Vec3 visual_body_translation=camera_to_body.rotate(
-      visual.translation_direction_current);
+      visual.translation_direction_current*(1.0/translation_norm));
   const Quaternion measured_world_rotation=(anchor.rotation*
       visual_body_rotation.inverse()).normalized();
   state_.world_from_body.rotation=Quaternion::slerp(

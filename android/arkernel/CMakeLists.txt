@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 project(arkernel_android LANGUAGES CXX)
-# Included by an Android library module. JNI bindings will link this target;
-# keeping core sources in one place prevents Android/desktop algorithm drift.
 set(ARKERNEL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../core ${CMAKE_CURRENT_BINARY_DIR}/core)
+add_library(arkernel_jni SHARED src/main/cpp/jni_bridge.cpp)
+target_compile_features(arkernel_jni PRIVATE cxx_std_17)
+target_link_libraries(arkernel_jni PRIVATE arkernel)
+target_include_directories(arkernel_jni PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../core/include)

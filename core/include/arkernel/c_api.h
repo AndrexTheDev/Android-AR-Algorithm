@@ -140,6 +140,65 @@ typedef struct ark_visual_result_v1 {
   double median_parallax_degrees;
 } ark_visual_result_v1;
 
+typedef struct ark_world_pose_v1 {
+  uint32_t struct_size;
+  int64_t timestamp_ns;
+  double rotation_w;
+  double rotation_x;
+  double rotation_y;
+  double rotation_z;
+  double position_x_m;
+  double position_y_m;
+  double position_z_m;
+} ark_world_pose_v1;
+
+typedef struct ark_map_update_v1 {
+  uint32_t struct_size;
+  int64_t timestamp_ns;
+  size_t created;
+  size_t updated;
+  size_t rejected;
+  size_t pruned;
+  size_t landmark_count;
+  uint32_t plane_valid;
+  size_t plane_inlier_count;
+  double plane_normal_x;
+  double plane_normal_y;
+  double plane_normal_z;
+  double plane_distance_from_origin_m;
+  double plane_center_x_m;
+  double plane_center_y_m;
+  double plane_center_z_m;
+  double plane_observed_area_m2;
+  double plane_mean_absolute_error_m;
+} ark_map_update_v1;
+
+typedef struct ark_plane_hit_v1 {
+  uint32_t struct_size;
+  double position_x_m;
+  double position_y_m;
+  double position_z_m;
+  double normal_x;
+  double normal_y;
+  double normal_z;
+  double distance_m;
+  double plane_u_m;
+  double plane_v_m;
+} ark_plane_hit_v1;
+
+typedef struct ark_anchor_v1 {
+  uint32_t struct_size;
+  uint64_t id;
+  int64_t created_ns;
+  double rotation_w;
+  double rotation_x;
+  double rotation_y;
+  double rotation_z;
+  double position_x_m;
+  double position_y_m;
+  double position_z_m;
+} ark_anchor_v1;
+
 typedef struct ark_vio_state_v1 {
   uint32_t struct_size;
   int64_t timestamp_ns;
@@ -175,6 +234,20 @@ ark_result ark_visual_process_gray(ark_visual_handle* handle,
                                    const ark_gray_frame_v1* frame,
                                    ark_visual_result_v1* out_result);
 size_t ark_visual_copy_last_error(ark_visual_handle* handle, char* buffer, size_t buffer_size);
+ark_result ark_visual_integrate_map(ark_visual_handle* handle,
+                                    const ark_world_pose_v1* world_from_camera,
+                                    ark_map_update_v1* out_update);
+ark_result ark_visual_raycast_plane(ark_visual_handle* handle,
+                                    double origin_x_m, double origin_y_m, double origin_z_m,
+                                    double direction_x, double direction_y, double direction_z,
+                                    double min_distance_m, double max_distance_m,
+                                    ark_plane_hit_v1* out_hit);
+ark_result ark_visual_create_anchor(ark_visual_handle* handle,
+                                    const ark_world_pose_v1* world_from_anchor,
+                                    uint64_t* out_anchor_id);
+ark_result ark_visual_remove_anchor(ark_visual_handle* handle, uint64_t anchor_id);
+ark_result ark_visual_get_anchor(ark_visual_handle* handle, uint64_t anchor_id,
+                                 ark_anchor_v1* out_anchor);
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out_config);
 ark_result ark_vio_create(const ark_vio_config_v1* config, ark_vio_handle** out_handle);

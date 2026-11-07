@@ -128,3 +128,68 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeProcessGray(JNIEnv* env,jobj
   env->SetLongArrayRegion(metadata,0,8,meta);env->SetDoubleArrayRegion(values,0,8,data);
   return status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeIntegrateMap(JNIEnv* env,jobject,jlong handle,
+    jlong timestamp,jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,jdouble py,jdouble pz,
+    jlongArray metadata,jdoubleArray values) {
+  if(!metadata||!values||env->GetArrayLength(metadata)<8||env->GetArrayLength(values)<9)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;
+  ark_map_update_v1 update{};update.struct_size=sizeof(update);
+  const auto status=ark_visual_integrate_map(fromVisualHandle(handle),&pose,&update);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[8]={update.timestamp_ns,static_cast<jlong>(update.created),
+    static_cast<jlong>(update.updated),static_cast<jlong>(update.rejected),
+    static_cast<jlong>(update.pruned),static_cast<jlong>(update.landmark_count),
+    static_cast<jlong>(update.plane_valid),static_cast<jlong>(update.plane_inlier_count)};
+  const jdouble data[9]={update.plane_normal_x,update.plane_normal_y,update.plane_normal_z,
+    update.plane_distance_from_origin_m,update.plane_center_x_m,update.plane_center_y_m,
+    update.plane_center_z_m,update.plane_observed_area_m2,update.plane_mean_absolute_error_m};
+  env->SetLongArrayRegion(metadata,0,8,meta);env->SetDoubleArrayRegion(values,0,9,data);return status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRaycastPlane(JNIEnv* env,jobject,jlong handle,
+    jdouble ox,jdouble oy,jdouble oz,jdouble dx,jdouble dy,jdouble dz,
+    jdouble min_distance,jdouble max_distance,jdoubleArray values) {
+  if(!values||env->GetArrayLength(values)<9)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_plane_hit_v1 hit{};hit.struct_size=sizeof(hit);
+  const auto status=ark_visual_raycast_plane(fromVisualHandle(handle),ox,oy,oz,dx,dy,dz,
+                                              min_distance,max_distance,&hit);
+  if(status!=ARK_RESULT_OK)return status;
+  const jdouble data[9]={hit.position_x_m,hit.position_y_m,hit.position_z_m,
+    hit.normal_x,hit.normal_y,hit.normal_z,hit.distance_m,hit.plane_u_m,hit.plane_v_m};
+  env->SetDoubleArrayRegion(values,0,9,data);return status;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeCreateAnchor(JNIEnv*,jobject,jlong handle,
+    jlong timestamp,jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,jdouble py,jdouble pz) {
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;uint64_t id=0;
+  return ark_visual_create_anchor(fromVisualHandle(handle),&pose,&id)==ARK_RESULT_OK?
+    static_cast<jlong>(id):0;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeRemoveAnchor(JNIEnv*,jobject,jlong handle,jlong id) {
+  return ark_visual_remove_anchor(fromVisualHandle(handle),static_cast<uint64_t>(id))==ARK_RESULT_OK;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetAnchor(JNIEnv* env,jobject,jlong handle,jlong id,
+                                                               jlongArray metadata,jdoubleArray values) {
+  if(!metadata||!values||env->GetArrayLength(metadata)<2||env->GetArrayLength(values)<7)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_anchor_v1 anchor{};anchor.struct_size=sizeof(anchor);
+  const auto status=ark_visual_get_anchor(fromVisualHandle(handle),static_cast<uint64_t>(id),&anchor);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[2]={static_cast<jlong>(anchor.id),anchor.created_ns};
+  const jdouble data[7]={anchor.rotation_w,anchor.rotation_x,anchor.rotation_y,anchor.rotation_z,
+    anchor.position_x_m,anchor.position_y_m,anchor.position_z_m};
+  env->SetLongArrayRegion(metadata,0,2,meta);env->SetDoubleArrayRegion(values,0,7,data);return status;
+}

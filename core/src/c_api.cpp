@@ -6,8 +6,10 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include "arkernel/sparse_map.h"
 #include "arkernel/vio_estimator.h"
 #include "arkernel/visual_frontend.h"
 
@@ -20,13 +22,20 @@ struct ark_vio_handle {
 };
 
 struct ark_visual_handle {
-  ark_visual_handle(const arkernel::PinholeRadTanCamera& camera,
+  ark_visual_handle(const arkernel::PinholeRadTanCamera& calibrated_camera,
                     const arkernel::VisualFrontendConfig& config)
-      : frontend(camera,config) {}
+      : camera(calibrated_camera),frontend(calibrated_camera,config) {}
+  arkernel::PinholeRadTanCamera camera;
   arkernel::VisualFrontend frontend;
+  arkernel::SparseLandmarkMap map;
+  arkernel::SparsePlaneDetector plane_detector;
+  arkernel::PlaneEstimate plane;
+  arkernel::AnchorStore anchors;
+  std::optional<arkernel::VisualFrontendResult> last_result;
   std::mutex mutex;
   std::string error;
   int64_t last_frame_ns{0};
+  int64_t last_map_frame_ns{0};
 };
 
 namespace {
@@ -65,6 +74,18 @@ arkernel::VisualFrontendConfig convert(const ark_visual_config_v1& c) {
 }
 template <typename T> bool validStruct(const T* value) {
   return value && value->struct_size>=sizeof(T);
+}
+bool convertPose(const ark_world_pose_v1& value,arkernel::Pose& pose) {
+  const double norm=std::sqrt(value.rotation_w*value.rotation_w+
+    value.rotation_x*value.rotation_x+value.rotation_y*value.rotation_y+
+    value.rotation_z*value.rotation_z);
+  if(value.timestamp_ns<=0||!std::isfinite(norm)||norm<1e-9||
+     !std::isfinite(value.position_x_m)||!std::isfinite(value.position_y_m)||
+     !std::isfinite(value.position_z_m))return false;
+  pose.rotation={value.rotation_w/norm,value.rotation_x/norm,
+    value.rotation_y/norm,value.rotation_z/norm};
+  pose.translation={value.position_x_m,value.position_y_m,value.position_z_m};
+  return true;
 }
 ark_result fail(ark_vio_handle* handle,ark_result result,const char* message) {
   if(handle)handle->error=message;
@@ -123,7 +144,9 @@ void ark_visual_destroy(ark_visual_handle* handle){delete handle;}
 ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
-  handle->frontend.reset();handle->last_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
+  handle->frontend.reset();handle->map.reset();handle->anchors.reset();
+  handle->plane={};handle->last_result.reset();handle->last_frame_ns=0;
+  handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
 }
 
 ark_result ark_visual_process_gray(ark_visual_handle* handle,const ark_gray_frame_v1* frame,
@@ -166,7 +189,8 @@ ark_result ark_visual_process_gray(ark_visual_handle* handle,const ark_gray_fram
     out->relative_translation_direction_z=result.relative_pose.translation_direction_current.z;
     out->positive_depth_count=result.relative_pose.positive_depth_count;
     out->median_parallax_degrees=result.relative_pose.median_parallax_degrees;
-    handle->last_frame_ns=frame->timestamp_ns;handle->error.clear();return ARK_RESULT_OK;
+    handle->last_result=result;handle->last_frame_ns=frame->timestamp_ns;
+    handle->error.clear();return ARK_RESULT_OK;
   }catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
   catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
   catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown visual frontend error");}
@@ -175,6 +199,89 @@ ark_result ark_visual_process_gray(ark_visual_handle* handle,const ark_gray_fram
 size_t ark_visual_copy_last_error(ark_visual_handle* handle,char* buffer,size_t buffer_size){
   if(!handle)return copyError(handle,buffer,buffer_size);
   std::lock_guard<std::mutex> lock(handle->mutex);return copyError(handle,buffer,buffer_size);
+}
+
+ark_result ark_visual_integrate_map(ark_visual_handle* handle,const ark_world_pose_v1* pose,
+                                    ark_map_update_v1* out){
+  if(!handle||!validStruct(pose)||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);arkernel::Pose world_from_camera;
+  if(!convertPose(*pose,world_from_camera))
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"World-from-camera pose is invalid");
+  if(!handle->last_result||pose->timestamp_ns!=handle->last_result->timestamp_ns)
+    return fail(handle,ARK_RESULT_NOT_READY,"Pose timestamp does not match the latest camera frame");
+  if(pose->timestamp_ns<=handle->last_map_frame_ns)
+    return fail(handle,ARK_RESULT_OUT_OF_ORDER,"Camera frame was already integrated into the map");
+  try{
+    const auto observations=arkernel::makeLandmarkObservations(
+      *handle->last_result,handle->camera,world_from_camera);
+    const auto update=handle->map.integrate(observations,pose->timestamp_ns);
+    handle->plane=handle->plane_detector.detect(handle->map.snapshot());
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->timestamp_ns=pose->timestamp_ns;out->created=update.created;out->updated=update.updated;
+    out->rejected=update.rejected;out->pruned=update.pruned;out->landmark_count=handle->map.size();
+    out->plane_valid=handle->plane.valid?1u:0u;out->plane_inlier_count=handle->plane.inlier_count;
+    out->plane_normal_x=handle->plane.normal_world.x;out->plane_normal_y=handle->plane.normal_world.y;
+    out->plane_normal_z=handle->plane.normal_world.z;
+    out->plane_distance_from_origin_m=handle->plane.distance_from_origin_m;
+    out->plane_center_x_m=handle->plane.center_world.x;out->plane_center_y_m=handle->plane.center_world.y;
+    out->plane_center_z_m=handle->plane.center_world.z;
+    out->plane_observed_area_m2=handle->plane.observed_area_m2;
+    out->plane_mean_absolute_error_m=handle->plane.mean_absolute_error_m;
+    handle->last_map_frame_ns=pose->timestamp_ns;handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown map integration error");}
+}
+
+ark_result ark_visual_raycast_plane(ark_visual_handle* handle,double ox,double oy,double oz,
+    double dx,double dy,double dz,double min_distance,double max_distance,ark_plane_hit_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  if(!std::isfinite(ox)||!std::isfinite(oy)||!std::isfinite(oz)||!std::isfinite(dx)||
+     !std::isfinite(dy)||!std::isfinite(dz)||!std::isfinite(min_distance)||
+     !std::isfinite(max_distance)||min_distance<0||max_distance<=min_distance)
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"Raycast arguments are invalid");
+  const auto hit=handle->plane.raycast({ox,oy,oz},{dx,dy,dz},min_distance,max_distance);
+  if(!hit)return fail(handle,ARK_RESULT_NOT_READY,"Ray does not hit observed plane geometry");
+  const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+  out->position_x_m=hit->position_world.x;out->position_y_m=hit->position_world.y;
+  out->position_z_m=hit->position_world.z;out->normal_x=hit->normal_world.x;
+  out->normal_y=hit->normal_world.y;out->normal_z=hit->normal_world.z;
+  out->distance_m=hit->distance_m;out->plane_u_m=hit->plane_uv.x;out->plane_v_m=hit->plane_uv.y;
+  handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_create_anchor(ark_visual_handle* handle,const ark_world_pose_v1* pose,
+                                    uint64_t* out_id){
+  if(!handle||!validStruct(pose)||!out_id)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);arkernel::Pose world_from_anchor;
+  if(!convertPose(*pose,world_from_anchor))
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"World-from-anchor pose is invalid");
+  try{*out_id=handle->anchors.create(world_from_anchor,pose->timestamp_ns);
+    handle->error.clear();return ARK_RESULT_OK;}
+  catch(const std::invalid_argument& e){return fail(handle,ARK_RESULT_INVALID_ARGUMENT,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown anchor creation error");}
+}
+
+ark_result ark_visual_remove_anchor(ark_visual_handle* handle,uint64_t id){
+  if(!handle||id==0)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);
+  if(!handle->anchors.remove(id))return fail(handle,ARK_RESULT_NOT_READY,"Anchor does not exist");
+  handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_get_anchor(ark_visual_handle* handle,uint64_t id,ark_anchor_v1* out){
+  if(!handle||id==0||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);const auto anchor=handle->anchors.find(id);
+  if(!anchor)return fail(handle,ARK_RESULT_NOT_READY,"Anchor does not exist");
+  const uint32_t size=out->struct_size;*out={};out->struct_size=size;out->id=anchor->id;
+  out->created_ns=anchor->created_ns;out->rotation_w=anchor->world_from_anchor.rotation.w;
+  out->rotation_x=anchor->world_from_anchor.rotation.x;out->rotation_y=anchor->world_from_anchor.rotation.y;
+  out->rotation_z=anchor->world_from_anchor.rotation.z;
+  out->position_x_m=anchor->world_from_anchor.translation.x;
+  out->position_y_m=anchor->world_from_anchor.translation.y;
+  out->position_z_m=anchor->world_from_anchor.translation.z;
+  handle->error.clear();return ARK_RESULT_OK;
 }
 
 ark_result ark_vio_default_config(ark_vio_config_v1* out){

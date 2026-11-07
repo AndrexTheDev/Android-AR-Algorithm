@@ -7,6 +7,7 @@ import kotlin.math.sqrt
 data class ArKernelSessionResult(
     val visual: VisualFrontendSnapshot,
     val vio: VioSnapshot?,
+    val spatialMap: SpatialMapUpdate?,
     val visualFusionApplied: Boolean,
     val queuedImuSamples: Int,
     val droppedImuSamples: Long,
@@ -123,8 +124,37 @@ class ArKernelSession(
             pendingBodyWorldRotation = null
             queue.size to droppedSamples
         }
+        val spatialMap = snapshot?.let { state ->
+            val worldFromCamera = WorldPose(result.timestampNs,
+                multiply(state.rotation, bodyFromCameraRotation), state.positionMeters)
+            visual.integrateMap(worldFromCamera)
+        }
         onResult(ArKernelSessionResult(
-            result, snapshot, fusionApplied, queueStatus.first, queueStatus.second))
+            result, snapshot, spatialMap, fusionApplied, queueStatus.first, queueStatus.second))
+    }
+
+    /** Returns null unless the ray intersects the currently observed plane boundary. */
+    fun raycastPlane(originWorldMeters: Vector3, directionWorld: Vector3,
+                     minDistanceMeters: Double = 0.05,
+                     maxDistanceMeters: Double = 20.0): PlaneRaycastHit? {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.raycastPlane(originWorldMeters, directionWorld,
+            minDistanceMeters, maxDistanceMeters)
+    }
+
+    fun createAnchor(worldPose: WorldPose): Long {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.createAnchor(worldPose)
+    }
+
+    fun removeAnchor(id: Long): Boolean {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.removeAnchor(id)
+    }
+
+    fun anchor(id: Long): WorldAnchorSnapshot? {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.anchor(id)
     }
 
     override fun close() {

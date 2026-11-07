@@ -259,6 +259,24 @@ int main() {
   CHECK(c_visual_result.state==ARK_FRONTEND_TRACKING);
   CHECK(c_visual_result.geometry==ARK_GEOMETRY_PLANAR_OR_ROTATION);
   CHECK(ark_visual_process_gray(visual_c_handle,&c_frame,&c_visual_result)==ARK_RESULT_OUT_OF_ORDER);
+  ark_world_pose_v1 c_world_pose{};c_world_pose.struct_size=sizeof(c_world_pose);
+  c_world_pose.timestamp_ns=c_frame.timestamp_ns;c_world_pose.rotation_w=1;
+  ark_map_update_v1 c_map_update{};c_map_update.struct_size=sizeof(c_map_update);
+  CHECK(ark_visual_integrate_map(visual_c_handle,&c_world_pose,&c_map_update)==ARK_RESULT_OK);
+  CHECK(c_map_update.timestamp_ns==c_frame.timestamp_ns);
+  CHECK(ark_visual_integrate_map(visual_c_handle,&c_world_pose,&c_map_update)==ARK_RESULT_OUT_OF_ORDER);
+  ark_plane_hit_v1 c_plane_hit{};c_plane_hit.struct_size=sizeof(c_plane_hit);
+  CHECK(ark_visual_raycast_plane(visual_c_handle,0,0,0,0,0,1,0.05,10,
+                                  &c_plane_hit)==ARK_RESULT_NOT_READY);
+  std::uint64_t c_anchor_id=0;
+  CHECK(ark_visual_create_anchor(visual_c_handle,&c_world_pose,&c_anchor_id)==ARK_RESULT_OK);
+  CHECK(c_anchor_id!=0);
+  ark_anchor_v1 c_anchor{};c_anchor.struct_size=sizeof(c_anchor);
+  CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_OK);
+  CHECK(c_anchor.created_ns==c_world_pose.timestamp_ns);
+  CHECK(ark_visual_remove_anchor(visual_c_handle,c_anchor_id)==ARK_RESULT_OK);
+  CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_NOT_READY);
+  CHECK(ark_visual_reset(visual_c_handle)==ARK_RESULT_OK);
   ark_visual_destroy(visual_c_handle);
 
   // VIO starts only from a stationary window, propagates metric inertial state,

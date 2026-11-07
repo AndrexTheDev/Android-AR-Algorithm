@@ -2,6 +2,7 @@ package ai.arena.arkernel
 
 data class Vector3(val x: Double, val y: Double, val z: Double)
 data class Rotation(val w: Double, val x: Double, val y: Double, val z: Double)
+data class WorldPose(val timestampNs: Long, val rotation: Rotation, val positionMeters: Vector3)
 data class RelativeVisualPose(
     val timestampNs: Long,
     val rotationCurrentFromPrevious: Rotation,

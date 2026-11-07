@@ -28,7 +28,7 @@ start = 1_000_000_000
 frame_start = start + 800_000_000
 frame_period = 33_000_000
 end = frame_start + (args.frames - 1) * frame_period
-lines = ["ARK_REPLAY_V1", f"CAMERA {width} {height} 110 110 64 48 0 0 0 0 0"]
+lines = ["ARK_REPLAY_V1", f"CAMERA {width} {height} 110 110 64 48 0 0 0 0 0", "EXTRINSIC 1 0 0 0"]
 imu_times = list(range(start, end + 5_000_000, 5_000_000))
 frame_times = [frame_start + i * frame_period for i in range(args.frames)]
 i = f = 0

@@ -48,7 +48,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
 - gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation und visueller Rückkopplung;
 - versionierter Offline-Replay-Runner mit deterministischen Metriken und CI-Regressionshash;
-- EuRoC-Konverter und Trajektorienauswertung mit SE(3)/Sim(3), ATE und lokaler RPE;
+- EuRoC-Konverter inklusive `T_BS`-Kamera/IMU-Extrinsik, Baseline-Runner und Trajektorienauswertung mit SE(3)/Sim(3), ATE und lokaler RPE;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

@@ -79,7 +79,7 @@ Die C-ABI verwendet nur C11-kompatible POD-Strukturen, `struct_size` und eine ex
 
 ## Replay als ausführbare Spezifikation
 
-`ReplayDataset` validiert ein versioniertes, monotones Manifest und exakte kalibrierte P5-Graustufenframes. `ReplayRunner` verwendet dieselben Frontend- und VIO-Klassen sowie dieselbe Regel „IMU bis einschließlich Capture-Zeit vor Frame“. Ergebniszähler und quantisierte Zustände fließen in einen deterministischen FNV-1a-Regressionshash. Replay-Code wird als separates Support-Target gebaut und vergrößert deshalb die Android-Core-Bibliothek nicht.
+`ReplayDataset` validiert ein versioniertes, monotones Manifest, exakte kalibrierte P5-Graustufenframes und die optionale Kamera-zu-Body-Extrinsik. `ReplayRunner` verwendet dieselben Frontend- und VIO-Klassen sowie dieselbe Regel „IMU bis einschließlich Capture-Zeit vor Frame“. Rotationsvorhersage und visuelle Fusion transformieren über `body_from_camera`; EuRoC `T_BS` wird vom Konverter übernommen. Ergebniszähler und quantisierte Zustände fließen in einen deterministischen FNV-1a-Regressionshash. Replay-Code wird als separates Support-Target gebaut und vergrößert deshalb die Android-Core-Bibliothek nicht.
 
 
 ## Trajektorienmetriken

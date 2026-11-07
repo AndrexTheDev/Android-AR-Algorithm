@@ -57,7 +57,7 @@ ReplayDataset ReplayDataset::loadManifest(const std::string& manifest_path) {
   std::string line;
   if (!std::getline(input,line)||line!="ARK_REPLAY_V1")
     throw std::runtime_error("Unsupported replay manifest version");
-  ReplayDataset result;bool has_camera=false;
+  ReplayDataset result;bool has_camera=false,has_extrinsic=false;
   TimestampNs last_event=0,last_imu=0,last_frame=0;
   ReplayEventType last_type=ReplayEventType::kImu;
   const auto base=std::filesystem::absolute(manifest_path).parent_path();
@@ -82,6 +82,17 @@ ReplayDataset ReplayDataset::loadManifest(const std::string& manifest_path) {
          !std::isfinite(result.distortion.p2)||!std::isfinite(result.distortion.k3))
         throw std::runtime_error("Invalid CAMERA row");
       has_camera=true;continue;
+    }
+    if(type=="EXTRINSIC"){
+      if(!has_camera||has_extrinsic||!result.events.empty())
+        throw std::runtime_error("EXTRINSIC must occur once after CAMERA and before events");
+      row>>result.body_from_camera_rotation.w>>result.body_from_camera_rotation.x>>
+          result.body_from_camera_rotation.y>>result.body_from_camera_rotation.z;
+      const auto& q=result.body_from_camera_rotation;
+      const double norm=std::sqrt(q.w*q.w+q.x*q.x+q.y*q.y+q.z*q.z);
+      if(!row||!std::isfinite(norm)||norm<1e-9)throw std::runtime_error("Invalid EXTRINSIC row");
+      result.body_from_camera_rotation=result.body_from_camera_rotation.normalized();
+      has_extrinsic=true;continue;
     }
     if(!has_camera)throw std::runtime_error("Event before CAMERA row");
     ReplayEvent event;

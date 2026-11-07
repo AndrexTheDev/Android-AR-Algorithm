@@ -27,6 +27,7 @@ struct ReplayEvent {
 struct ReplayDataset {
   CameraIntrinsics intrinsics{};
   RadTanDistortion distortion{};
+  Quaternion body_from_camera_rotation{};
   std::vector<ReplayEvent> events;
 
   static ReplayDataset loadManifest(const std::string& manifest_path);

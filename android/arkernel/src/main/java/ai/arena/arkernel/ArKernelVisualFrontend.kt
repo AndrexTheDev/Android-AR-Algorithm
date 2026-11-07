@@ -82,6 +82,32 @@ data class SemanticPixelProjection(
     val minDistanceMeters: Double = 0.05,
     val maxDistanceMeters: Double = 20.0,
 )
+data class SurfelObservationCamera(
+    val positionCameraMeters: Vector3,
+    val normalCamera: Vector3 = Vector3(0.0, 0.0, 0.0),
+    val confidence: Double,
+    val radiusMeters: Double,
+    val normalValid: Boolean = false,
+)
+data class SurfelMapUpdate(
+    val created: Long,
+    val updated: Long,
+    val rejected: Long,
+    val pruned: Long,
+    val surfelCount: Long,
+)
+data class SurfelSnapshot(
+    val id: Long,
+    val positionWorldMeters: Vector3,
+    val normalWorld: Vector3,
+    val confidence: Double,
+    val radiusMeters: Double,
+    val observationCount: Long,
+    val firstSeenNs: Long,
+    val lastSeenNs: Long,
+    val normalValid: Boolean,
+)
+
 data class SemanticObjectObservation3d(
     val classId: Long,
     val sourceTrackId: Long = -1,
@@ -220,6 +246,54 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
             if (metadata[1] != 0L) values[1] else null,
             if (metadata[2] != 0L) values[2] else null,
             values[3], values[4], values[5], metadata[5])
+    }
+
+    @Synchronized
+    fun integrateSurfels(
+        observations: List<SurfelObservationCamera>,
+        frameWorldFromCamera: WorldPose,
+        nowNs: Long = frameWorldFromCamera.timestampNs,
+    ): SurfelMapUpdate {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        require(observations.size <= 100_000) { "Too many surfel observations" }
+        val values = DoubleArray(observations.size * 9)
+        observations.forEachIndexed { index, observation ->
+            val offset = index * 9
+            values[offset] = observation.positionCameraMeters.x
+            values[offset + 1] = observation.positionCameraMeters.y
+            values[offset + 2] = observation.positionCameraMeters.z
+            values[offset + 3] = observation.normalCamera.x
+            values[offset + 4] = observation.normalCamera.y
+            values[offset + 5] = observation.normalCamera.z
+            values[offset + 6] = observation.confidence
+            values[offset + 7] = observation.radiusMeters
+            values[offset + 8] = if (observation.normalValid) 1.0 else 0.0
+        }
+        val rotation = frameWorldFromCamera.rotation
+        val position = frameWorldFromCamera.positionMeters
+        val output = LongArray(5)
+        val result = nativeIntegrateSurfels(nativeHandle, frameWorldFromCamera.timestampNs, nowNs,
+            values, rotation.w, rotation.x, rotation.y, rotation.z,
+            position.x, position.y, position.z, output)
+        require(result != RESULT_INVALID_ARGUMENT) { "Invalid surfel observations or camera pose" }
+        check(result == RESULT_OK) { "Native surfel integration error: $result" }
+        return SurfelMapUpdate(output[0], output[1], output[2], output[3], output[4])
+    }
+
+    @Synchronized
+    fun surfels(): List<SurfelSnapshot> {
+        check(nativeHandle != 0L) { "Visual frontend is closed" }
+        val count = nativeGetSurfelCount(nativeHandle)
+        check(count in 0..Int.MAX_VALUE.toLong()) { "Could not query native surfels" }
+        return List(count.toInt()) { index ->
+            val metadata = LongArray(5)
+            val values = DoubleArray(8)
+            val result = nativeGetSurfel(nativeHandle, index.toLong(), metadata, values)
+            check(result == RESULT_OK) { "Native surfel query error: $result" }
+            SurfelSnapshot(metadata[0], Vector3(values[0], values[1], values[2]),
+                Vector3(values[3], values[4], values[5]), values[6], values[7],
+                metadata[1], metadata[2], metadata[3], metadata[4] != 0L)
+        }
     }
 
     @Synchronized
@@ -428,6 +502,12 @@ class ArKernelVisualFrontend(private val calibration: CameraCalibration) : AutoC
     private external fun nativeGetPlane(handle: Long, index: Long,
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeGetRoomLayout(handle: Long,
+        metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeIntegrateSurfels(handle: Long, timestampNs: Long, nowNs: Long,
+        observations: DoubleArray, rw: Double, rx: Double, ry: Double, rz: Double,
+        px: Double, py: Double, pz: Double, output: LongArray): Int
+    private external fun nativeGetSurfelCount(handle: Long): Long
+    private external fun nativeGetSurfel(handle: Long, index: Long,
         metadata: LongArray, values: DoubleArray): Int
     private external fun nativeProjectSemantic(handle: Long, classId: Long,
         sourceTrackId: Long, timestampNs: Long, nowNs: Long,

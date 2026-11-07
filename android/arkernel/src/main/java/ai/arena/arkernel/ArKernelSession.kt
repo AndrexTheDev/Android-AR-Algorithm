@@ -171,6 +171,22 @@ class ArKernelSession(
         return visual.roomLayout()
     }
 
+    /** Fuses model-independent camera-space depth samples only while mapping is stable. */
+    fun integrateSurfelObservations(
+        observations: List<SurfelObservationCamera>,
+        frameWorldFromCamera: WorldPose,
+    ): SurfelMapUpdate? {
+        check(!closed) { "AR kernel session is closed" }
+        if (!running || !latestMappingGate.integrate) return null
+        return visual.integrateSurfels(observations, frameWorldFromCamera,
+            SystemClock.elapsedRealtimeNanos())
+    }
+
+    fun surfels(): List<SurfelSnapshot> {
+        check(!closed) { "AR kernel session is closed" }
+        return visual.surfels()
+    }
+
     /** Projects a frame-associated calibrated pixel only onto observed requested surfaces. */
     fun projectSemanticDetection(
         projection: SemanticPixelProjection,

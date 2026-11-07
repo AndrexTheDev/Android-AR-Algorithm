@@ -431,3 +431,60 @@ Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeProjectSemantic(JNIEnv* env,
   env->SetLongArrayRegion(output,0,5,values);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeIntegrateSurfels(JNIEnv* env,jobject,jlong handle,
+    jlong timestamp,jlong now_ns,jdoubleArray observations,jdouble rw,jdouble rx,jdouble ry,jdouble rz,
+    jdouble px,jdouble py,jdouble pz,jlongArray output) {
+  if(!observations||!output||env->GetArrayLength(output)<5)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize value_count=env->GetArrayLength(observations);
+  if(value_count<0||value_count%9!=0||value_count/9>100000)return ARK_RESULT_INVALID_ARGUMENT;
+  std::vector<jdouble> values(static_cast<size_t>(value_count));
+  env->GetDoubleArrayRegion(observations,0,value_count,values.data());
+  if(env->ExceptionCheck())return ARK_RESULT_INTERNAL_ERROR;
+  const size_t count=static_cast<size_t>(value_count/9);
+  std::vector<ark_surfel_observation_v1> native_observations(count);
+  for(size_t i=0;i<count;++i){const size_t offset=i*9;auto& value=native_observations[i];
+    value.struct_size=sizeof(value);value.timestamp_ns=timestamp;
+    value.position_x_camera_m=values[offset];value.position_y_camera_m=values[offset+1];
+    value.position_z_camera_m=values[offset+2];value.normal_x_camera=values[offset+3];
+    value.normal_y_camera=values[offset+4];value.normal_z_camera=values[offset+5];
+    value.confidence=values[offset+6];value.radius_m=values[offset+7];
+    value.normal_valid=values[offset+8]!=0.0?1u:0u;}
+  ark_world_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
+  pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
+  pose.position_x_m=px;pose.position_y_m=py;pose.position_z_m=pz;
+  ark_surfel_update_v1 update{};update.struct_size=sizeof(update);
+  const auto status=ark_visual_integrate_surfels(fromVisualHandle(handle),
+    native_observations.empty()?nullptr:native_observations.data(),count,&pose,now_ns,&update);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong result[5]={static_cast<jlong>(update.created),static_cast<jlong>(update.updated),
+    static_cast<jlong>(update.rejected),static_cast<jlong>(update.pruned),
+    static_cast<jlong>(update.surfel_count)};
+  env->SetLongArrayRegion(output,0,5,result);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetSurfelCount(JNIEnv*,jobject,jlong handle) {
+  size_t count=0;
+  return ark_visual_get_surfel_count(fromVisualHandle(handle),&count)==ARK_RESULT_OK?
+    static_cast<jlong>(count):-1;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelVisualFrontend_nativeGetSurfel(JNIEnv* env,jobject,jlong handle,
+    jlong index,jlongArray metadata,jdoubleArray values) {
+  if(index<0||!metadata||!values||env->GetArrayLength(metadata)<5||
+     env->GetArrayLength(values)<8)return ARK_RESULT_INVALID_ARGUMENT;
+  ark_surfel_v1 surfel{};surfel.struct_size=sizeof(surfel);
+  const auto status=ark_visual_get_surfel(fromVisualHandle(handle),static_cast<size_t>(index),&surfel);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong meta[5]={static_cast<jlong>(surfel.id),static_cast<jlong>(surfel.observation_count),
+    surfel.first_seen_ns,surfel.last_seen_ns,static_cast<jlong>(surfel.normal_valid)};
+  const jdouble data[8]={surfel.position_x_world_m,surfel.position_y_world_m,
+    surfel.position_z_world_m,surfel.normal_x_world,surfel.normal_y_world,
+    surfel.normal_z_world,surfel.confidence,surfel.radius_m};
+  env->SetLongArrayRegion(metadata,0,5,meta);env->SetDoubleArrayRegion(values,0,8,data);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:status;
+}

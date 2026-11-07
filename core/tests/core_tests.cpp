@@ -20,6 +20,7 @@
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
+#include "arkernel/surfel_map.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
@@ -324,6 +325,22 @@ int main() {
   ark_room_layout_v1 c_room_layout{};c_room_layout.struct_size=sizeof(c_room_layout);
   CHECK(ark_visual_get_room_layout(visual_c_handle,&c_room_layout)==ARK_RESULT_OK);
   CHECK(!c_room_layout.has_floor && !c_room_layout.has_ceiling && c_room_layout.wall_count==0);
+  ark_surfel_observation_v1 c_surfel{};c_surfel.struct_size=sizeof(c_surfel);
+  c_surfel.timestamp_ns=c_world_pose.timestamp_ns;c_surfel.position_z_camera_m=2;
+  c_surfel.normal_z_camera=1;c_surfel.confidence=0.9;c_surfel.radius_m=0.03;
+  c_surfel.normal_valid=1;
+  ark_surfel_update_v1 c_surfel_update{};c_surfel_update.struct_size=sizeof(c_surfel_update);
+  CHECK(ark_visual_integrate_surfels(visual_c_handle,&c_surfel,1,&c_world_pose,
+      c_surfel.timestamp_ns,&c_surfel_update)==ARK_RESULT_OK);
+  CHECK(c_surfel_update.created==0&&c_surfel_update.surfel_count==0);
+  CHECK(ark_visual_integrate_surfels(visual_c_handle,&c_surfel,1,&c_world_pose,
+      c_surfel.timestamp_ns,&c_surfel_update)==ARK_RESULT_OK);
+  CHECK(c_surfel_update.created==1&&c_surfel_update.surfel_count==1);
+  std::size_t c_surfel_count=0;CHECK(ark_visual_get_surfel_count(visual_c_handle,&c_surfel_count)==ARK_RESULT_OK);
+  CHECK(c_surfel_count==1);
+  ark_surfel_v1 c_surfel_snapshot{};c_surfel_snapshot.struct_size=sizeof(c_surfel_snapshot);
+  CHECK(ark_visual_get_surfel(visual_c_handle,0,&c_surfel_snapshot)==ARK_RESULT_OK);
+  CHECK(c_surfel_snapshot.observation_count==2&&c_surfel_snapshot.normal_valid);
   ark_semantic_projection_v1 c_projection{};c_projection.struct_size=sizeof(c_projection);
   c_projection.class_id=5;c_projection.source_track_id=77;c_projection.timestamp_ns=c_frame.timestamp_ns;
   c_projection.pixel_x=64;c_projection.pixel_y=48;c_projection.confidence=0.9;
@@ -396,6 +413,8 @@ int main() {
   CHECK(ark_visual_reset(visual_c_handle)==ARK_RESULT_OK);
   CHECK(ark_visual_get_semantic_object_count(visual_c_handle,&c_semantic_count)==ARK_RESULT_OK);
   CHECK(c_semantic_count==0);
+  CHECK(ark_visual_get_surfel_count(visual_c_handle,&c_surfel_count)==ARK_RESULT_OK);
+  CHECK(c_surfel_count==0);
   CHECK(ark_visual_get_anchor(visual_c_handle,c_anchor_id,&c_anchor)==ARK_RESULT_NOT_READY);
   ark_visual_destroy(visual_c_handle);
 
@@ -445,6 +464,33 @@ int main() {
   }
   CHECK(dynamic_update.dynamic_pruned==1);
   CHECK(dynamic_rejection_map.size()==0);
+
+  SurfelMap surfel_map;
+  const SurfelObservation surface_first{{1.01,2.01,3.01},{0,0,1},0.8,0.03,
+                                         2400000000LL,true};
+  auto surfel_update=surfel_map.integrate({surface_first},surface_first.timestamp_ns);
+  CHECK(surfel_update.created==0&&surfel_map.size()==0&&surfel_map.snapshot().empty());
+  auto surface_second=surface_first;surface_second.position_world_m={1.02,2.02,3.02};
+  surface_second.normal_world={0,0,-1};surface_second.confidence=1.0;surface_second.timestamp_ns+=10000000LL;
+  surfel_update=surfel_map.integrate({surface_second},surface_second.timestamp_ns);
+  CHECK(surfel_update.created==1&&surfel_map.size()==1);
+  const auto fused_surfels=surfel_map.snapshot();
+  CHECK(fused_surfels.size()==1&&fused_surfels[0].observation_count==2);
+  CHECK(fused_surfels[0].position_world_m.x>1.015&&fused_surfels[0].position_world_m.x<1.016);
+  CHECK(fused_surfels[0].normal_valid&&std::abs(fused_surfels[0].normal_world.z-1)<1e-9);
+  auto stale_surface=surface_second;stale_surface.timestamp_ns=surface_first.timestamp_ns-1;
+  CHECK(surfel_map.integrate({stale_surface},surface_second.timestamp_ns).rejected==1);
+  auto invalid_surface=surface_second;invalid_surface.confidence=0.1;
+  CHECK(surfel_map.integrate({invalid_surface},surface_second.timestamp_ns).rejected==1);
+  SurfelMapConfig bounded_surfel_config;bounded_surfel_config.max_surfels=1;
+  SurfelMap bounded_surfel_map(bounded_surfel_config);
+  bounded_surfel_map.integrate({surface_first},surface_first.timestamp_ns);
+  bounded_surfel_map.integrate({surface_second},surface_second.timestamp_ns);
+  auto other_surface=surface_second;other_surface.position_world_m={4,4,4};
+  CHECK(bounded_surfel_map.integrate({other_surface},other_surface.timestamp_ns).rejected==1);
+  CHECK(bounded_surfel_map.size()==1);
+  CHECK(surfel_map.integrate({},surface_second.timestamp_ns+31000000000LL).pruned==1);
+  CHECK(surfel_map.size()==0);
 
   SemanticObjectMap semantic_map;
   const SemanticObjectObservation chair_first{7,42,{1,0,0},0.8,2400000000LL,false};

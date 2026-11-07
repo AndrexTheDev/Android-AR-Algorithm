@@ -278,6 +278,46 @@ typedef struct ark_relocalization_result_v1 {
   double translation_z_m;
 } ark_relocalization_result_v1;
 
+typedef struct ark_surfel_observation_v1 {
+  uint32_t struct_size;
+  int64_t timestamp_ns;
+  double position_x_camera_m;
+  double position_y_camera_m;
+  double position_z_camera_m;
+  double normal_x_camera;
+  double normal_y_camera;
+  double normal_z_camera;
+  double confidence;
+  double radius_m;
+  uint32_t normal_valid;
+} ark_surfel_observation_v1;
+
+typedef struct ark_surfel_update_v1 {
+  uint32_t struct_size;
+  uint64_t created;
+  uint64_t updated;
+  uint64_t rejected;
+  uint64_t pruned;
+  uint64_t surfel_count;
+} ark_surfel_update_v1;
+
+typedef struct ark_surfel_v1 {
+  uint32_t struct_size;
+  uint64_t id;
+  double position_x_world_m;
+  double position_y_world_m;
+  double position_z_world_m;
+  double normal_x_world;
+  double normal_y_world;
+  double normal_z_world;
+  double confidence;
+  double radius_m;
+  uint64_t observation_count;
+  int64_t first_seen_ns;
+  int64_t last_seen_ns;
+  uint32_t normal_valid;
+} ark_surfel_v1;
+
 typedef struct ark_semantic_projection_v1 {
   uint32_t struct_size;
   uint32_t class_id;
@@ -393,6 +433,15 @@ ark_result ark_visual_get_plane_semantic(ark_visual_handle* handle, size_t index
                                          uint32_t* out_semantic);
 ark_result ark_visual_get_room_layout(ark_visual_handle* handle,
                                       ark_room_layout_v1* out_layout);
+ark_result ark_visual_integrate_surfels(ark_visual_handle* handle,
+                                        const ark_surfel_observation_v1* observations,
+                                        size_t observation_count,
+                                        const ark_world_pose_v1* world_from_camera,
+                                        int64_t now_ns,
+                                        ark_surfel_update_v1* out_update);
+ark_result ark_visual_get_surfel_count(ark_visual_handle* handle, size_t* out_count);
+ark_result ark_visual_get_surfel(ark_visual_handle* handle, size_t index,
+                                 ark_surfel_v1* out_surfel);
 ark_result ark_visual_project_semantic(ark_visual_handle* handle,
                                        const ark_semantic_projection_v1* projection,
                                        const ark_world_pose_v1* world_from_camera,

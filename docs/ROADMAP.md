@@ -54,7 +54,7 @@
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 
-- sparse VIO depth → TSDF/surfel backend;
+- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion und Android-Mapping-Gate; TSDF bleibt offen;
 - optional Depth Anything V2 Small quantisiert als Prior;
 - Skalen-/Confidence-Fusion, dynamische Masken, Mesh-LOD;
 - Filament-Occlusionadapter.

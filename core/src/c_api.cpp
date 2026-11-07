@@ -14,6 +14,7 @@
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
+#include "arkernel/surfel_map.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/vio_estimator.h"
 #include "arkernel/visual_frontend.h"
@@ -38,6 +39,7 @@ struct ark_visual_handle {
   arkernel::RoomLayoutEstimate room_layout;
   arkernel::MappingQualityGate mapping_gate;
   arkernel::SemanticObjectMap semantic_map;
+  arkernel::SurfelMap surfel_map;
   arkernel::LandmarkDescriptorStore descriptor_store;
   arkernel::AnchorStore anchors;
   std::optional<arkernel::VisualFrontendResult> last_result;
@@ -175,7 +177,8 @@ ark_result ark_visual_reset(ark_visual_handle* handle){
   if(!handle)return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
   handle->frontend.reset();handle->map.reset();handle->plane_tracker.reset();
-  handle->mapping_gate.reset();handle->semantic_map.reset();handle->descriptor_store.reset();
+  handle->mapping_gate.reset();handle->semantic_map.reset();handle->surfel_map.reset();
+  handle->descriptor_store.reset();
   handle->anchors.reset();
   handle->plane={};handle->room_layout={};handle->last_result.reset();handle->last_frame_ns=0;
   handle->last_map_frame_ns=0;handle->error.clear();return ARK_RESULT_OK;
@@ -322,6 +325,59 @@ ark_result ark_visual_get_room_layout(ark_visual_handle* handle,ark_room_layout_
   out->observed_ceiling_area_m2=layout.observed_ceiling_area_m2;
   out->observed_wall_area_m2=layout.observed_wall_area_m2;out->wall_count=layout.wall_count;
   handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_integrate_surfels(ark_visual_handle* handle,
+    const ark_surfel_observation_v1* observations,size_t count,const ark_world_pose_v1* pose,
+    int64_t now_ns,ark_surfel_update_v1* out){
+  if(!handle||(!observations&&count)||count>100000||!validStruct(pose)||
+     !validStruct(out)||now_ns<=0)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);arkernel::Pose world_from_camera;
+  if(!convertPose(*pose,world_from_camera))
+    return fail(handle,ARK_RESULT_INVALID_ARGUMENT,"World-from-camera pose is invalid");
+  try{
+    std::vector<arkernel::SurfelObservation> values;values.reserve(count);
+    for(size_t i=0;i<count;++i){const auto& value=observations[i];
+      if(!validStruct(&value)||value.timestamp_ns!=pose->timestamp_ns||
+         !std::isfinite(value.position_z_camera_m)||value.position_z_camera_m<=0)
+        return fail(handle,ARK_RESULT_INVALID_ARGUMENT,
+          "Surfel observation must have positive depth and match the camera-pose timestamp");
+      const arkernel::Vec3 camera_position{value.position_x_camera_m,
+        value.position_y_camera_m,value.position_z_camera_m};
+      const arkernel::Vec3 camera_normal{value.normal_x_camera,value.normal_y_camera,
+        value.normal_z_camera};
+      values.push_back({world_from_camera.rotation.rotate(camera_position)+
+        world_from_camera.translation,world_from_camera.rotation.rotate(camera_normal),
+        value.confidence,value.radius_m,value.timestamp_ns,value.normal_valid!=0});
+    }
+    const auto update=handle->surfel_map.integrate(values,now_ns);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->created=update.created;out->updated=update.updated;out->rejected=update.rejected;
+    out->pruned=update.pruned;out->surfel_count=handle->surfel_map.size();
+    handle->error.clear();return ARK_RESULT_OK;
+  }catch(const std::bad_alloc& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}
+  catch(...){return fail(handle,ARK_RESULT_INTERNAL_ERROR,"Unknown surfel integration error");}
+}
+
+ark_result ark_visual_get_surfel_count(ark_visual_handle* handle,size_t* out_count){
+  if(!handle||!out_count)return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);*out_count=handle->surfel_map.size();
+  handle->error.clear();return ARK_RESULT_OK;
+}
+
+ark_result ark_visual_get_surfel(ark_visual_handle* handle,size_t index,ark_surfel_v1* out){
+  if(!handle||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
+  std::lock_guard<std::mutex> lock(handle->mutex);const auto values=handle->surfel_map.snapshot();
+  if(index>=values.size())return fail(handle,ARK_RESULT_NOT_READY,"Surfel index does not exist");
+  const auto& value=values[index];const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+  out->id=value.id;out->position_x_world_m=value.position_world_m.x;
+  out->position_y_world_m=value.position_world_m.y;out->position_z_world_m=value.position_world_m.z;
+  out->normal_x_world=value.normal_world.x;out->normal_y_world=value.normal_world.y;
+  out->normal_z_world=value.normal_world.z;out->confidence=value.confidence;
+  out->radius_m=value.radius_m;out->observation_count=value.observation_count;
+  out->first_seen_ns=value.first_seen_ns;out->last_seen_ns=value.last_seen_ns;
+  out->normal_valid=value.normal_valid?1u:0u;handle->error.clear();return ARK_RESULT_OK;
 }
 
 ark_result ark_visual_project_semantic(ark_visual_handle* handle,

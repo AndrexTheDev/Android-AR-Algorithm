@@ -35,9 +35,15 @@ Programmierfehler (ungültige Intrinsics, rückläufige Kamerazeit) werden sofor
 - `essential_pose.h`: rangbeschränkte Essential-Matrix, relative Rotation und maßstabslose Translationsrichtung;
 - `homography_ransac.h`: planare Projektivgeometrie mit symmetrischem Transferfehler;
 - `geometry_model_selector.h`: konservatives Gate gegen falsche 3D-Initialisierung;
+- `visual_frontend.h`: zustandsbehaftete Verkettung der Visionmodule und Feature-Lebenszyklus;
 - `modules.h`: Backend-Schnittstellen;
 - `imu_preintegrator.h`: erste echte Schätzkomponente;
 - `tracking_quality.h`: stabiler Zustandsautomat;
 - `core_engine.h`: deterministischer Orchestrator.
 
 Der Kern speichert keine Pointer auf Kamerabuffer über `processFrame` hinaus. Der Host behält Ownership. Ein späteres stabiles C-ABI/JNI liegt vor C++-Details und versioniert alle Strukturen.
+
+
+## Visual-Frontend-Zustände
+
+`kInitializing` erzeugt den ersten Featurebestand. `kTracking` bedeutet geometrisch verifizierte Korrespondenzen; `kLimited` behält optisch plausible Tracks, gibt aber keine sichere Geometrie frei. `kReinitialized` verwirft alte Tracks nach Zeitlücke, Auflösungswechsel oder Kollaps. Feature-IDs bleiben über erfolgreiche Frames stabil; neu erkannte Punkte erhalten niemals recycelte IDs innerhalb einer Session.

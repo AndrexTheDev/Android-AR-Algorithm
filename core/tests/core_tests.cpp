@@ -14,6 +14,7 @@
 #include "arkernel/optical_flow.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
+#include "arkernel/visual_frontend.h"
 
 using namespace arkernel;
 #define CHECK(x) do { if (!(x)) { std::cerr << "FAIL line " << __LINE__ << ": " #x "\n"; return 1; } } while (0)
@@ -186,6 +187,47 @@ int main() {
   const auto edge_tracks = optical_flow.track(view_a, view_b, edge_features);
   CHECK(edge_tracks.size() == edge_features.size());
   for (const auto& track : edge_tracks) CHECK(track.status != FlowStatus::kTracked);
+
+  // Stateful frontend keeps IDs, classifies image translation as planar, and
+  // reinitializes instead of propagating stale state over a camera time gap.
+  std::vector<std::uint8_t> frontend_a(flow_width*flow_height);
+  std::vector<std::uint8_t> frontend_b(flow_width*flow_height,0);
+  for (int y=0;y<flow_height;++y) for (int x=0;x<flow_width;++x) {
+    const int checker=((x/8)+(y/8))&1;
+    frontend_a[y*flow_width+x]=static_cast<std::uint8_t>(35+checker*170+((x*7+y*3)%29));
+  }
+  for (int y=2;y<flow_height;++y) for (int x=3;x<flow_width;++x)
+    frontend_b[y*flow_width+x]=frontend_a[(y-2)*flow_width+x-3];
+  PinholeRadTanCamera frontend_camera({flow_width,flow_height,110,110,64,48});
+  VisualFrontendConfig frontend_config;
+  frontend_config.detector={12,8,6,6,4};
+  frontend_config.optical_flow={4,4,20,0.005,2.0,30.0,0.8};
+  frontend_config.epipolar={300,0.008,12,44};
+  frontend_config.homography={300,0.008,10,55};
+  frontend_config.min_tracked_features=10;
+  frontend_config.max_active_features=180;
+  VisualFrontend frontend(frontend_camera,frontend_config);
+  GrayImageView frontend_view_a{flow_width,flow_height,flow_width,frontend_a.data(),frontend_a.size()};
+  GrayImageView frontend_view_b{flow_width,flow_height,flow_width,frontend_b.data(),frontend_b.size()};
+  const auto frontend_first=frontend.process(frontend_view_a,1000000000LL);
+  CHECK(frontend_first.state==FrontendState::kInitializing);
+  CHECK(frontend_first.active_feature_count>=20);
+  std::vector<std::uint32_t> first_feature_ids;
+  for (const auto& feature:frontend.activeFeatures()) first_feature_ids.push_back(feature.id);
+  const auto frontend_second=frontend.process(frontend_view_b,1033000000LL);
+  CHECK(frontend_second.state==FrontendState::kTracking);
+  CHECK(frontend_second.geometry.geometry==SceneGeometry::kPlanarOrRotationDominant);
+  CHECK(frontend_second.accepted_track_count>=10);
+  CHECK(frontend_second.accepted_feature_ids.size()==frontend_second.accepted_track_count);
+  for (auto id:frontend_second.accepted_feature_ids)
+    CHECK(std::find(first_feature_ids.begin(),first_feature_ids.end(),id)!=first_feature_ids.end());
+  CHECK(frontend_second.active_feature_count>=frontend_second.accepted_track_count);
+  const auto frontend_gap=frontend.process(frontend_view_b,2000000000LL);
+  CHECK(frontend_gap.state==FrontendState::kReinitialized);
+  CHECK(frontend_gap.keyframe);
+  const auto frontend_collapse=frontend.process(flat_view,2033000000LL);
+  CHECK(frontend_collapse.state==FrontendState::kReinitialized);
+  CHECK(frontend_collapse.accepted_track_count<frontend_config.min_tracked_features);
 
   ImuPreintegrator p;
   CHECK(p.add({1000000000, {1,0,0}, {0,0,0}}));

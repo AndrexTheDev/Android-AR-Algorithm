@@ -41,6 +41,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - deterministischer kalibrierter 8-Punkt-RANSAC mit Hartley-Normalisierung, Sampson-Fehler und Degenerationsprüfung;
 - Essential-Rangprojektion und relative Posezerlegung mit Triangulation, Cheirality- und Parallaxen-Gate;
 - normalisierter Homographie-RANSAC und konservative Homographie-/Epipolar-Modellwahl für planare oder rotationsdominierte Szenen;
+- zustandsbehaftetes Visual-Frontend mit stabilen Feature-IDs, Geometriefilterung, Feature-Nachfüllung, Keyframes und kontrollierter Wiederinitialisierung;
 - Tracking-Qualitätsautomat mit Hysterese gegen Statusflattern;
 - modulare Interfaces für VIO, Tiefe, Semantik und Mapping;
 - adaptive Ausführung: Tiefe/Mapping nur bei stabilem Tracking, ML mit konfigurierbarer Kadenz;

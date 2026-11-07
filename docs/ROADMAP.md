@@ -16,12 +16,13 @@
 - [x] kalibrierter Epipolar-RANSAC und Sampson-Inlier-Gate
 - [x] Essential-Rangprojektion, Vier-Pose-Zerlegung, Cheirality und Parallaxen-Gate
 - [x] Homographie-RANSAC und Homographie-/Epipolar-Modellentscheidung
+- [x] zustandsbehaftetes Visual-Frontend, ID-Erhalt, Replenishment und Keyframe-Gate
 
 ## Phase 1 – messbares VIO-MVP
 
 - Camera2/NDK ImageReader Zero-Copy-Adapter und SensorManager;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
-- Vision-Frontend: FAST/Grid, KLT, Epipolar-/Homographie-RANSAC, Modellwahl und Essential-Pose sind nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
+- Vision-Frontend inklusive Feature-Lebenszyklus ist nativ implementiert; ORB-Deskriptor und Sliding-Window-Backend folgen;
 - Sliding-window Optimizer, Bias-/Gravity-Initialisierung, Marginalisierung;
 - EuroC/TUM-VI/KITTI-Testimport und ATE/RPE-Benchmark;
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.

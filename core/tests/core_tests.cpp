@@ -21,6 +21,7 @@
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/relocalization.h"
+#include "arkernel/reconstruction_asset.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
@@ -47,6 +48,44 @@ class FakeTracker final : public IVisualInertialTracker {
 };
 
 int main() {
+  // Centimeter claims are evidence-based and object scans require stronger coverage.
+  ReconstructionQuality reconstruction_quality;
+  reconstruction_quality.calibrated_intrinsics=true;
+  reconstruction_quality.calibrated_camera_imu=true;
+  reconstruction_quality.metric_scale_observed=true;
+  reconstruction_quality.globally_optimized=true;
+  reconstruction_quality.reprojection_rmse_px=0.6;
+  reconstruction_quality.depth_rmse_m=0.008;
+  reconstruction_quality.scale_stddev_ratio=0.003;
+  reconstruction_quality.surface_coverage_ratio=0.90;
+  auto accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
+  CHECK(accuracy.grade==MetricAccuracyGrade::kCentimeterValidated&&accuracy.export_allowed);
+  reconstruction_quality.depth_rmse_m=0.02;
+  accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
+  CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
+  reconstruction_quality.metric_scale_observed=false;
+  accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
+  CHECK(accuracy.grade==MetricAccuracyGrade::kUnverified&&!accuracy.export_allowed);
+
+  // Portable, textured indexed meshes export to glTF, OBJ/MTL and PLY.
+  ReconstructionMesh mesh;
+  mesh.name="test triangle";
+  mesh.positions_m={{0,0,0},{1,0,0},{0,1,0}};
+  mesh.normals={{0,0,1},{0,0,1},{0,0,1}};
+  mesh.texcoords={{0,0},{1,0},{0,1}};
+  mesh.triangle_indices={0,1,2};
+  mesh.base_color_texture={"atlas.png","image/png"};
+  CHECK(validateMesh(mesh).valid);
+  const auto gltf=exportGltf(mesh,"triangle.bin");
+  CHECK(gltf.binary.size()==3*sizeof(Vec3f)+3*sizeof(Vec3f)+3*sizeof(Vec2f)+3*sizeof(std::uint32_t));
+  CHECK(gltf.json.find("\"version\":\"2.0\"")!=std::string::npos);
+  CHECK(gltf.json.find("atlas.png")!=std::string::npos);
+  CHECK(exportObj(mesh).find("f 1/1/1 2/2/2 3/3/3")!=std::string::npos);
+  CHECK(exportMtl(mesh).find("map_Kd atlas.png")!=std::string::npos);
+  CHECK(exportPly(mesh).find("element face 1")!=std::string::npos);
+  mesh.triangle_indices[2]=3;
+  CHECK(!validateMesh(mesh).valid);
+
   // Calibrated projection/unprojection remains numerically consistent.
   PinholeRadTanCamera camera({640,480,510,508,319.5,239.5},
                              {-0.12,0.03,0.001,-0.002,0.0});

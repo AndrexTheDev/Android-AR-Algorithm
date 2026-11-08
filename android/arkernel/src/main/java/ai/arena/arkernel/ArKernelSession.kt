@@ -42,6 +42,7 @@ class ArKernelSession(
     private val reconstructionQualityGate:
         ((ArKernelSessionResult, CameraFrameQuality) -> Boolean)? = null,
     private val compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
+    private val guidedRotationProbe: GuidedRotationObservabilityProbe? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -59,6 +60,7 @@ class ArKernelSession(
         MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
     private var previousBodyWorldRotation: Rotation? = null
     private var pendingBodyWorldRotation: Pair<Long, Rotation>? = null
+    private var pendingCameraRotationPrediction: Pair<Long, Rotation>? = null
     private val pendingReconstructionResults = TreeMap<Long, ArKernelSessionResult>()
     @Volatile private var running = false
     @Volatile private var closed = false
@@ -96,6 +98,7 @@ class ArKernelSession(
         synchronized(lock) {
             queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
             previousBodyWorldRotation = null; pendingBodyWorldRotation = null
+            pendingCameraRotationPrediction = null
             pendingReconstructionResults.clear()
         }
         latestMappingGate = MappingGateDecision(
@@ -121,6 +124,7 @@ class ArKernelSession(
         imu.stop()
         synchronized(lock) {
             queue.clear(); previousBodyWorldRotation = null; pendingBodyWorldRotation = null
+            pendingCameraRotationPrediction = null
             pendingReconstructionResults.clear()
         }
     }
@@ -153,7 +157,9 @@ class ArKernelSession(
             return previousBodyWorldRotation?.let { previous ->
                 val bodyCurrentFromPrevious = multiply(inverse(state.rotation), previous)
                 multiply(multiply(inverse(bodyFromCameraRotation), bodyCurrentFromPrevious),
-                         bodyFromCameraRotation)
+                    bodyFromCameraRotation).also { prediction ->
+                    pendingCameraRotationPrediction = cameraTimestampNs to prediction
+                }
             }
         }
     }
@@ -167,6 +173,14 @@ class ArKernelSession(
 
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
+        val rotationPrediction = synchronized(lock) {
+            pendingCameraRotationPrediction?.takeIf { it.first == result.timestampNs }?.second
+                .also { pendingCameraRotationPrediction = null }
+        }
+        if (rotationPrediction != null) result.relativePose?.let { pose ->
+            guidedRotationProbe?.addMatchedRotation(
+                pose.rotationCurrentFromPrevious, rotationPrediction)
+        }
         val stateBeforeFusion = vio.snapshot()
         val fusionApplied = result.relativePose?.let(vio::fuseVisual) ?: false
         val snapshot = vio.snapshot()

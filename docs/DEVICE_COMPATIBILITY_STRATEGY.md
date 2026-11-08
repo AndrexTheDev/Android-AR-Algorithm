@@ -122,7 +122,7 @@ This catches behavior classes, including new devices, without knowing their name
 
 ### Stage 2: guided observability/self-calibration check
 
-A short optional user-guided motion sequence can establish much more than metadata:
+A short optional user-guided motion sequence can establish much more than metadata. The implemented bounded `GuidedRotationObservabilityProbe` now receives the visual frame-to-frame rotation and the camera-axis IMU prediction supplied to that exact frame. It requires enough signed, moderate motion and checks direction correlation and magnitude agreement; it deliberately rejects rather than estimates when motion is insufficient. This first observability gate can expose incorrect axes, signs, extrinsics or timing, but does not independently identify which one failed.
 
 - pure rotations at moderate angular velocity correlate gyro motion with visual rotation;
 - estimate camera/IMU time offset and drift from angular-rate alignment;
@@ -143,6 +143,8 @@ Every optional ML/GPU path should carry small golden inputs and expected output 
 4. apply a strict startup timeout and memory budget;
 5. cache success only for the exact model hash plus runtime/driver capability signature;
 6. fall back to CPU after mismatch, timeout or recoverable failure.
+
+`AdmissionEvidenceStore` now provides the corresponding app-private atomic evidence cache for device admission. Entries bind the capability signature, calibration hash, software/policy revision and expiry to the active timing result and optional guided-rotation result. CRC catches accidental corruption. A mismatch or expiry is a cache miss, and cached evidence never disables continuous session monitoring or constitutes signed dimensional-validation evidence.
 
 An accelerator success must never be required to start tracking. Native driver crashes cannot always be caught in-process; risky optional adapters should be considered for a separate Android service/process so the host can recover and disable them.
 
@@ -412,7 +414,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 1. Add runtime camera/IMU offset monitoring and bounded estimator with observability checks. Independent Android accelerometer/gyro callbacks are synchronized at a common observed timestamp by bounded interpolation without extrapolation. `CameraTimestampNormalizer` now classifies realtime, uptime or practically equivalent session clocks from bounded callback observations and maps uptime with one robust fixed offset; locked sessions now monitor uptime offset, realtime callback residual and equivalent-clock divergence; a threshold violation terminally invalidates normalization and immediately pauses mapping. A subsampled bounded native `ClockAligner` now robustly fits callback core time against raw camera time over a minimum ten-second span, exposes drift in ppm and residual RMSE, and triggers the same terminal mapping stop when policy bounds fail. Callback latency still makes this a health detector, not a calibration oracle.
 2. Add conservative stream/FPS tiers and low-memory policies.
-3. Add CPU/delegate golden conformance tests and exact-signature success cache.
+3. Add CPU/delegate golden conformance tests. [Implemented foundation] Device admission reports can now be atomically cached only against the exact capability signature, calibration hash, software/policy revision and expiry.
 4. Add signed quirk/policy parsing with offline defaults and disable-only remote rules.
 5. Add synthetic Camera2/IMU fault sources and state-machine/property tests.
 
@@ -426,7 +428,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 ### P3 — calibration reach
 
-1. Add guided rotation/time-offset verification.
+1. [Implemented foundation] Add guided rotation verification; continue with observable time-offset search and covariance.
 2. Add target-based user calibration as a separate explicit flow.
 3. Support signed calibration profiles with uncertainty, expiry and firmware/mode binding.
 4. Add bounded per-session refinement that can lower but never self-award validation status.

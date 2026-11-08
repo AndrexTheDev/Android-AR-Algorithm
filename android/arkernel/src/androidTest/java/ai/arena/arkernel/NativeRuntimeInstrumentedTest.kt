@@ -3,6 +3,7 @@ package ai.arena.arkernel
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -13,11 +14,23 @@ class NativeRuntimeInstrumentedTest {
         val vio = ArKernelVio()
         try {
             assertNull(vio.snapshot())
-            vio.submitImu(
-                timestampNs = 1_000_000_000L,
-                acceleration = Vector3(0.0, 0.0, 9.81),
-                angularVelocity = Vector3(0.0, 0.0, 0.0),
-            )
+            repeat(80) { index ->
+                vio.submitImu(1_000_000_000L + index * 10_000_000L,
+                    Vector3(0.0, 0.0, 9.80665), Vector3(0.0, 0.0, 0.0))
+            }
+            val initializedAt = requireNotNull(vio.snapshot()).timestampNs
+            val reference = RelativeVisualPose(initializedAt,
+                Rotation(1.0, 0.0, 0.0, 0.0), Vector3(-1.0, 0.0, 0.0))
+            assertNull(vio.fuseVisualMeasured(reference))
+            repeat(10) { index ->
+                vio.submitImu(initializedAt + (index + 1) * 10_000_000L,
+                    Vector3(1.0, 0.0, 9.80665), Vector3(0.0, 0.0, 0.0))
+            }
+            val measured = requireNotNull(vio.fuseVisualMeasured(reference.copy(
+                timestampNs = requireNotNull(vio.snapshot()).timestampNs)))
+            assertTrue(measured.rotationApplied)
+            assertTrue(measured.predictedDisplacementMeters > 0.0)
+            assertTrue(measured.translationDirectionCosine > 0.0)
             vio.pause()
             vio.resume()
         } finally {

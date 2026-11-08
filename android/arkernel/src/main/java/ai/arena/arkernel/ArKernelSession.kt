@@ -44,6 +44,7 @@ class ArKernelSession(
     private val compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
     private val guidedRotationProbe: GuidedRotationObservabilityProbe? = null,
     private val guidedTimeOffsetProbe: GuidedTimeOffsetObservabilityProbe? = null,
+    private val guidedMetricProbe: GuidedMetricConsistencyProbe? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -136,6 +137,7 @@ class ArKernelSession(
     private fun enqueueImu(timestamp: Long, acceleration: Vector3, angularVelocity: Vector3) {
         if (!running) return
         guidedTimeOffsetProbe?.addGyroscopeBody(timestamp, angularVelocity)
+        guidedMetricProbe?.addImuSample(acceleration, angularVelocity)
         synchronized(lock) {
             if (queue.isNotEmpty() && timestamp <= queue.peekLast().timestampNs) return
             if (queue.size >= maxQueuedImuSamples) {
@@ -194,7 +196,9 @@ class ArKernelSession(
                 pose.rotationCurrentFromPrevious)
         }
         val stateBeforeFusion = vio.snapshot()
-        val fusionApplied = result.relativePose?.let(vio::fuseVisual) ?: false
+        val fusion = result.relativePose?.let(vio::fuseVisualMeasured)
+        if (fusion != null) guidedMetricProbe?.addVisualFusion(fusion)
+        val fusionApplied = fusion?.rotationApplied == true
         val snapshot = vio.snapshot()
         val queueStatus = synchronized(lock) {
             val pending = pendingBodyWorldRotation

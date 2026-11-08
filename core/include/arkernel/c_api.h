@@ -546,6 +546,16 @@ typedef struct ark_anchor_v1 {
   double position_z_m;
 } ark_anchor_v1;
 
+typedef struct ark_vio_fusion_result_v1 {
+  uint32_t struct_size;
+  uint32_t rotation_applied;
+  uint32_t position_applied;
+  uint32_t scale_updated;
+  double observed_scale_m;
+  double predicted_displacement_m;
+  double translation_direction_cosine;
+} ark_vio_fusion_result_v1;
+
 typedef struct ark_vio_state_v1 {
   uint32_t struct_size;
   int64_t timestamp_ns;
@@ -695,6 +705,10 @@ void ark_vio_destroy(ark_vio_handle* handle);
 ark_result ark_vio_reset(ark_vio_handle* handle);
 ark_result ark_vio_submit_imu(ark_vio_handle* handle, const ark_imu_sample_v1* sample);
 ark_result ark_vio_fuse_visual(ark_vio_handle* handle, const ark_relative_pose_v1* pose);
+// Additive measured variant; the original function remains ABI-compatible.
+ark_result ark_vio_fuse_visual_measured(ark_vio_handle* handle,
+                                        const ark_relative_pose_v1* pose,
+                                        ark_vio_fusion_result_v1* out_result);
 ark_result ark_vio_get_state(ark_vio_handle* handle, ark_vio_state_v1* out_state);
 // Returns required bytes including NUL. Copies a truncated NUL-terminated value
 // when buffer is non-null and buffer_size > 0.

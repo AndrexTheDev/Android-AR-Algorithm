@@ -10,7 +10,7 @@ import java.io.File
 import java.util.zip.CRC32
 
 private const val ADMISSION_EVIDENCE_MAGIC = 0x41524B41 // ARKA
-private const val ADMISSION_EVIDENCE_VERSION = 3
+private const val ADMISSION_EVIDENCE_VERSION = 4
 private const val MAX_ADMISSION_EVIDENCE_BYTES = 16 * 1024
 private const val MAX_ADMISSION_ID_LENGTH = 256
 private const val MAX_PERSISTED_ROTATION_OBSERVATIONS = 512
@@ -27,6 +27,7 @@ data class PersistedAdmissionEvidence(
     val rotationReport: RotationObservabilityReport?,
     val timeOffsetReport: TimeOffsetObservabilityReport? = null,
     val timeOffsetDriftReport: TimeOffsetDriftReport? = null,
+    val metricConsistencyReport: MetricConsistencyReport? = null,
 ) {
     init {
         require(capabilitySignatureSha256.isSha256())
@@ -50,13 +51,14 @@ data class PersistedAdmissionEvidence(
             rotationReport: RotationObservabilityReport?, recordedAtEpochMillis: Long,
             validityMillis: Long,
             timeOffsetReport: TimeOffsetObservabilityReport? = null,
-            timeOffsetDriftReport: TimeOffsetDriftReport? = null): PersistedAdmissionEvidence {
+            timeOffsetDriftReport: TimeOffsetDriftReport? = null,
+            metricConsistencyReport: MetricConsistencyReport? = null): PersistedAdmissionEvidence {
             require(validityMillis in 1..30L * 24 * 60 * 60 * 1_000)
             return PersistedAdmissionEvidence(signature.stableIdSha256,
                 calibrationProfileSha256, softwareRevision, recordedAtEpochMillis,
                 Math.addExact(recordedAtEpochMillis, validityMillis), activeReport.promotedTier,
                 activeReport.observedCameraTimebase, activeReport.blockingReasons, rotationReport,
-                timeOffsetReport, timeOffsetDriftReport)
+                timeOffsetReport, timeOffsetDriftReport, metricConsistencyReport)
         }
     }
 }
@@ -158,6 +160,23 @@ internal object AdmissionEvidenceCodec {
                     output.writeInt(report.reasons.size)
                     report.reasons.forEach { output.writeInt(it.ordinal) }
                 }
+                output.writeBoolean(value.metricConsistencyReport != null)
+                value.metricConsistencyReport?.let { report ->
+                    output.writeInt(report.stationarySamples)
+                    output.writeDouble(report.gravityMeanMetersPerSecondSquared)
+                    output.writeDouble(report.gravityStdDevMetersPerSecondSquared)
+                    output.writeDouble(report.gyroscopeRmsRadiansPerSecond)
+                    output.writeInt(report.translationObservations)
+                    output.writeInt(report.scaleAcceptedObservations)
+                    output.writeDouble(report.medianTranslationDirectionCosine)
+                    output.writeInt(report.knownDistanceObservations)
+                    output.writeDouble(report.knownDistanceMeanAbsoluteErrorMeters)
+                    output.writeDouble(report.knownDistanceMaximumRelativeError)
+                    output.writeInt(report.runtimeReasons.size)
+                    report.runtimeReasons.forEach { output.writeInt(it.ordinal) }
+                    output.writeInt(report.targetReasons.size)
+                    report.targetReasons.forEach { output.writeInt(it.ordinal) }
+                }
             }
         }.toByteArray()
         require(payload.size + 8 <= MAX_ADMISSION_EVIDENCE_BYTES)
@@ -226,9 +245,13 @@ internal object AdmissionEvidenceCodec {
                 TimeOffsetDriftReport(acceptedWindows, rejectedWindows, span,
                     driftPpm, uncertaintyPpm, residualRmseNs, readEnums(data))
             }
+            val metric = if (!data.readBoolean()) null else MetricConsistencyReport(
+                data.readInt(), data.readDouble(), data.readDouble(), data.readDouble(),
+                data.readInt(), data.readInt(), data.readDouble(), data.readInt(),
+                data.readDouble(), data.readDouble(), readEnums(data), readEnums(data))
             require(data.available() == 0)
             PersistedAdmissionEvidence(signature, calibration, revision, recorded, expires,
-                tier, timebase, activeReasons, rotation, timeOffset, drift)
+                tier, timebase, activeReasons, rotation, timeOffset, drift, metric)
         }
     }
 

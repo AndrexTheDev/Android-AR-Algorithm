@@ -898,7 +898,13 @@ ark_result ark_vio_submit_imu(ark_vio_handle* handle,const ark_imu_sample_v1* sa
 }
 
 ark_result ark_vio_fuse_visual(ark_vio_handle* handle,const ark_relative_pose_v1* pose){
-  if(!handle||!validStruct(pose))return ARK_RESULT_INVALID_ARGUMENT;
+  ark_vio_fusion_result_v1 result{};result.struct_size=sizeof(result);
+  return ark_vio_fuse_visual_measured(handle,pose,&result);
+}
+
+ark_result ark_vio_fuse_visual_measured(ark_vio_handle* handle,
+    const ark_relative_pose_v1* pose,ark_vio_fusion_result_v1* out){
+  if(!handle||!validStruct(pose)||!validStruct(out))return ARK_RESULT_INVALID_ARGUMENT;
   std::lock_guard<std::mutex> lock(handle->mutex);
   try{
     const double rotation_norm=std::sqrt(pose->rotation_w*pose->rotation_w+
@@ -918,6 +924,13 @@ ark_result ark_vio_fuse_visual(ark_vio_handle* handle,const ark_relative_pose_v1
       pose->translation_direction_y/translation_norm,
       pose->translation_direction_z/translation_norm};
     const auto fused=handle->estimator.fuseVisual(pose->timestamp_ns,value);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->rotation_applied=fused.rotation_applied?1u:0u;
+    out->position_applied=fused.position_applied?1u:0u;
+    out->scale_updated=fused.scale_updated?1u:0u;
+    out->observed_scale_m=fused.observed_scale_m;
+    out->predicted_displacement_m=fused.predicted_displacement_m;
+    out->translation_direction_cosine=fused.translation_direction_cosine;
     handle->error.clear();
     return fused.rotation_applied?ARK_RESULT_OK:ARK_RESULT_NOT_READY;
   }catch(const std::exception& e){return fail(handle,ARK_RESULT_INTERNAL_ERROR,e.what());}

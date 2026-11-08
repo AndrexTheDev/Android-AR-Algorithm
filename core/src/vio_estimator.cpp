@@ -147,6 +147,8 @@ VisualFusionResult VioEstimator::fuseVisual(TimestampNs timestamp_ns,
   const double predicted_norm=predicted_displacement.norm();
   const double observed_scale=dot(predicted_displacement,direction_world);
   const double direction_cosine=predicted_norm>1e-12?observed_scale/predicted_norm:-1.0;
+  result.predicted_displacement_m=predicted_norm;
+  result.translation_direction_cosine=direction_cosine;
   if(observed_scale>=config_.min_scale_displacement_m&&
      direction_cosine>=config_.min_scale_direction_cosine){
     result.observed_scale_m=observed_scale;result.scale_updated=true;

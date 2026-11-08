@@ -131,6 +131,8 @@ A short optional user-guided motion sequence can establish much more than metada
 - translational/parallax motion checks metric scale/gravity consistency and feature geometry;
 - reject calibration updates when motion does not make the parameters observable.
 
+The implemented `GuidedMetricConsistencyProbe` now keeps these claims separate. A bounded stationary window checks accelerometer gravity magnitude/noise and gyroscope stillness. Additive native/JNI visual-fusion diagnostics expose predicted camera displacement, signed translation-direction cosine, and whether inertial scale passed the native fusion gate; the session feeds these into a bounded runtime-consistency report. Absolute dimensional status remains unavailable unless the host supplies at least three physical known-distance observations with reference uncertainty. Runtime agreement alone therefore cannot self-award centimetre validation.
+
 Online refinement must start from bounded priors, report covariance and never turn an unobservable estimate into a permanent trusted profile. Full intrinsic/extrinsic calibration remains a guided target-based or laboratory operation. [Kalibr](https://github.com/ethz-asl/kalibr) is a useful BSD-licensed external reference/oracle, not a proposed runtime dependency.
 
 ### Stage 3: compute/backend self-test
@@ -429,7 +431,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 ### P3 — calibration reach
 
 1. [Implemented foundation] Add guided rotation verification, bounded observable time-offset search, and robust multi-window ppm drift estimation with conservative uncertainty; continue with laboratory covariance validation.
-2. Add target-based user calibration as a separate explicit flow.
+2. [Implemented measurement foundation] Keep runtime gravity/translation consistency separate from caller-supplied physical known-distance evidence; continue with a complete target-detection and guided user-calibration flow.
 3. Support signed calibration profiles with uncertainty, expiry and firmware/mode binding.
 4. Add bounded per-session refinement that can lower but never self-award validation status.
 5. Validate optional CameraX capture adapter against direct Camera2 precision mode.

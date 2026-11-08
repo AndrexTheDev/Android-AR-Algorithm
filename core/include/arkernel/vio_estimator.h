@@ -45,6 +45,8 @@ struct VisualFusionResult {
   bool position_applied{false};
   bool scale_updated{false};
   double observed_scale_m{0.0};
+  double predicted_displacement_m{0.0};
+  double translation_direction_cosine{-1.0};
 };
 
 // Lightweight VIO state layer. It performs strapdown IMU propagation and

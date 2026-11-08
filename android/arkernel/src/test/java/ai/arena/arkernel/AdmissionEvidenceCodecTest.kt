@@ -12,6 +12,8 @@ class AdmissionEvidenceCodecTest {
             24_000_000L, 4_000_000L, 5.0e12, 0.98, 0.05, emptyList())
         val drift = TimeOffsetDriftReport(6, 0, 100_000_000_000L,
             120.0, 4.0, 100_000.0, emptyList())
+        val metric = MetricConsistencyReport(100, 9.80665, 0.02, 0.003,
+            16, 15, 0.94, 3, 0.001, 0.002, emptyList(), emptyList())
         val evidence = PersistedAdmissionEvidence(
             capabilitySignatureSha256 = "a".repeat(64),
             calibrationProfileSha256 = "b".repeat(64),
@@ -24,6 +26,7 @@ class AdmissionEvidenceCodecTest {
             rotationReport = rotation,
             timeOffsetReport = timeOffset,
             timeOffsetDriftReport = drift,
+            metricConsistencyReport = metric,
         )
 
         assertEquals(evidence, AdmissionEvidenceCodec.decode(AdmissionEvidenceCodec.encode(evidence)))

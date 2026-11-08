@@ -8,6 +8,14 @@ data class RelativeVisualPose(
     val rotationCurrentFromPrevious: Rotation,
     val translationDirectionCurrent: Vector3,
 )
+data class VisualFusionSnapshot(
+    val rotationApplied: Boolean,
+    val positionApplied: Boolean,
+    val scaleUpdated: Boolean,
+    val observedScaleMeters: Double,
+    val predictedDisplacementMeters: Double,
+    val translationDirectionCosine: Double,
+)
 enum class VioStatus { UNINITIALIZED, INERTIAL, VISUAL_INERTIAL, LIMITED }
 data class VioSnapshot(
     val timestampNs: Long,
@@ -52,15 +60,22 @@ class ArKernelVio(
     }
 
     @Synchronized
-    fun fuseVisual(pose: RelativeVisualPose): Boolean {
+    fun fuseVisual(pose: RelativeVisualPose): Boolean =
+        fuseVisualMeasured(pose)?.rotationApplied == true
+
+    @Synchronized
+    fun fuseVisualMeasured(pose: RelativeVisualPose): VisualFusionSnapshot? {
         checkOpen()
-        if (!acceptingSamples) return false
+        if (!acceptingSamples) return null
         val r = pose.rotationCurrentFromPrevious
         val t = pose.translationDirectionCurrent
+        val metadata = LongArray(3)
+        val values = DoubleArray(3)
         return when (val result = nativeFuseVisual(nativeHandle, pose.timestampNs,
-            r.w, r.x, r.y, r.z, t.x, t.y, t.z)) {
-            RESULT_OK -> true
-            RESULT_NOT_READY -> false
+            r.w, r.x, r.y, r.z, t.x, t.y, t.z, metadata, values)) {
+            RESULT_OK -> VisualFusionSnapshot(metadata[0] != 0L, metadata[1] != 0L,
+                metadata[2] != 0L, values[0], values[1], values[2])
+            RESULT_NOT_READY -> null
             else -> throw IllegalStateException("Native visual fusion error: $result")
         }
     }
@@ -105,7 +120,7 @@ class ArKernelVio(
         ax: Double, ay: Double, az: Double, gx: Double, gy: Double, gz: Double): Int
     private external fun nativeFuseVisual(handle: Long, timestampNs: Long,
         rw: Double, rx: Double, ry: Double, rz: Double,
-        tx: Double, ty: Double, tz: Double): Int
+        tx: Double, ty: Double, tz: Double, metadata: LongArray, values: DoubleArray): Int
     private external fun nativeGetState(handle: Long, metadata: LongArray, values: DoubleArray): Int
 
     private companion object {

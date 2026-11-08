@@ -103,13 +103,23 @@ Java_ai_arena_arkernel_ArKernelVio_nativeSubmitImu(JNIEnv*,jobject,jlong handle,
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_ai_arena_arkernel_ArKernelVio_nativeFuseVisual(JNIEnv*,jobject,jlong handle,jlong timestamp,
-    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble tx,jdouble ty,jdouble tz) {
+Java_ai_arena_arkernel_ArKernelVio_nativeFuseVisual(JNIEnv* env,jobject,jlong handle,jlong timestamp,
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble tx,jdouble ty,jdouble tz,
+    jlongArray metadata,jdoubleArray values) {
+  if(!metadata||!values||env->GetArrayLength(metadata)<3||env->GetArrayLength(values)<3)
+    return ARK_RESULT_INVALID_ARGUMENT;
   ark_relative_pose_v1 pose{};pose.struct_size=sizeof(pose);pose.timestamp_ns=timestamp;
   pose.rotation_w=rw;pose.rotation_x=rx;pose.rotation_y=ry;pose.rotation_z=rz;
   pose.translation_direction_x=tx;pose.translation_direction_y=ty;
   pose.translation_direction_z=tz;pose.valid=1;
-  return ark_vio_fuse_visual(fromVioHandle(handle),&pose);
+  ark_vio_fusion_result_v1 result{};result.struct_size=sizeof(result);
+  const ark_result status=ark_vio_fuse_visual_measured(fromVioHandle(handle),&pose,&result);
+  const jlong meta[3]={static_cast<jlong>(result.rotation_applied),
+    static_cast<jlong>(result.position_applied),static_cast<jlong>(result.scale_updated)};
+  const jdouble data[3]={result.observed_scale_m,result.predicted_displacement_m,
+    result.translation_direction_cosine};
+  env->SetLongArrayRegion(metadata,0,3,meta);env->SetDoubleArrayRegion(values,0,3,data);
+  return status;
 }
 
 extern "C" JNIEXPORT jint JNICALL

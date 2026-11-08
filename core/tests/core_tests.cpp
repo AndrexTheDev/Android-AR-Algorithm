@@ -1313,6 +1313,8 @@ int main() {
   CHECK(fused.rotation_applied);
   CHECK(fused.scale_updated && fused.position_applied);
   CHECK(std::abs(fused.observed_scale_m-0.005)<0.001);
+  CHECK(fused.predicted_displacement_m>=fused.observed_scale_m);
+  CHECK(fused.translation_direction_cosine>0.9);
   CHECK(vio.state().visual_translation_scale_valid);
   CHECK(vio.state().world_from_body.rotation.rotate({1,0,0}).y>0.03);
 

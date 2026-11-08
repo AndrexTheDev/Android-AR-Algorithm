@@ -10,6 +10,8 @@ class AdmissionEvidenceCodecTest {
         val rotation = RotationObservabilityReport(18, 0.54, 0.53, 0.98, 0.99, emptyList())
         val timeOffset = TimeOffsetObservabilityReport(500, 100, 3_000_000_000L,
             24_000_000L, 4_000_000L, 5.0e12, 0.98, 0.05, emptyList())
+        val drift = TimeOffsetDriftReport(6, 0, 100_000_000_000L,
+            120.0, 4.0, 100_000.0, emptyList())
         val evidence = PersistedAdmissionEvidence(
             capabilitySignatureSha256 = "a".repeat(64),
             calibrationProfileSha256 = "b".repeat(64),
@@ -21,6 +23,7 @@ class AdmissionEvidenceCodecTest {
             activeBlockingReasons = emptyList(),
             rotationReport = rotation,
             timeOffsetReport = timeOffset,
+            timeOffsetDriftReport = drift,
         )
 
         assertEquals(evidence, AdmissionEvidenceCodec.decode(AdmissionEvidenceCodec.encode(evidence)))

@@ -10,7 +10,7 @@ import java.io.File
 import java.util.zip.CRC32
 
 private const val ADMISSION_EVIDENCE_MAGIC = 0x41524B41 // ARKA
-private const val ADMISSION_EVIDENCE_VERSION = 2
+private const val ADMISSION_EVIDENCE_VERSION = 3
 private const val MAX_ADMISSION_EVIDENCE_BYTES = 16 * 1024
 private const val MAX_ADMISSION_ID_LENGTH = 256
 private const val MAX_PERSISTED_ROTATION_OBSERVATIONS = 512
@@ -26,6 +26,7 @@ data class PersistedAdmissionEvidence(
     val activeBlockingReasons: List<ActiveCompatibilityReasonCode>,
     val rotationReport: RotationObservabilityReport?,
     val timeOffsetReport: TimeOffsetObservabilityReport? = null,
+    val timeOffsetDriftReport: TimeOffsetDriftReport? = null,
 ) {
     init {
         require(capabilitySignatureSha256.isSha256())
@@ -48,13 +49,14 @@ data class PersistedAdmissionEvidence(
             softwareRevision: String, activeReport: ActiveCompatibilityReport,
             rotationReport: RotationObservabilityReport?, recordedAtEpochMillis: Long,
             validityMillis: Long,
-            timeOffsetReport: TimeOffsetObservabilityReport? = null): PersistedAdmissionEvidence {
+            timeOffsetReport: TimeOffsetObservabilityReport? = null,
+            timeOffsetDriftReport: TimeOffsetDriftReport? = null): PersistedAdmissionEvidence {
             require(validityMillis in 1..30L * 24 * 60 * 60 * 1_000)
             return PersistedAdmissionEvidence(signature.stableIdSha256,
                 calibrationProfileSha256, softwareRevision, recordedAtEpochMillis,
                 Math.addExact(recordedAtEpochMillis, validityMillis), activeReport.promotedTier,
                 activeReport.observedCameraTimebase, activeReport.blockingReasons, rotationReport,
-                timeOffsetReport)
+                timeOffsetReport, timeOffsetDriftReport)
         }
     }
 }
@@ -142,6 +144,20 @@ internal object AdmissionEvidenceCodec {
                     output.writeInt(report.reasons.size)
                     report.reasons.forEach { output.writeInt(it.ordinal) }
                 }
+                output.writeBoolean(value.timeOffsetDriftReport != null)
+                value.timeOffsetDriftReport?.let { report ->
+                    output.writeInt(report.acceptedWindows)
+                    output.writeInt(report.rejectedWindows)
+                    output.writeLong(report.observedSpanNs)
+                    output.writeBoolean(report.driftPpm != null)
+                    if (report.driftPpm != null) {
+                        output.writeDouble(report.driftPpm)
+                        output.writeDouble(requireNotNull(report.driftUncertaintyPpm))
+                        output.writeDouble(requireNotNull(report.residualRmseNs))
+                    }
+                    output.writeInt(report.reasons.size)
+                    report.reasons.forEach { output.writeInt(it.ordinal) }
+                }
             }
         }.toByteArray()
         require(payload.size + 8 <= MAX_ADMISSION_EVIDENCE_BYTES)
@@ -199,9 +215,20 @@ internal object AdmissionEvidenceCodec {
                 TimeOffsetObservabilityReport(gyroSamples, visualRotations, span,
                     estimate, uncertainty, variance, correlation, margin, readEnums(data))
             }
+            val drift = if (!data.readBoolean()) null else {
+                val acceptedWindows = data.readInt()
+                val rejectedWindows = data.readInt()
+                val span = data.readLong()
+                val hasEstimate = data.readBoolean()
+                val driftPpm = if (hasEstimate) data.readDouble() else null
+                val uncertaintyPpm = if (hasEstimate) data.readDouble() else null
+                val residualRmseNs = if (hasEstimate) data.readDouble() else null
+                TimeOffsetDriftReport(acceptedWindows, rejectedWindows, span,
+                    driftPpm, uncertaintyPpm, residualRmseNs, readEnums(data))
+            }
             require(data.available() == 0)
             PersistedAdmissionEvidence(signature, calibration, revision, recorded, expires,
-                tier, timebase, activeReasons, rotation, timeOffset)
+                tier, timebase, activeReasons, rotation, timeOffset, drift)
         }
     }
 

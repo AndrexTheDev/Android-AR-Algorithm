@@ -19,6 +19,8 @@ class RuntimeResourceAdmissionCoordinator(
     private val telemetryCollector: RuntimeResourceTelemetryCollector =
         RuntimeResourceTelemetryCollector(),
     initialThermalState: InferenceThermalState = InferenceThermalState.NORMAL,
+    private val safetyPolicy: CompatibilitySafetyPolicy? = null,
+    private val nowEpochMillis: () -> Long = System::currentTimeMillis,
 ) {
     @Volatile private var thermalState = initialThermalState
 
@@ -42,8 +44,13 @@ class RuntimeResourceAdmissionCoordinator(
     fun refresh(): RuntimeResourceAdmissionRefresh {
         val telemetry = telemetryCollector.snapshot()
         val thermal = thermalState
-        val decision = RuntimeResourcePolicy.evaluate(staticReport, activeReport,
+        val measuredDecision = RuntimeResourcePolicy.evaluate(staticReport, activeReport,
             telemetry, thermal)
+        val decision = safetyPolicy?.let { policy ->
+            val now = nowEpochMillis().also { require(it >= 0) }
+            CompatibilitySafetyPolicyEvaluator.apply(measuredDecision, policy,
+                staticReport, activeReport, now)
+        } ?: measuredDecision
         val execution = owner.updateExecutionPlan(
             RuntimeExecutionPlan(decision, calibrationProfileSha256))
         return RuntimeResourceAdmissionRefresh(decision, telemetry, thermal, execution)

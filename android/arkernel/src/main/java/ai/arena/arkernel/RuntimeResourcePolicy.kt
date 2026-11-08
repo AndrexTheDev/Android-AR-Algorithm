@@ -29,6 +29,7 @@ enum class RuntimeResourceReason {
     MEMORY_PRESSURE_MODERATE,
     MEMORY_PRESSURE_CRITICAL,
     TELEMETRY_BUDGET_EXCEEDED,
+    SIGNED_SAFETY_POLICY,
 }
 
 data class RuntimeResourceTelemetry(

@@ -49,6 +49,28 @@ class RuntimeResourceAdmissionCoordinatorTest {
     }
 
     @Test
+    fun signedDisablePolicyFlowsThroughSameRestartGuard() {
+        val static = staticReport()
+        val active = activeReport()
+        val initial = RuntimeResourcePolicy.evaluate(static, active)
+        val owner = GuardedOwner(RuntimeExecutionPlan(initial, null))
+        val policy = CompatibilitySafetyPolicy(1, 0, Long.MAX_VALUE, listOf(
+            CompatibilitySafetyRule("semantic-kill-switch",
+                hardwareLevels = listOf(
+                    CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL),
+                actions = listOf(
+                    CompatibilitySafetyAction.DISABLE_SEMANTIC_INFERENCE))))
+        val coordinator = RuntimeResourceAdmissionCoordinator(static, active, null, owner,
+            safetyPolicy = policy, nowEpochMillis = { 1_500L })
+
+        val refresh = coordinator.refresh()
+
+        assertFalse(refresh.decision.semanticInferenceEnabled)
+        assertEquals(RuntimeExecutionPlanUpdate.RESTART_REQUIRED,
+            refresh.executionResult.update)
+    }
+
+    @Test
     fun mapsAndroidTrimLevelsWithoutTreatingUiHiddenAsPressure() {
         assertEquals(RuntimeMemoryPressure.CRITICAL,
             AndroidRuntimeResourceMonitor.mapTrimMemory(

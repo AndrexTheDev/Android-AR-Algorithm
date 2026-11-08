@@ -87,6 +87,10 @@ struct GltfAsset {
 
 GltfAsset exportGltf(const ReconstructionMesh& mesh,
                      const std::string& bin_file_name = "scene.bin");
+// glTF Binary 2.0 container. External texture URIs remain external; callers
+// can use data URIs or a later image-embedding adapter when one-file textures
+// are required.
+std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh);
 std::string exportObj(const ReconstructionMesh& mesh,
                       const std::string& material_file_name = "scene.mtl");
 std::string exportMtl(const ReconstructionMesh& mesh);

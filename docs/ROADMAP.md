@@ -96,4 +96,6 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [ ] Add held-out scale-target and dimensional-error evaluator; never claim centimetre accuracy without it.
-- [ ] Add GLB packaging and optional Android Filament viewer module; then USDZ and survey-format adapters.
+- [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
+- [ ] Embed texture image chunks/data URIs where true single-file GLB is required.
+- [ ] Add optional Android Filament viewer module; then USDZ and survey-format adapters.

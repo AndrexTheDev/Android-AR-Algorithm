@@ -47,6 +47,7 @@ The dependency-free `ReconstructionMesh` carries indexed triangle positions in m
 Core exports:
 
 - **glTF 2.0 (`.gltf` + `.bin` + PNG/JPEG)**: primary interchange/viewer format with indexed geometry, normals, UVs and PBR base colour;
+- **GLB (`.glb`)**: single binary geometry/material container; current image URI stays external, while a data URI or later image-embedding adapter can make textures single-file too;
 - **OBJ + MTL + texture**: broad DCC compatibility; units are documented as metres because OBJ has no authoritative unit field;
 - **PLY**: inspection pipeline, currently ASCII triangles and normals.
 
@@ -54,7 +55,7 @@ Planned adapters include GLB, USDZ, untextured STL, LAS/LAZ/E57 and 3D Tiles. ST
 
 ## Viewer
 
-`tools/viewer/index.html` is a dependency-free WebGL 2 viewer for the generated glTF subset. Select `.gltf`, referenced `.bin` and optional texture together. It supports orbit, zoom, normals, indexed triangles and base-colour textures without uploads or network access. Unsupported component encodings are rejected.
+`tools/viewer/index.html` is a dependency-free WebGL 2 viewer for the generated glTF subset. Select one `.glb`, or select `.gltf`, referenced `.bin` and optional texture together. It supports orbit, zoom, normals, indexed triangles and base-colour textures without uploads or network access. Unsupported component encodings are rejected.
 
 An Android product viewer should be a separate optional module and load glTF/GLB through Filament `gltfio`; this keeps a renderer out of the headless core AAR.
 

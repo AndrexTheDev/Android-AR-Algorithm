@@ -122,6 +122,13 @@ int main() {
   CHECK(gltf.binary.size()==3*sizeof(Vec3f)+3*sizeof(Vec3f)+3*sizeof(Vec2f)+3*sizeof(std::uint32_t));
   CHECK(gltf.json.find("\"version\":\"2.0\"")!=std::string::npos);
   CHECK(gltf.json.find("atlas.png")!=std::string::npos);
+  const auto glb=exportGlb(mesh);
+  CHECK(glb.size()>28&&glb[0]=='g'&&glb[1]=='l'&&glb[2]=='T'&&glb[3]=='F');
+  const auto read_u32=[&glb](std::size_t offset){return static_cast<std::uint32_t>(glb[offset])|
+    static_cast<std::uint32_t>(glb[offset+1])<<8U|
+    static_cast<std::uint32_t>(glb[offset+2])<<16U|
+    static_cast<std::uint32_t>(glb[offset+3])<<24U;};
+  CHECK(read_u32(4)==2&&read_u32(8)==glb.size()&&read_u32(16)==0x4E4F534AU);
   CHECK(exportObj(mesh).find("f 1/1/1 2/2/2 3/3/3")!=std::string::npos);
   CHECK(exportMtl(mesh).find("map_Kd atlas.png")!=std::string::npos);
   CHECK(exportPly(mesh).find("element face 1")!=std::string::npos);

@@ -39,6 +39,16 @@ std::size_t append(std::vector<std::uint8_t>& output, const std::vector<T>& valu
   output.insert(output.end(), bytes, bytes + values.size() * sizeof(T));
   return offset;
 }
+void appendU32Le(std::vector<std::uint8_t>& out, std::uint32_t value) {
+  out.push_back(static_cast<std::uint8_t>(value));
+  out.push_back(static_cast<std::uint8_t>(value>>8U));
+  out.push_back(static_cast<std::uint8_t>(value>>16U));
+  out.push_back(static_cast<std::uint8_t>(value>>24U));
+}
+bool littleEndianHost() {
+  const std::uint16_t value=1;
+  return *reinterpret_cast<const std::uint8_t*>(&value)==1;
+}
 const char* gradeName(MetricAccuracyGrade grade) {
   switch (grade) {
     case MetricAccuracyGrade::kCentimeterValidated: return "centimeter-validated";
@@ -128,6 +138,7 @@ GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name
   const auto validation = validateMesh(mesh);
   if (!validation.valid) throw std::invalid_argument(validation.error);
   if (bin_name.empty()) throw std::invalid_argument("glTF binary file name is empty");
+  if (!littleEndianHost()) throw std::runtime_error("glTF export requires little-endian host encoding");
   GltfAsset asset;
   const std::size_t position_offset = append(asset.binary, mesh.positions_m);
   const std::size_t normal_offset = mesh.normals.empty() ? 0 : append(asset.binary, mesh.normals);
@@ -191,6 +202,34 @@ GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name
   json << ",\"extras\":{\"units\":\"meter\",\"accuracy\":\""
        << gradeName(MetricAccuracyGrade::kUnverified) << "\"}}";
   asset.json = json.str(); return asset;
+}
+
+std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
+  constexpr const char* internal_name="__arkernel_internal.bin";
+  GltfAsset asset=exportGltf(mesh,internal_name);
+  const std::string uri="\"uri\":\""+std::string(internal_name)+"\",";
+  const std::size_t position=asset.json.find(uri);
+  if(position==std::string::npos)throw std::runtime_error("Internal glTF buffer URI missing");
+  asset.json.erase(position,uri.size());
+  while((asset.json.size()&3U)!=0U)asset.json.push_back(' ');
+  while((asset.binary.size()&3U)!=0U)asset.binary.push_back(0);
+  constexpr std::size_t header_bytes=12,chunk_header_bytes=8;
+  const std::size_t total=header_bytes+chunk_header_bytes+asset.json.size()+
+                          chunk_header_bytes+asset.binary.size();
+  if(asset.json.size()>std::numeric_limits<std::uint32_t>::max()||
+     asset.binary.size()>std::numeric_limits<std::uint32_t>::max()||
+     total>std::numeric_limits<std::uint32_t>::max())
+    throw std::length_error("GLB exceeds 32-bit container limit");
+  std::vector<std::uint8_t> output;output.reserve(total);
+  appendU32Le(output,0x46546C67U);appendU32Le(output,2U);
+  appendU32Le(output,static_cast<std::uint32_t>(total));
+  appendU32Le(output,static_cast<std::uint32_t>(asset.json.size()));
+  appendU32Le(output,0x4E4F534AU);
+  output.insert(output.end(),asset.json.begin(),asset.json.end());
+  appendU32Le(output,static_cast<std::uint32_t>(asset.binary.size()));
+  appendU32Le(output,0x004E4942U);
+  output.insert(output.end(),asset.binary.begin(),asset.binary.end());
+  return output;
 }
 
 std::string exportObj(const ReconstructionMesh& mesh, const std::string& material_name) {

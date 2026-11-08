@@ -38,8 +38,8 @@ jobs:
               tail -n 160 android-library-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|FAILED' \
-              android-library-gradle.log | tail -n 80)
+            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|^e: |FAILED' \
+              android-library-gradle.log | tail -n 120)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}
@@ -52,6 +52,7 @@ jobs:
         with:
           name: android-ci-reports
           path: |
+            android-library-gradle.log
             android/arkernel/build/reports/lint-results-debug.*
             android/arkernel/build/reports/tests/testDebugUnitTest/**
           if-no-files-found: ignore

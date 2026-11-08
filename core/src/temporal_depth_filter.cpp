@@ -64,6 +64,7 @@ TemporalDepthResult TemporalDepthFilter::update(const TemporalDepthFrameView& fr
     result.depth_m[target]=validDepth(frame.depth_m[static_cast<std::size_t>(y)*
       frame.row_stride_elements+x],config_.min_depth_m,config_.max_depth_m);
     result.confidence[target]=result.depth_m[target]>0?validConfidence(frame,x,y):0;
+    if(result.confidence[target]<=0)result.depth_m[target]=0;
   }
   const auto& current_intrinsics=camera.intrinsics();
   const bool compatible=timestamp_ns_>0&&width_==frame.width&&height_==frame.height&&

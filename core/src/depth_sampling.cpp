@@ -40,13 +40,24 @@ std::vector<SurfelObservation> sampleMetricDepthImage(
      config.max_normal_depth_discontinuity_ratio<=0||
      !std::isfinite(config.min_radius_m)||!std::isfinite(config.max_radius_m)||
      config.min_radius_m<=0||config.max_radius_m<config.min_radius_m||
-     config.max_samples==0)
+     config.max_samples==0||config.exclusion_rects.size()>64)
     throw std::invalid_argument("Invalid depth sampling configuration");
+  for(const auto& rect:config.exclusion_rects)
+    if(!std::isfinite(rect.left)||!std::isfinite(rect.top)||
+       !std::isfinite(rect.right)||!std::isfinite(rect.bottom)||
+       rect.right<=rect.left||rect.bottom<=rect.top)
+      throw std::invalid_argument("Invalid depth exclusion rectangle");
   std::vector<SurfelObservation> output;
   const auto& intrinsics=camera.intrinsics();
   if(timestamp_ns<=0||!validMetricDepthImage(image)||image.width!=intrinsics.width||
      image.height!=intrinsics.height)return output;
+  const auto excluded=[&](int x,int y){
+    return std::any_of(config.exclusion_rects.begin(),config.exclusion_rects.end(),
+      [&](const DepthExclusionRect& rect){return x>=rect.left&&x<rect.right&&
+        y>=rect.top&&y<rect.bottom;});
+  };
   const auto sample_point=[&](int x,int y)->std::optional<Vec3>{
+    if(excluded(x,y))return std::nullopt;
     const float depth=image.depth_m[static_cast<std::size_t>(y)*image.row_stride_elements+x];
     if(!std::isfinite(depth)||depth<config.min_depth_m||depth>config.max_depth_m)return std::nullopt;
     const auto ray=camera.unproject({static_cast<double>(x),static_cast<double>(y)});

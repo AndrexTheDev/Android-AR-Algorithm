@@ -2,6 +2,7 @@ package ai.arena.arkernel
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.BitSet
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -243,6 +244,8 @@ class DepthAndDetectionTensorBackend private constructor(
     private val maxRelativeDiscontinuity: Double,
     private val dynamicClassIds: Set<Long>,
     private val projectionSurfaces: Map<Long, SemanticProjectionSurface>,
+    private val dynamicMaskPaddingPixels: Int,
+    private val maxDynamicMaskPixels: Int,
     private val swapRedBlue: Boolean,
 ) : OnDeviceInferenceBackend {
     private val closed = AtomicBoolean(false)
@@ -262,6 +265,7 @@ class DepthAndDetectionTensorBackend private constructor(
         require(maxRelativeDiscontinuity.isFinite() && maxRelativeDiscontinuity in 0.0..10.0)
         require(dynamicClassIds.all { manifest.labels[it] != null })
         require(projectionSurfaces.keys.all { manifest.labels[it] != null })
+        require(dynamicMaskPaddingPixels in 0..256 && maxDynamicMaskPixels > 0)
         val inputElements = manifest.inputWidth.toLong() * manifest.inputHeight *
             manifest.inputChannels
         val inputElementBytes = if (manifest.quantization == TensorQuantization.FLOAT32) 4L else 1L
@@ -311,8 +315,37 @@ class DepthAndDetectionTensorBackend private constructor(
                 projectionSurface = projectionSurfaces[detection.classId] ?:
                     SemanticProjectionSurface.ANY)
         }
+        maskDynamicDepth(metricDepth, detections)
         return OnDeviceInferenceOutput(frame.timestampNs, frame.worldFromCamera,
             detections, metricDepthBuffer = metricDepth)
+    }
+
+    private fun maskDynamicDepth(depth: MetricDepthBuffer,
+                                 detections: List<SemanticDetection2d>) {
+        val dynamic = detections.filter { it.dynamic }
+        if (dynamic.isEmpty()) return
+        val mask = BitSet(depth.width * depth.height)
+        dynamic.forEach { detection ->
+            val left = kotlin.math.floor(detection.left).toInt()
+                .minus(dynamicMaskPaddingPixels).coerceAtLeast(0)
+            val right = kotlin.math.ceil(detection.right).toInt()
+                .plus(dynamicMaskPaddingPixels).coerceAtMost(depth.width)
+            val top = kotlin.math.floor(detection.top).toInt()
+                .minus(dynamicMaskPaddingPixels).coerceAtLeast(0)
+            val bottom = kotlin.math.ceil(detection.bottom).toInt()
+                .plus(dynamicMaskPaddingPixels).coerceAtMost(depth.height)
+            for (y in top until bottom) mask.set(y * depth.width + left, y * depth.width + right)
+        }
+        require(mask.cardinality() <= maxDynamicMaskPixels) {
+            "Dynamic depth mask exceeds pixel budget"
+        }
+        val confidence = requireNotNull(depth.confidence)
+        var pixel = mask.nextSetBit(0)
+        while (pixel >= 0) {
+            depth.depthMeters.put(pixel, 0.0F)
+            confidence.put(pixel, 0.0F)
+            pixel = mask.nextSetBit(pixel + 1)
+        }
     }
 
     @Synchronized
@@ -344,6 +377,8 @@ class DepthAndDetectionTensorBackend private constructor(
             maxRelativeDiscontinuity: Double = 0.10,
             dynamicClassIds: Set<Long> = emptySet(),
             projectionSurfaces: Map<Long, SemanticProjectionSurface> = emptyMap(),
+            dynamicMaskPaddingPixels: Int = 4,
+            maxDynamicMaskPixels: Int = 4_194_304,
             swapRedBlue: Boolean = false,
         ): DepthAndDetectionTensorBackend {
             require(manifest.verifyModelBytes(modelBytes)) { "Model byte size or SHA-256 mismatch" }
@@ -352,7 +387,8 @@ class DepthAndDetectionTensorBackend private constructor(
                 DepthAndDetectionTensorBackend(manifest, runtime, depthOutputSpec,
                     detectionOutputSpec, detectionOptions, depthTransform, minDepthMeters,
                     maxDepthMeters, maxRelativeDiscontinuity, dynamicClassIds.toSet(),
-                    projectionSurfaces.toMap(), swapRedBlue)
+                    projectionSurfaces.toMap(), dynamicMaskPaddingPixels,
+                    maxDynamicMaskPixels, swapRedBlue)
             } catch (error: Exception) {
                 try {
                     runtime.close()

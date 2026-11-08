@@ -56,7 +56,8 @@
 
 - [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; TSDF bleibt offen;
 - optional Depth Anything V2 Small quantisiert als Prior;
-- [x] konservative pose-kompensierte temporale metrische Tiefenfilterung ohne Hole-Filling einschließlich eines Backend-Decorators vor Scheduler/Session; Skalenfusion, dynamische Masken und Mesh-LOD bleiben offen;
+- [x] konservative pose-kompensierte temporale metrische Tiefenfilterung ohne Hole-Filling einschließlich eines Backend-Decorators vor Scheduler/Session;
+- [x] begrenzte dynamische Box-Maskierung für kombinierte Depth-/Detection-Modelle; pixelgenaue Segmentmasken, Skalenfusion und Mesh-LOD bleiben offen;
 - [x] begrenzter metrischer CPU-Z-Depthbuffer aus endlichen Surfelscheiben; Filament-/GPU-Occlusionadapter bleibt offen.
 
 ## Phase 4 – Semantik

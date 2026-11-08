@@ -99,6 +99,13 @@ int main() {
   CHECK(sampled_depth.front().radius_m>=depth_sampling_config.min_radius_m);
   CHECK(std::any_of(sampled_depth.begin(),sampled_depth.end(),
                     [](const auto& value){return value.normal_valid;}));
+  auto masked_depth_config=depth_sampling_config;
+  masked_depth_config.exclusion_rects.push_back({0.0,0.0,4.0,4.0});
+  const auto masked_depth=sampleMetricDepthImage(depth_view,depth_camera,2000000000LL,
+                                                 masked_depth_config);
+  CHECK(masked_depth.size()==12);
+  CHECK(std::none_of(masked_depth.begin(),masked_depth.end(),[](const auto& value){
+    return value.position_world_m.x<0&&value.position_world_m.y<0;}));
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
 
@@ -119,6 +126,12 @@ int main() {
         temporal_result.rejected_history_pixels==1);
   CHECK(std::abs(temporal_result.depth_m[0]-2.1333334F)<1e-5F&&
         temporal_result.depth_m[1]==6.0F);
+  const std::array<float,2> temporal_confidence{0.0F,1.0F};
+  temporal_frame.confidence=temporal_confidence.data();
+  temporal_frame.confidence_row_stride_elements=2;temporal_frame.confidence_elements=2;
+  temporal_frame.timestamp_ns=300;
+  temporal_result=temporal_filter.update(temporal_frame,temporal_camera);
+  CHECK(temporal_result.depth_m[0]==0.0F);
   bool temporal_order_rejected=false;
   try{(void)temporal_filter.update(temporal_frame,temporal_camera);}
   catch(const std::invalid_argument&){temporal_order_rejected=true;}

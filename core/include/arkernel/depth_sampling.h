@@ -19,6 +19,10 @@ struct MetricDepthImageView {
   std::size_t confidence_element_count{0};
 };
 
+struct DepthExclusionRect {
+  double left{0.0},top{0.0},right{0.0},bottom{0.0};
+};
+
 struct DepthSamplingConfig {
   int pixel_stride{4};
   double min_depth_m{0.15};
@@ -29,6 +33,7 @@ struct DepthSamplingConfig {
   double max_radius_m{0.50};
   std::size_t max_samples{100000};
   bool estimate_normals{true};
+  std::vector<DepthExclusionRect> exclusion_rects;
 };
 
 bool validMetricDepthImage(const MetricDepthImageView& image);

@@ -57,6 +57,18 @@ data class CalibrationTargetObservation(
     val reprojectionRmsePixels: Double,
 )
 
+data class CalibrationTargetCaptureProgress(
+    val acceptedObservations: Int,
+    val rejectedObservations: Int,
+    val viewBins: Int,
+    val requiredViewBins: Int,
+    val distanceBins: Int,
+    val requiredDistanceBins: Int,
+    val requiredObservations: Int,
+    val minimumDistanceMeters: Double?,
+    val maximumDistanceMeters: Double?,
+)
+
 data class CalibrationTargetCaptureReport(
     val acceptedObservations: Int,
     val rejectedObservations: Int,
@@ -144,6 +156,14 @@ class CalibrationTargetCaptureProbe(
             viewBin, distanceBin)
         return true
     }
+
+    @Synchronized
+    fun progress(): CalibrationTargetCaptureProgress = CalibrationTargetCaptureProgress(
+        observations.size, rejected, observations.map { it.viewBin }.toSet().size,
+        config.minimumViewBins, observations.map { it.distanceBin }.toSet().size,
+        config.minimumDistanceBins, config.minimumAcceptedObservations,
+        observations.minOfOrNull { it.centerDistance },
+        observations.maxOfOrNull { it.centerDistance })
 
     @Synchronized
     fun finish(): CalibrationTargetCaptureReport {

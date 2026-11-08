@@ -1,4 +1,5 @@
 add_library(arkernel STATIC
+    src/bundle_adjustment.cpp
     src/c_api.cpp
     src/camera_model.cpp
     src/clock_aligner.cpp

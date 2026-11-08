@@ -3,6 +3,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include "arkernel/bundle_adjustment.h"
 #include "arkernel/c_api.h"
 #include "arkernel/camera_model.h"
 #include "arkernel/clock_aligner.h"
@@ -1133,6 +1134,30 @@ int main() {
   CHECK(pose_graph.nodes().size()==5&&pose_graph.constraintCount()==5);
   CHECK(!pose_graph.addVerifiedLoop(LoopClosureConstraint{}));
   pose_graph.reset();CHECK(pose_graph.nodes().empty()&&pose_graph.constraintCount()==0);
+
+  // Joint refinement lowers robust reprojection error while retaining metric pose priors.
+  BundleAdjustmentConfig bundle_config;bundle_config.pose_translation_prior_sigma_m=0.2;
+  BundleAdjustment bundle(bundle_config);
+  const CameraIntrinsics bundle_intrinsics{640,480,500,500,320,240};
+  for(std::uint64_t i=0;i<3;++i){Pose initial;initial.translation={0.5*i,i==0?0.0:0.03,0};
+    CHECK(bundle.addKeyframe({i+1,initial,bundle_intrinsics,{},i==0}));}
+  std::vector<Vec3> true_bundle_points;
+  for(std::uint64_t i=0;i<8;++i){const Vec3 point{-0.7+0.2*i,-0.35+0.12*(i%4),3.5+0.15*(i%3)};
+    true_bundle_points.push_back(point);CHECK(bundle.addLandmark({i+1,point+Vec3{0.08,-0.05,0.10}}));
+    for(std::uint64_t camera_id=1;camera_id<=3;++camera_id){const Vec3 camera_point=point-Vec3{0.5*(camera_id-1),0,0};
+      const auto pixel=PinholeRadTanCamera(bundle_intrinsics).project(camera_point);CHECK(pixel.has_value());
+      CHECK(bundle.addObservation({camera_id,i+1,*pixel,1.0}));}}
+  const auto bundle_before=bundle.findLandmark(1);CHECK(bundle_before.has_value());
+  const auto bundle_result=bundle.optimize();
+  CHECK(bundle_result.accepted&&bundle_result.final_cost<bundle_result.initial_cost&&
+        bundle_result.final_rmse_px<bundle_result.initial_rmse_px);
+  const auto bundle_anchor=bundle.findKeyframe(1);
+  const auto bundle_after=bundle.findLandmark(1);
+  CHECK(bundle_anchor.has_value()&&bundle_after.has_value());
+  CHECK(bundle_anchor->world_from_camera.translation.norm()<1e-12);
+  CHECK((bundle_after->position_world_m-true_bundle_points[0]).norm()<
+        (bundle_before->position_world_m-true_bundle_points[0]).norm());
+  bundle.reset();CHECK(!bundle.findKeyframe(1).has_value()&&!bundle.findLandmark(1).has_value());
 
   SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot(),{}};
   const std::array<std::size_t,8> descriptor_landmark_indices{{0,1,8,9,10,11,18,19}};

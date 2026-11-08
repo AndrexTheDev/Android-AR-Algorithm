@@ -45,7 +45,8 @@
 - [x] begrenzte deterministische Appearance-Place-Recognition-Datenbank mit zeitlichem Ausschluss und gewichteter Kandidatensuche;
 - [x] metrische geometrische Loop-Verifikation mit Mutual-Best-/Ratio-Matches, 3D–3D-RANSAC, Inlier-/RMSE-/Degenerations- und VIO-Prior-Gates;
 - [x] begrenzter transaktionaler SE(3)-Pose-Graph mit festem Gauge, Unsicherheitsgewichtung, robusten Loop-Faktoren, matrixfreiem PCG und Line Search;
-- Map merge und globales Bundle Adjustment;
+- [x] begrenztes transaktionales globales Bundle Adjustment für Keyframe-Posen und mehransichtige metrische Landmarks mit robusten Reprojektionsfaktoren und Pose-Graph-Priors;
+- Map merge und Archiv-Pose-Propagation;
 - [x] deterministische Multi-Plane-API mit robustem RANSAC, orthogonaler Least-Squares-Inlier-Verfeinerung und stabilen Plane-IDs;
 - [x] gravitationsbezogene geometrische Klassifikation als Boden, Decke, Wand oder Schräge;
 - [x] konservative Raumlayout-Zusammenfassung mit Boden-/Deckenhöhe, plausibler Raumhöhe und beobachteter Wandfläche;

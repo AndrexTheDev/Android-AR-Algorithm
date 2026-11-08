@@ -38,7 +38,7 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 
 ## Temporal metric depth
 
-`TemporalMetricDepthFilter` can conservatively stabilize a camera-aligned `MetricDepthBuffer` before session integration. It reprojects history with the exact previous/current world poses and calibrated distortion, z-buffers the predicted surface, and blends only current valid pixels that pass absolute and relative consistency gates. It never fills current holes. Frame order, gap, calibration, direct-buffer, and 4,194,304-pixel limits are explicit; telemetry reports blended and rejected history pixels.
+`TemporalMetricDepthFilter` can conservatively stabilize a camera-aligned `MetricDepthBuffer` before session integration. `TemporalDepthInferenceBackend` can instead own/decorate a metric-depth or combined inference backend so filtering always occurs before the scheduler callback and normal session integration. It reprojects history with the exact previous/current world poses and calibrated distortion, z-buffers the predicted surface, and blends only current valid pixels that pass absolute and relative consistency gates. It never fills current holes. Frame order, gap, calibration, direct-buffer, and 4,194,304-pixel limits are explicit; telemetry reports blended and rejected history pixels.
 
 ## On-device inference SPI
 

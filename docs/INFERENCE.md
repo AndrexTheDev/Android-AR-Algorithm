@@ -32,6 +32,10 @@ Detection decoding supports explicitly configured XYXY or center-XYWH columns, n
 
 The runtime adapter remains responsible for selecting delegates and binding the correct model input/output indices. In the combined backend the order is an explicit contract: depth first, detections second; both exact byte counts are checked. Each raw tensor is capped at 64 MiB and combined raw outputs at 96 MiB. The adapter receives model bytes only during factory creation and must own any state required afterward. The backend owns and closes the runtime exactly once. This provides a usable end-to-end depth backend without forcing an ML runtime dependency or pretending that all engines share a delegate/device policy.
 
+## Temporal depth backend decorator
+
+`TemporalDepthInferenceBackend` owns and decorates any manifest-declared metric-depth backend. It verifies that the delegate preserves the exact inference-frame pose, timestamp, and calibrated dimensions, converts the legacy array depth form to a direct contiguous buffer when necessary, applies `TemporalMetricDepthFilter`, and passes detections through unchanged. `lastFilterResult` exposes blend/rejection telemetry, `resetHistory` handles explicit discontinuities, and closing the decorator closes both filter and delegate exactly once. Wrapping the backend before constructing `BoundedInferenceScheduler` therefore places conservative pose-compensated filtering in the normal inference path rather than relying on application-side ordering.
+
 ## Bounded scheduler
 
 `BoundedInferenceScheduler` owns one worker and permits exactly one in-flight request with no hidden queue. Submissions report `ACCEPTED`, `RATE_LIMITED`, `BUSY`, `OUT_OF_ORDER`, or `CLOSED`. The default minimum interval is 100 ms (10 Hz). This explicit dropping policy prevents camera-rate input from growing latency and memory without bound. Frames must be monotonic. Backend calls are serialized, callback execution occurs on the inference worker, and close safely defers backend destruction until an in-flight call returns.

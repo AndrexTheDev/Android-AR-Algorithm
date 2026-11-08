@@ -53,6 +53,29 @@ class InferenceCadenceControllerTest {
     }
 
     @Test
+    fun ownedPipelineSchedulesAndClosesWithoutOptionalNativeDecorators() {
+        val calls = AtomicInteger()
+        val closed = AtomicInteger()
+        val latch = CountDownLatch(1)
+        val closeLatch = CountDownLatch(1)
+        val delegate = fakeBackend(calls, closed, closeLatch)
+        ArKernelPerceptionPipeline.create(delegate, options = PerceptionPipelineOptions(
+            minimumIntervalNs = 1,
+            enableDetectionTracking = false,
+            enableTemporalDepth = false,
+            enableAndroidThermalMonitor = false,
+        )).use { pipeline ->
+            assertEquals(InferenceSubmitResult.ACCEPTED,
+                pipeline.submit(frame(3), { latch.countDown() }))
+            assertTrue(latch.await(5, TimeUnit.SECONDS))
+            assertEquals(1, pipeline.snapshot().cadence.sampleCount)
+        }
+        assertTrue(closeLatch.await(5, TimeUnit.SECONDS))
+        assertEquals(1, calls.get())
+        assertEquals(1, closed.get())
+    }
+
+    @Test
     fun schedulerRecordsBackendLatencyBeforeCallback() {
         val calls = AtomicInteger()
         val resultLatch = CountDownLatch(1)
@@ -76,7 +99,9 @@ class InferenceCadenceControllerTest {
         }
     }
 
-    private fun fakeBackend(calls: AtomicInteger): OnDeviceInferenceBackend =
+    private fun fakeBackend(calls: AtomicInteger,
+                            closed: AtomicInteger = AtomicInteger(),
+                            closeLatch: CountDownLatch? = null): OnDeviceInferenceBackend =
         object : OnDeviceInferenceBackend {
             override val manifest = ModelManifest(
                 modelId = "test-model",
@@ -97,6 +122,7 @@ class InferenceCadenceControllerTest {
                 calls.incrementAndGet()
                 return OnDeviceInferenceOutput(frame.timestampNs, frame.worldFromCamera)
             }
+            override fun close() { closed.incrementAndGet(); closeLatch?.countDown() }
         }
 
     private fun frame(timestampNs: Long): PerceptionFrame {

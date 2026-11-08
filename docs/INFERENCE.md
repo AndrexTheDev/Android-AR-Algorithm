@@ -40,6 +40,10 @@ The runtime adapter remains responsible for selecting delegates and binding the 
 
 `TrackedInferenceBackend` decorates any semantic backend with `BoundedSemanticDetectionTracker`. Detections that already carry a non-negative model track ID pass through unchanged; untracked detections receive deterministic class-aware IoU IDs from a native tracker capped at 256 active tracks, five missed frames by default, and a one-second maximum frame gap. This improves downstream 3D association without presenting IoU matching as object recognition or long-term re-identification. Track state can be reset explicitly and is closed with the delegate.
 
+## Owned perception pipeline
+
+`ArKernelPerceptionPipeline.create` assembles the safe default order around any backend: optional bounded detection tracking, then optional pose-compensated temporal depth, then adaptive single-flight scheduling, and finally the optional Android thermal monitor. Dynamic masking remains inside the combined backend and therefore occurs before temporal filtering. The pipeline owns the entire chain, provides submit and submit-plus-session-integration entry points, exposes combined cadence/temporal telemetry, resets tracker and depth history together, and closes each owned component once. Callbacks still run on the inference worker; no dispatcher or hidden queue is introduced. Features activate only when the manifest declares their task, and applications can disable each decorator explicitly.
+
 ## Bounded scheduler
 
 `BoundedInferenceScheduler` owns one worker and permits exactly one in-flight request with no hidden queue. Submissions report `ACCEPTED`, `RATE_LIMITED`, `THERMAL_PAUSED`, `BUSY`, `OUT_OF_ORDER`, or `CLOSED`. The default fixed minimum interval is 100 ms (10 Hz). This explicit dropping policy prevents camera-rate input from growing latency and memory without bound. Frames must be monotonic. Backend calls are serialized, callback execution occurs on the inference worker, and close safely defers backend destruction until an in-flight call returns.

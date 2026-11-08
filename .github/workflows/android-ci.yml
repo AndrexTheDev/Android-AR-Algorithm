@@ -23,13 +23,17 @@ jobs:
         with:
           gradle-version: '8.10.2'
           cache-read-only: ${{ github.event_name == 'pull_request' }}
-      - name: Compile and lint Android library
-        run: gradle --no-daemon --stacktrace :android:arkernel:assembleDebug :android:arkernel:lintDebug
+      - name: Compile, test, and lint Android library
+        run: |
+          gradle --no-daemon --stacktrace :android:arkernel:assembleDebug \
+            :android:arkernel:testDebugUnitTest :android:arkernel:lintDebug
       - name: Upload lint report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: android-lint-report
-          path: android/arkernel/build/reports/lint-results-debug.*
+          name: android-ci-reports
+          path: |
+            android/arkernel/build/reports/lint-results-debug.*
+            android/arkernel/build/reports/tests/testDebugUnitTest/**
           if-no-files-found: ignore
           retention-days: 7

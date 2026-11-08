@@ -1,6 +1,6 @@
 # Android AAR boundary
 
-CI compiles and lints this library with Java 17, Gradle 8.10.2, Android 35, CMake 3.22.1, and NDK 27.2.12479018. The module pins the NDK version so JNI diagnostics stay reproducible.
+CI compiles, runs JVM unit tests, and lints this library with Java 17, Gradle 8.10.2, Android 35, CMake 3.22.1, and NDK 27.2.12479018. The module pins the NDK version so JNI diagnostics stay reproducible.
 
 The Android library now contains:
 

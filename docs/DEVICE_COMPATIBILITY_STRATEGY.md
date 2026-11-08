@@ -320,7 +320,7 @@ Use a signed, versioned compatibility policy with these rules:
 - signatures, expiry, rollback protection and audit history are mandatory;
 - staged rollout/canary cohorts detect regressions;
 - a kill switch can disable one delegate, camera mode or optimization without disabling CPU capture/tracking;
-- calibration profiles are separately signed and bound to exact capability signatures.
+- calibration profiles are separately signed and bound to exact capability signatures. The implemented `CalibrationProfileVerifier` accepts only bounded canonical profiles with a trusted P-256/SHA-256 signature, validity interval, monotonic revision floor, exact capability hash, camera/physical-camera identity, stream size, crop, stabilization and distortion-correction modes. Intrinsics, distortion, camera/IMU transform, offset uncertainty and measurement evidence are inside the signed payload. Issuer class and metric claim remain distinct: user-measured or manufacturer identity cannot encode an independent-lab centimetre claim.
 
 Remote configuration must never be a mandatory network dependency for basic standalone operation.
 
@@ -432,7 +432,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 1. [Implemented foundation] Add guided rotation verification, bounded observable time-offset search, and robust multi-window ppm drift estimation with conservative uncertainty; continue with laboratory covariance validation.
 2. [Implemented measurement foundation] Keep runtime gravity/translation consistency separate from caller-supplied physical known-distance evidence; continue with a complete target-detection and guided user-calibration flow.
-3. Support signed calibration profiles with uncertainty, expiry and firmware/mode binding.
+3. [Implemented profile-verification foundation] Support signed calibration profiles with uncertainty, expiry, anti-rollback revision and exact firmware/camera/mode binding; continue with trusted-key rotation/revocation storage and the target-capture UI.
 4. Add bounded per-session refinement that can lower but never self-award validation status.
 5. Validate optional CameraX capture adapter against direct Camera2 precision mode.
 

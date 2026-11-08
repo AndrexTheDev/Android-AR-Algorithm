@@ -79,6 +79,8 @@ int main() {
   capture_config.min_interval_ns=100;capture_config.min_translation_m=0.05;
   capture_config.object_azimuth_bins=4;capture_config.object_elevation_bins=2;
   ReconstructionCapturePlanner object_capture(ScanMode::kObject,capture_config);
+  ReconstructionCapturePlanner environment_capture(ScanMode::kEnvironment,capture_config);
+  CHECK(environment_capture.objectCoverage().total_bins==0);
   ReconstructionFrameCandidate candidate;candidate.frame_id=1;candidate.timestamp_ns=1000;
   candidate.world_from_camera.translation={1,0,0};candidate.tracking_state=TrackingState::kTracking;
   candidate.tracked_features=100;candidate.sharpness=0.8;candidate.clipped_pixel_ratio=0.01;

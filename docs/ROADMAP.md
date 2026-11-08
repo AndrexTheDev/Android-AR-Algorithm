@@ -94,7 +94,9 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Associate Camera2 YUV colour, exposure/ISO and session pose by exact sensor timestamp.
 - [x] Add stride-safe canonical I420 copy and bounded asynchronous archive writer with explicit backpressure.
 - [x] Add bounded pre-copy luminance sharpness/clipping metrics and a session-level quality gate.
-- [ ] Connect the native portable planner itself through JNI to that pre-copy gate (pose/ROI/view bins).
+- [x] Connect the native portable planner through JNI (pose, uncertainty, quality, ROI, view bins and rejection reason).
+- [ ] Add two-phase planner selection/archive confirmation so storage failure cannot overstate durable coverage.
+- [ ] Add host scan-controller convenience wiring from planner decision through I420 archive submission.
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [ ] Add uncertainty-aware calibrated MVS and tiled sparse TSDF fusion, meshing and simplification.

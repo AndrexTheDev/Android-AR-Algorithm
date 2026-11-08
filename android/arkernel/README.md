@@ -11,6 +11,10 @@ The Android library now contains:
 - pause/resume/reset behavior that never mixes sensor sessions;
 - NDK/CMake wiring for `libarkernel_jni.so`.
 
+## Reconstruction quality planner
+
+`ArKernelReconstructionPlanner` exposes the portable C++ environment/object capture planner through JNI. It combines timestamp-matched world pose, tracking/features, pre-copy sharpness/clipping, pose uncertainty and optional object ROI into an accepted/rejected decision with a stable reason, score, view bin and coverage. The decision can drive `ArKernelSession.reconstructionQualityGate` before I420 copying.
+
 ## Reconstruction frame archive
 
 `ReconstructionFrameArchive` stores selected full-resolution frames as independent atomic, bounded `ARKFRM01` envelopes in app-private no-backup storage. Exposure, ISO, calibrated pose and uncertainty remain attached to the pixels, while `arkf://` references cross the portable capture boundary. Camera2 metadata is matched by exact sensor timestamp, arbitrary YUV plane strides are copied to canonical I420 before `Image.close()`, and `BoundedReconstructionFrameWriter` moves storage off the camera callback with explicit backpressure. CRC detects accidental corruption but is not encryption; host apps must provide retention/deletion policy for sensitive imagery.

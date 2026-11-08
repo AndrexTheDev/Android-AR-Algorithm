@@ -127,7 +127,8 @@ const std::vector<SelectedReconstructionFrame>&
 ReconstructionCapturePlanner::keyframes() const{return keyframes_;}
 
 ObjectCoverage ReconstructionCapturePlanner::objectCoverage() const {
-  ObjectCoverage output;output.total_bins=object_bins_.size();
+  ObjectCoverage output;if(mode_!=ScanMode::kObject)return output;
+  output.total_bins=object_bins_.size();
   output.covered_bins=static_cast<std::size_t>(std::count(object_bins_.begin(),object_bins_.end(),true));
   output.ratio=output.total_bins==0?0.0:static_cast<double>(output.covered_bins)/output.total_bins;
   return output;

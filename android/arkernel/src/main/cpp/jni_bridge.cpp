@@ -2,9 +2,11 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <vector>
 #include "arkernel/c_api.h"
 #include "arkernel/detection_tracker.h"
+#include "arkernel/reconstruction_capture.h"
 #include "arkernel/temporal_depth_filter.h"
 
 namespace {
@@ -13,6 +15,9 @@ ark_vio_handle* fromVioHandle(jlong value) {
 }
 ark_visual_handle* fromVisualHandle(jlong value) {
   return reinterpret_cast<ark_visual_handle*>(static_cast<intptr_t>(value));
+}
+arkernel::ReconstructionCapturePlanner* fromReconstructionPlannerHandle(jlong value) {
+  return reinterpret_cast<arkernel::ReconstructionCapturePlanner*>(static_cast<intptr_t>(value));
 }
 jlong toHandle(const void* value) {
   return static_cast<jlong>(reinterpret_cast<intptr_t>(value));
@@ -888,4 +893,86 @@ Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeUpdate(JNIEnv* env,
     return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
   }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeCreate(
+    JNIEnv* env,jobject,jboolean object_mode,jlongArray integer_config,jdoubleArray scalar_config) {
+  if(!integer_config||!scalar_config||env->GetArrayLength(integer_config)<5||
+     env->GetArrayLength(scalar_config)<11)return 0;
+  jlong integers[5]{};jdouble scalars[11]{};
+  env->GetLongArrayRegion(integer_config,0,5,integers);
+  env->GetDoubleArrayRegion(scalar_config,0,11,scalars);
+  if(env->ExceptionCheck()||integers[0]<=0||integers[0]>100000||integers[1]<0||
+     integers[2]<=0||integers[2]>1000000||integers[3]<=0||integers[4]<=0)return 0;
+  try {
+    arkernel::CaptureQualityConfig config;
+    config.max_keyframes=static_cast<size_t>(integers[0]);
+    config.min_interval_ns=integers[1];
+    config.min_tracked_features=static_cast<size_t>(integers[2]);
+    config.object_azimuth_bins=static_cast<size_t>(integers[3]);
+    config.object_elevation_bins=static_cast<size_t>(integers[4]);
+    config.min_translation_m=scalars[0];config.min_rotation_degrees=scalars[1];
+    config.min_sharpness=scalars[2];config.max_clipped_pixel_ratio=scalars[3];
+    config.max_translation_sigma_m=scalars[4];config.max_rotation_sigma_degrees=scalars[5];
+    config.min_object_foreground_ratio=scalars[6];config.max_object_foreground_ratio=scalars[7];
+    config.min_object_distance_m=scalars[8];config.max_object_distance_m=scalars[9];
+    config.max_object_center_shift_m=scalars[10];
+    auto* planner=new arkernel::ReconstructionCapturePlanner(
+      object_mode?arkernel::ScanMode::kObject:arkernel::ScanMode::kEnvironment,config);
+    return toHandle(planner);
+  }catch(...){return 0;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeConsider(
+    JNIEnv* env,jobject,jlong handle,jlong frame_id,jlong timestamp,
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,jdouble py,jdouble pz,
+    jboolean tracking,jlong tracked_features,jdouble sharpness,jdouble clipped_ratio,
+    jdouble translation_sigma,jdouble rotation_sigma,jdouble foreground_ratio,
+    jboolean has_object_center,jdouble center_x,jdouble center_y,jdouble center_z,
+    jlongArray metadata,jdoubleArray values) {
+  auto* planner=fromReconstructionPlannerHandle(handle);
+  if(!planner||!metadata||!values||frame_id<=0||tracked_features<0||
+     env->GetArrayLength(metadata)<6||env->GetArrayLength(values)<2)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try {
+    arkernel::ReconstructionFrameCandidate candidate;
+    candidate.frame_id=static_cast<uint64_t>(frame_id);candidate.timestamp_ns=timestamp;
+    candidate.world_from_camera.rotation={rw,rx,ry,rz};
+    candidate.world_from_camera.translation={px,py,pz};
+    candidate.tracking_state=tracking?arkernel::TrackingState::kTracking:
+      arkernel::TrackingState::kLimited;
+    candidate.tracked_features=static_cast<size_t>(tracked_features);
+    candidate.sharpness=sharpness;candidate.clipped_pixel_ratio=clipped_ratio;
+    candidate.translation_sigma_m=translation_sigma;
+    candidate.rotation_sigma_degrees=rotation_sigma;
+    candidate.object_foreground_ratio=foreground_ratio;
+    if(has_object_center)candidate.object_center_world_m=arkernel::Vec3{center_x,center_y,center_z};
+    candidate.image_reference="precopy://"+std::to_string(frame_id);
+    const auto decision=planner->consider(candidate);
+    const auto coverage=planner->objectCoverage();
+    const jlong output[6]={decision.accepted?1L:0L,
+      static_cast<jlong>(decision.rejection),decision.object_view_bin?1L:0L,
+      decision.object_view_bin?static_cast<jlong>(*decision.object_view_bin):0L,
+      static_cast<jlong>(coverage.covered_bins),static_cast<jlong>(coverage.total_bins)};
+    const jdouble scalar_output[2]={decision.quality_score,coverage.ratio};
+    env->SetLongArrayRegion(metadata,0,6,output);
+    env->SetDoubleArrayRegion(values,0,2,scalar_output);
+    return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
+  }catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeReset(
+    JNIEnv*,jobject,jlong handle) {
+  auto* planner=fromReconstructionPlannerHandle(handle);
+  if(!planner)return ARK_RESULT_INVALID_ARGUMENT;
+  planner->reset();return ARK_RESULT_OK;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeDestroy(
+    JNIEnv*,jobject,jlong handle) {
+  delete fromReconstructionPlannerHandle(handle);
 }

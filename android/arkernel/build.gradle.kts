@@ -1,4 +1,7 @@
-plugins { id("com.android.library") }
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+}
 
 android {
     namespace = "ai.arena.arkernel"

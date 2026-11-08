@@ -72,7 +72,9 @@
 - [x] backend-unabhängiges Android-Inferenz-SPI, begrenzter Single-Flight-Scheduler, latenzadaptive Kadenz, PowerManager-Thermaladapter und besitzende korrekt geordnete Perception-Pipeline ohne Queue; konkrete LiteRT-/ONNX-Runtime-Adapter bleiben offen;
 - [x] dependency-freies, begrenztes Native-Preprocessing für bilineares Resize, Normalisierung sowie FLOAT32-/INT8-/UINT8-NHWC-Ausgabe;
 - [x] ungültigkeitsbewusstes, begrenztes Depth-Tensor-Postprocessing für quantisierte/direct/inverse Modellausgaben zu kameragroßer metrischer Tiefe plus Konfidenz;
-- [x] verifizierte, pufferwiederverwendende metrische Depth-, row-basierte Detection- und kombinierte Multi-Head-Backends um schmale runtime-unabhängige Tensor-Schnittstellen; konkrete LiteRT-/ONNX-Adapter und Delegate-Profile bleiben offen;
+- [x] verifizierte, pufferwiederverwendende metrische Depth-, row-basierte Detection- und kombinierte Multi-Head-Backends um schmale runtime-unabhängige Tensor-Schnittstellen;
+- [x] begrenzte runtime-neutrale Decoder/Backends für SSD/EfficientDet-`Detection_PostProcess`, YOLOX-artige Objectness×Klassenscores und RT-DETR-artige normalisierte Boxen mit Probability/Sigmoid/Softmax; konkrete LiteRT-/ONNX-/ncnn-/MNN-Adapter und Delegate-Profile bleiben offen;
+- [ ] spezialisierte Multi-Level-DFL-Decodierung für NanoDet/PicoDet erst nach Festlegung eines exakt versionierten Exportvertrags;
 - [x] begrenztes deterministisches klassenbewusstes IoU-Fallback-Tracking für Detektionen ohne Modell-Track-ID; modellgelerntes Re-ID, Segmentierung und gemessene Geräteprofile bleiben offen;
 - [x] begrenzte semantische 3D-Objektfusion, Unknown-Klasse und kalibrierte Boden-/Wandprojektion; konkrete Inferenzadapter bleiben offen;
 - [x] validiertes Modellmanifest für Hash, Lizenz, Labels, Quantisierung, metrische Tiefe und Geräteprofile; Paketierung muss Modellbytes/Notices weiterhin verifizieren.

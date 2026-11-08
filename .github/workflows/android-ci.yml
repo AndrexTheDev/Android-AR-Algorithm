@@ -1,0 +1,103 @@
+name: Android CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  android-library:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android toolchain
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" "build-tools;35.0.0" \
+            "cmake;3.22.1" "ndk;27.2.12479018"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Compile, test, and lint Android library
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon --stacktrace :android:arkernel:assembleDebug \
+            :android:arkernel:testDebugUnitTest :android:arkernel:lintDebug \
+            2>&1 | tee android-library-gradle.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo '### Android library Gradle failure'
+              echo '```text'
+              tail -n 160 android-library-gradle.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|^e: |FAILED' \
+              android-library-gradle.log | tail -n 120)
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\r'/'%0D'}
+            detail=${detail//$'\n'/'%0A'}
+            echo "::error title=Android library Gradle failure::$detail"
+          fi
+          exit "$status"
+      - name: Upload lint report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-ci-reports
+          path: |
+            android-library-gradle.log
+            android/arkernel/build/reports/lint-results-debug.*
+            android/arkernel/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  android-instrumented:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android native toolchain
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" "build-tools;35.0.0" \
+            "cmake;3.22.1" "ndk;27.2.12479018"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Enable KVM for the Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run JNI instrumentation smoke test on API 35
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          target: default
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back emulated
+          script: bash ci/run_android_instrumented.sh
+      - name: Upload instrumentation reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumentation-reports
+          path: |
+            android/arkernel/build/reports/androidTests/connected/**
+            android/arkernel/build/outputs/androidTest-results/connected/**
+          if-no-files-found: ignore
+          retention-days: 7

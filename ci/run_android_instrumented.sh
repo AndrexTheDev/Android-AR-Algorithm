@@ -10,7 +10,8 @@ if [[ "$status" -ne 0 ]]; then
     tail -n 160 android-instrumented-gradle.log
     echo '```'
   } >> "$GITHUB_STEP_SUMMARY"
-  detail=$(tail -n 80 android-instrumented-gradle.log)
+  detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|FAILED' \
+    android-instrumented-gradle.log | tail -n 80)
   detail=${detail//'%'/'%25'}
   detail=${detail//$'\r'/'%0D'}
   detail=${detail//$'\n'/'%0A'}

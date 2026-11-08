@@ -38,7 +38,8 @@ jobs:
               tail -n 160 android-library-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            detail=$(tail -n 80 android-library-gradle.log)
+            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|FAILED' \
+              android-library-gradle.log | tail -n 80)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}

@@ -18,6 +18,16 @@ class StandaloneArRuntimeConfigTest {
     }
 
     @Test
+    fun cameraOnlyConfigRequiresNoImuExtrinsics() {
+        val config = CameraOnlyArRuntimeConfig(
+            cameraId = "0",
+            calibration = CameraCalibration(640, 480, 500.0, 501.0, 320.0, 240.0),
+        )
+        assertEquals("0", config.cameraId)
+        assertEquals(640, config.calibration.width)
+    }
+
+    @Test
     fun rejectsUnknownCameraToImuRotation() {
         assertThrows(IllegalArgumentException::class.java) {
             StandaloneArRuntimeConfig(

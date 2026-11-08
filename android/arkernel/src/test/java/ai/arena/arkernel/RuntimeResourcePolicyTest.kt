@@ -31,6 +31,17 @@ class RuntimeResourcePolicyTest {
     }
 
     @Test
+    fun missingImuSelectsRealCaptureOnlyBudgetWithoutActiveEvidence() {
+        val decision = RuntimeResourcePolicy.evaluate(
+            staticReport(1280, 720, memoryMb = 512, usableImu = false), null)
+        assertEquals(RuntimeResourceTier.CAPTURE_ONLY, decision.tier)
+        assertEquals(10, decision.targetFramesPerSecond)
+        assertEquals(0, decision.maximumQueuedImuSamples)
+        assertFalse(decision.liveMappingEnabled)
+        assertTrue(RuntimeResourceReason.STATIC_COMPATIBILITY_CAPTURE_ONLY in decision.reasons)
+    }
+
+    @Test
     fun thermalOrMemoryCriticalPreservesCaptureFallback() {
         val telemetry = RuntimeResourceTelemetry(20, 20_000_000L,
             RuntimeMemoryPressure.CRITICAL, false)
@@ -77,7 +88,7 @@ class RuntimeResourcePolicyTest {
     }
 
     private fun staticReport(width: Int, height: Int, memoryMb: Int,
-        lowRam: Boolean = false): DeviceCompatibilityReport {
+        lowRam: Boolean = false, usableImu: Boolean = true): DeviceCompatibilityReport {
         val camera = CameraCapabilityFacts("0", emptyList(), width, height,
             CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL,
             CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME, 90,
@@ -86,8 +97,10 @@ class RuntimeResourcePolicyTest {
         val signature = DeviceCapabilitySignature(apiLevel = 35,
             supportedAbis = listOf("arm64-v8a"), lowRamDevice = lowRam,
             memoryClassMb = memoryMb, buildFingerprintSha256 = "a".repeat(64),
-            camera = camera, imu = ImuCapabilityFacts(true, true, 5_000, 5_000,
-                0, 0, 0.001f, 0.001f))
+            camera = camera, imu = ImuCapabilityFacts(usableImu, usableImu,
+                if (usableImu) 5_000 else -1, if (usableImu) 5_000 else -1,
+                if (usableImu) 0 else -1, if (usableImu) 0 else -1,
+                if (usableImu) 0.001f else 0f, if (usableImu) 0.001f else 0f))
         return DeviceCompatibilityEvaluator.evaluate(signature)
     }
 }

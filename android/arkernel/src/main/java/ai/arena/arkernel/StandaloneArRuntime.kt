@@ -7,7 +7,11 @@ import android.hardware.SensorManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 
-enum class ArRuntimeBackend { STANDALONE_ARKERNEL, EXTERNAL_ARCORE }
+enum class ArRuntimeBackend {
+    STANDALONE_ARKERNEL,
+    STANDALONE_CAMERA_CAPTURE,
+    EXTERNAL_ARCORE,
+}
 
 data class ArRuntimeCapabilities(
     val sixDofTracking: Boolean,
@@ -57,6 +61,21 @@ data class StandaloneArRuntimeConfig(
     }
 }
 
+data class CameraOnlyArRuntimeConfig(
+    val cameraId: String? = null,
+    val calibration: CameraCalibration,
+) {
+    init {
+        require(calibration.width > 0 && calibration.height > 0 &&
+            calibration.fx > 0.0 && calibration.fy > 0.0)
+        require(listOf(calibration.fx, calibration.fy, calibration.cx, calibration.cy,
+            calibration.k1, calibration.k2, calibration.p1, calibration.p2,
+            calibration.k3).all { it.isFinite() })
+        require(calibration.cx in 0.0..calibration.width.toDouble() &&
+            calibration.cy in 0.0..calibration.height.toDouble())
+    }
+}
+
 data class StandaloneSupportReport(
     val supported: Boolean,
     val selectedCameraId: String?,
@@ -71,24 +90,43 @@ object StandaloneArSupportProbe {
         AndroidDeviceCompatibilityProbe.inspect(context, config.cameraId,
             config.calibration.width, config.calibration.height)
 
+    /** Camera-only support deliberately performs no SensorManager access. */
+    fun inspectCapture(context: Context, config: StandaloneArRuntimeConfig): StandaloneSupportReport =
+        inspectCamera(context, config.cameraId, config.calibration)
+
+    fun inspectCapture(context: Context, config: CameraOnlyArRuntimeConfig): StandaloneSupportReport =
+        inspectCamera(context, config.cameraId, config.calibration)
+
     fun inspect(context: Context, config: StandaloneArRuntimeConfig): StandaloneSupportReport {
-        val reasons = mutableListOf<String>()
-        val warnings = mutableListOf<String>()
+        val camera = inspectCamera(context, config.cameraId, config.calibration)
+        val reasons = camera.blockingReasons.toMutableList()
+        val warnings = camera.warnings.toMutableList()
         val sensors = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         if (sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) == null)
             reasons += "No accelerometer"
         if (sensors?.getDefaultSensor(Sensor.TYPE_GYROSCOPE) == null)
             reasons += "No gyroscope"
+        warnings += "Camera-to-IMU extrinsics cannot be inferred reliably from ARCore availability and must be device-calibrated"
+        return camera.copy(supported = reasons.isEmpty(), blockingReasons = reasons,
+            warnings = warnings)
+    }
+
+    private fun inspectCamera(
+        context: Context,
+        requestedCameraId: String?,
+        calibration: CameraCalibration,
+    ): StandaloneSupportReport {
+        val reasons = mutableListOf<String>()
+        val warnings = mutableListOf<String>()
         val cameras = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
-        if (cameras == null)
-            return StandaloneSupportReport(false, null, reasons + "No Camera2 service", warnings)
+            ?: return StandaloneSupportReport(false, null, listOf("No Camera2 service"), warnings)
         val cameraIds = try {
             cameras.cameraIdList.toList()
         } catch (error: Exception) {
             return StandaloneSupportReport(false, null,
-                reasons + "Camera2 enumeration failed: ${error.javaClass.simpleName}", warnings)
+                listOf("Camera2 enumeration failed: ${error.javaClass.simpleName}"), warnings)
         }
-        val candidates = if (config.cameraId != null) listOf(config.cameraId) else cameraIds
+        val candidates = if (requestedCameraId != null) listOf(requestedCameraId) else cameraIds
         var selected: String? = null
         for (cameraId in candidates) {
             val characteristics = try {
@@ -96,13 +134,13 @@ object StandaloneArSupportProbe {
             } catch (_: Exception) {
                 continue
             }
-            if (config.cameraId == null &&
+            if (requestedCameraId == null &&
                 characteristics.get(CameraCharacteristics.LENS_FACING) !=
                 CameraCharacteristics.LENS_FACING_BACK) continue
             val sizes = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 ?.getOutputSizes(ImageFormat.YUV_420_888).orEmpty()
-            if (sizes.none { it.width == config.calibration.width &&
-                    it.height == config.calibration.height }) continue
+            if (sizes.none { it.width == calibration.width &&
+                    it.height == calibration.height }) continue
             selected = cameraId
             val level = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
             if (level == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY)
@@ -111,23 +149,41 @@ object StandaloneArSupportProbe {
                 warnings += "Camera2 does not publish intrinsic calibration; supplied calibration must be independently verified"
             break
         }
-        if (selected == null) reasons += if (config.cameraId == null)
+        if (selected == null) reasons += if (requestedCameraId == null)
             "No back Camera2 YUV stream matches the configured calibration size" else
             "Configured Camera2 ID does not provide the calibrated YUV stream size"
-        warnings += "Camera-to-IMU extrinsics cannot be inferred reliably from ARCore availability and must be device-calibrated"
         return StandaloneSupportReport(reasons.isEmpty(), selected, reasons, warnings)
     }
 }
+
+private fun mappingCapabilities(decision: RuntimeResourceDecision?) = ArRuntimeCapabilities(
+    sixDofTracking = true,
+    planeDetection = true,
+    anchors = true,
+    mapPersistence = true,
+    acceptsMetricDepth = decision?.denseDepthEnabled ?: true,
+    acceptsSemanticInference = decision?.semanticInferenceEnabled ?: true,
+    requiresLidar = false,
+)
+
+private val captureOnlyCapabilities = ArRuntimeCapabilities(
+    sixDofTracking = false,
+    planeDetection = false,
+    anchors = false,
+    mapPersistence = false,
+    acceptsMetricDepth = false,
+    acceptsSemanticInference = false,
+    requiresLidar = false,
+)
 
 /** Fully standalone Camera2 + SensorManager + native VIO/mapping runtime. */
 class StandaloneArRuntime private constructor(
     val session: ArKernelSession,
     private val cameraId: String,
     val supportReport: StandaloneSupportReport,
+    override val capabilities: ArRuntimeCapabilities,
 ) : ArRuntime {
     override val backend = ArRuntimeBackend.STANDALONE_ARKERNEL
-    override val capabilities = ArRuntimeCapabilities(true, true, true, true,
-        acceptsMetricDepth = true, acceptsSemanticInference = true, requiresLidar = false)
     private var closed = false
 
     @Synchronized override fun start() {
@@ -148,19 +204,102 @@ class StandaloneArRuntime private constructor(
             onResult: (ArKernelSessionResult) -> Unit,
             onError: (Throwable) -> Unit = {},
             compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
+            resourceDecision: RuntimeResourceDecision? = null,
+            calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
         ): StandaloneArRuntime {
-            val report = StandaloneArSupportProbe.inspect(context, config)
+            require(resourceDecision == null || resourceDecision.liveMappingEnabled) {
+                "A non-mapping resource decision cannot create the VIO runtime"
+            }
+            val pixels = Math.multiplyExact(config.calibration.width, config.calibration.height)
+            require(resourceDecision == null ||
+                pixels <= resourceDecision.maximumCalibratedStreamPixels) {
+                "Calibrated stream exceeds the selected runtime resource budget"
+            }
+            val boundCameraId = calibrationRuntimeMonitor?.binding?.cameraId
+            require(boundCameraId == null || config.cameraId == null ||
+                config.cameraId == boundCameraId) {
+                "Configured camera ID does not match calibration monitor binding"
+            }
+            val effectiveConfig = if (boundCameraId == null) config
+                else config.copy(cameraId = boundCameraId)
+            val report = StandaloneArSupportProbe.inspect(context, effectiveConfig)
             require(report.supported) {
                 "Standalone AR unsupported: ${report.blockingReasons.joinToString()}"
             }
-            val session = ArKernelSession(context, config.calibration,
+            val session = ArKernelSession(context, effectiveConfig.calibration,
                 config.bodyFromCameraRotation, onResult, onError,
-                config.maxQueuedImuSamples, config.bodyFromCameraTranslationMeters,
-                compatibilityProbe = compatibilityProbe)
-            return StandaloneArRuntime(session, requireNotNull(report.selectedCameraId), report)
+                resourceDecision?.maximumQueuedImuSamples ?: config.maxQueuedImuSamples,
+                config.bodyFromCameraTranslationMeters,
+                compatibilityProbe = compatibilityProbe,
+                calibrationRuntimeMonitor = calibrationRuntimeMonitor,
+                maximumCameraFramesPerSecond = resourceDecision?.targetFramesPerSecond ?: 30,
+                maximumPendingReconstructionFrames =
+                    resourceDecision?.maximumPendingReconstructionFrames ?: 2)
+            return StandaloneArRuntime(session, requireNotNull(report.selectedCameraId), report,
+                mappingCapabilities(resourceDecision))
         }
     }
 }
+
+/** Camera2-only fallback. It creates neither ArKernelSession/VIO nor an IMU source. */
+class CameraOnlyArRuntime private constructor(
+    val session: CameraOnlyCaptureSession,
+    private val cameraId: String,
+    val supportReport: StandaloneSupportReport,
+) : ArRuntime {
+    override val backend = ArRuntimeBackend.STANDALONE_CAMERA_CAPTURE
+    override val capabilities = captureOnlyCapabilities
+    private var closed = false
+
+    @Synchronized override fun start() {
+        check(!closed) { "Camera-only runtime is closed" }
+        session.start(cameraId)
+    }
+    @Synchronized override fun stop() { if (!closed) session.stop() }
+    @Synchronized override fun close() {
+        if (closed) return
+        closed = true
+        session.close()
+    }
+
+    companion object {
+        fun create(
+            context: Context,
+            config: CameraOnlyArRuntimeConfig,
+            onFrame: (CameraOnlyCaptureFrame) -> Unit,
+            onError: (Throwable) -> Unit = {},
+            resourceDecision: RuntimeResourceDecision? = null,
+            calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+        ): CameraOnlyArRuntime {
+            require(resourceDecision == null ||
+                resourceDecision.tier == RuntimeResourceTier.CAPTURE_ONLY) {
+                "Camera-only runtime requires a capture-only resource decision"
+            }
+            val boundCameraId = calibrationRuntimeMonitor?.binding?.cameraId
+            require(boundCameraId == null || config.cameraId == null ||
+                config.cameraId == boundCameraId) {
+                "Configured camera ID does not match calibration monitor binding"
+            }
+            val effectiveConfig = if (boundCameraId == null) config
+                else config.copy(cameraId = boundCameraId)
+            val report = StandaloneArSupportProbe.inspectCapture(context, effectiveConfig)
+            require(report.supported) {
+                "Camera-only capture unsupported: ${report.blockingReasons.joinToString()}"
+            }
+            val session = CameraOnlyCaptureSession(context, effectiveConfig.calibration, onFrame, onError,
+                maximumFramesPerSecond = resourceDecision?.targetFramesPerSecond ?: 10,
+                maximumPendingFrames =
+                    resourceDecision?.maximumPendingReconstructionFrames ?: 1,
+                calibrationRuntimeMonitor = calibrationRuntimeMonitor)
+            return CameraOnlyArRuntime(session, requireNotNull(report.selectedCameraId), report)
+        }
+    }
+}
+
+private fun StandaloneArRuntimeConfig.captureOnly() = CameraOnlyArRuntimeConfig(
+    cameraId = cameraId,
+    calibration = calibration,
+)
 
 data class ArRuntimeSelection(
     val runtime: ArRuntime,
@@ -177,6 +316,9 @@ object ArRuntimeSelector {
         optionalExternalFactory: OptionalExternalArRuntimeFactory? = null,
         preferExternal: Boolean = true,
         activeCompatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
+        resourceDecision: RuntimeResourceDecision? = null,
+        onCameraOnlyFrame: (CameraOnlyCaptureFrame) -> Unit = {},
+        calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
     ): ArRuntimeSelection {
         val diagnostics = mutableListOf<String>()
         if (preferExternal && optionalExternalFactory != null) {
@@ -194,10 +336,36 @@ object ArRuntimeSelector {
             diagnostics += if (optionalExternalFactory == null)
                 "No optional ARCore adapter is linked" else "External runtime preference is disabled"
         }
-        val standalone = StandaloneArRuntime.create(context, standaloneConfig,
-            onStandaloneResult, onStandaloneError, activeCompatibilityProbe)
-        diagnostics += standalone.supportReport.warnings
-        diagnostics += "Selected standalone Camera2 + SensorManager + ARKernel runtime"
-        return ArRuntimeSelection(standalone, true, diagnostics)
+        require(resourceDecision?.tier != RuntimeResourceTier.UNSUPPORTED) {
+            "Runtime resource policy rejected camera execution"
+        }
+        if (resourceDecision?.tier == RuntimeResourceTier.CAPTURE_ONLY) {
+            val capture = CameraOnlyArRuntime.create(context, standaloneConfig.captureOnly(),
+                onCameraOnlyFrame, onStandaloneError, resourceDecision,
+                calibrationRuntimeMonitor)
+            diagnostics += capture.supportReport.warnings
+            diagnostics += "Selected calibrated camera-only capture runtime by resource policy"
+            return ArRuntimeSelection(capture, true, diagnostics)
+        }
+        val mappingReport = StandaloneArSupportProbe.inspect(context, standaloneConfig)
+        if (mappingReport.supported) {
+            val standalone = StandaloneArRuntime.create(context, standaloneConfig,
+                onStandaloneResult, onStandaloneError, activeCompatibilityProbe,
+                resourceDecision, calibrationRuntimeMonitor)
+            diagnostics += standalone.supportReport.warnings
+            diagnostics += "Selected standalone Camera2 + SensorManager + ARKernel runtime"
+            return ArRuntimeSelection(standalone, true, diagnostics)
+        }
+        val captureReport = StandaloneArSupportProbe.inspectCapture(context, standaloneConfig)
+        require(captureReport.supported) {
+            "No standalone runtime available: ${(mappingReport.blockingReasons + captureReport.blockingReasons).distinct().joinToString()}"
+        }
+        val capture = CameraOnlyArRuntime.create(context, standaloneConfig.captureOnly(),
+            onCameraOnlyFrame, onStandaloneError,
+            calibrationRuntimeMonitor = calibrationRuntimeMonitor)
+        diagnostics += mappingReport.blockingReasons
+        diagnostics += capture.supportReport.warnings
+        diagnostics += "Selected calibrated camera-only capture runtime because VIO prerequisites are unavailable"
+        return ArRuntimeSelection(capture, true, diagnostics)
     }
 }

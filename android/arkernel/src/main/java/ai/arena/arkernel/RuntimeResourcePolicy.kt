@@ -14,6 +14,7 @@ enum class RuntimeMemoryPressure { NORMAL, MODERATE, CRITICAL }
 
 enum class RuntimeResourceReason {
     STATIC_COMPATIBILITY_UNSUPPORTED,
+    STATIC_COMPATIBILITY_CAPTURE_ONLY,
     ACTIVE_EVIDENCE_MISSING,
     ACTIVE_COMPATIBILITY_FAILED,
     LOW_RAM_DEVICE,
@@ -108,6 +109,10 @@ object RuntimeResourcePolicy {
                 listOf(RuntimeResourceReason.STATIC_COMPATIBILITY_UNSUPPORTED))
         val reasons = mutableListOf<RuntimeResourceReason>()
         var tier = RuntimeResourceTier.PERFORMANCE
+        if (staticReport.provisionalTier == DeviceCompatibilityTier.CAPTURE_ONLY) {
+            reasons += RuntimeResourceReason.STATIC_COMPATIBILITY_CAPTURE_ONLY
+            tier = RuntimeResourceTier.CAPTURE_ONLY
+        }
         if (activeReport == null) {
             reasons += RuntimeResourceReason.ACTIVE_EVIDENCE_MISSING
             tier = maxTier(tier, RuntimeResourceTier.BALANCED)

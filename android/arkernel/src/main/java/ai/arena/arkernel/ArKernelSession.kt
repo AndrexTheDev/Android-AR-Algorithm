@@ -46,6 +46,8 @@ class ArKernelSession(
     private val guidedTimeOffsetProbe: GuidedTimeOffsetObservabilityProbe? = null,
     private val guidedMetricProbe: GuidedMetricConsistencyProbe? = null,
     private val calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+    private val maximumCameraFramesPerSecond: Int = 30,
+    private val maximumPendingReconstructionFrames: Int = 2,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -95,9 +97,15 @@ class ArKernelSession(
         onTimestampNormalizationFailure = ::handleCameraClockFailure,
         calibrationRuntimeMonitor = calibrationRuntimeMonitor,
         onCalibrationRuntimeFailure = ::handleCalibrationFailure,
+        maximumOutputFramesPerSecond = maximumCameraFramesPerSecond,
+        maximumPendingFrames = maximumPendingReconstructionFrames,
     )
 
-    init { require(maxQueuedImuSamples >= 128) }
+    init {
+        require(maxQueuedImuSamples >= 128)
+        require(maximumCameraFramesPerSecond in 1..240)
+        require(maximumPendingReconstructionFrames in 1..8)
+    }
 
     fun start(cameraId: String? = null) {
         check(!closed) { "AR kernel session is closed" }
@@ -257,7 +265,7 @@ class ArKernelSession(
             queueStatus.first, queueStatus.second)
         if (result.keyframe && onReconstructionFrame != null) {
             pendingReconstructionResults[result.timestampNs] = sessionResult
-            while (pendingReconstructionResults.size > MAX_PENDING_RECONSTRUCTION_RESULTS)
+            while (pendingReconstructionResults.size > maximumPendingReconstructionFrames)
                 pendingReconstructionResults.pollFirstEntry()
         }
         onResult(sessionResult)
@@ -483,5 +491,4 @@ class ArKernelSession(
         return Rotation(value.w/norm, value.x/norm, value.y/norm, value.z/norm)
     }
 
-    private companion object { const val MAX_PENDING_RECONSTRUCTION_RESULTS = 4 }
 }

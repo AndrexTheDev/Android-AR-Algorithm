@@ -79,7 +79,7 @@ class ArKernelReconstructionPlanner(
     @Synchronized override fun reserve(frameId: Long, session: ArKernelSessionResult,
         quality: CameraFrameQuality, translationSigmaMeters: Double,
         rotationSigmaDegrees: Double,
-        objectObservation: ReconstructionObjectObservation? = null
+        objectObservation: ReconstructionObjectObservation?
     ) = decide(true, frameId, session, quality, translationSigmaMeters,
         rotationSigmaDegrees, objectObservation)
 

@@ -422,9 +422,11 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 ### P2 — evidence at scale
 
+`CapabilityCoveragePlanner` now provides the deterministic inventory-selection foundation. It classifies at most 256 opaque candidates by observable API, ABI, RAM, camera presence/hardware/timestamp/frame-duration/logical-camera/metadata and IMU classes, generates bounded observed single and all dimension-pair requirements, weights high-risk partitions, and greedily selects at most 64 candidates with stable tie-breaking. Build fingerprint, camera ID and model name are deliberately excluded from coverage dimensions. The plan minimizes redundant cloud/lab runs; it does not prove optical calibration, environmental robustness, endurance or accuracy.
+
 1. Cluster diagnostic signatures into behavioral partitions.
 2. Generate pairwise/high-risk covering arrays.
-3. Build Mobly rig automation and select the first set-cover device matrix.
+3. [Selection foundation implemented] Feed provider inventories into the set-cover planner, then build Mobly rig automation for the selected matrix.
 4. Port relevant Camera ITS measurements: unified timestamps, jitter, sensor events, IMU drift, crop and lens movement.
 5. Build calibrated replay corpus and release dashboards for ATE/RPE, scale, depth, thermal and failure reasons.
 

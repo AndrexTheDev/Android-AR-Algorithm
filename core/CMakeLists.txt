@@ -19,6 +19,7 @@ add_library(arkernel STATIC
     src/optical_flow.cpp
     src/motion_prediction.cpp
     src/place_recognition.cpp
+    src/pose_graph.cpp
     src/relocalization.cpp
     src/reconstruction_asset.cpp
     src/reconstruction_capture.cpp

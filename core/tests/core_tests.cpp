@@ -22,6 +22,7 @@
 #include "arkernel/loop_closure.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
+#include "arkernel/pose_graph.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
@@ -1108,6 +1109,30 @@ int main() {
     degenerate_loop.landmarks[i].position_keyframe_m={static_cast<double>(i),0,0};
   CHECK(verifyLoopClosure(loop_reference,degenerate_loop).rejection_reason==
         LoopClosureRejectionReason::kGeometryRejected);
+
+  // A fixed gauge plus a verified loop distributes accumulated odometry drift.
+  PoseGraphConfig graph_config;graph_config.minimum_cost_reduction=1e-10;
+  PoseGraph pose_graph(graph_config);
+  for(std::uint64_t i=0;i<5;++i)
+    CHECK(pose_graph.addNode({i+1,{{},{static_cast<double>(i)*1.1,0,0}},i==0}));
+  for(std::uint64_t i=0;i<4;++i)
+    CHECK(pose_graph.addConstraint({i+1,i+2,{{},{-1.1,0,0}},0.08,2.0,
+                                    PoseGraphConstraintType::kOdometry}));
+  LoopClosureConstraint graph_loop;graph_loop.reference_keyframe_id=1;
+  graph_loop.current_keyframe_id=5;graph_loop.current_from_reference={{},{-4,0,0}};
+  graph_loop.inlier_count=8;graph_loop.inlier_ratio=0.8;graph_loop.rmse_m=0.01;graph_loop.valid=true;
+  graph_loop.rejection_reason=LoopClosureRejectionReason::kNone;
+  CHECK(pose_graph.addVerifiedLoop(graph_loop));
+  const auto graph_before=pose_graph.findNode(5);CHECK(graph_before.has_value());
+  const auto graph_result=pose_graph.optimize();
+  CHECK(graph_result.accepted&&graph_result.final_cost<graph_result.initial_cost);
+  const auto graph_anchor=pose_graph.findNode(1),graph_end=pose_graph.findNode(5);
+  CHECK(graph_anchor.has_value()&&graph_end.has_value());
+  CHECK(std::abs(graph_anchor->world_from_node.translation.x)<1e-12);
+  CHECK(std::abs(graph_end->world_from_node.translation.x-4.0)<0.02);
+  CHECK(pose_graph.nodes().size()==5&&pose_graph.constraintCount()==5);
+  CHECK(!pose_graph.addVerifiedLoop(LoopClosureConstraint{}));
+  pose_graph.reset();CHECK(pose_graph.nodes().empty()&&pose_graph.constraintCount()==0);
 
   SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot(),{}};
   const std::array<std::size_t,8> descriptor_landmark_indices{{0,1,8,9,10,11,18,19}};

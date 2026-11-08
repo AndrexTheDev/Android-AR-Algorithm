@@ -44,7 +44,8 @@
 - [x] lokaler dependency-freier 256-Bit-BRIEF-/Hamming-/Ratio-/Mutual-Best-Matcher für überlappende bestätigte Sparse Maps; skalierbare DBoW-/Embedding-Ortssuche bleibt offen;
 - [x] begrenzte deterministische Appearance-Place-Recognition-Datenbank mit zeitlichem Ausschluss und gewichteter Kandidatensuche;
 - [x] metrische geometrische Loop-Verifikation mit Mutual-Best-/Ratio-Matches, 3D–3D-RANSAC, Inlier-/RMSE-/Degenerations- und VIO-Prior-Gates;
-- Pose Graph, Map merge;
+- [x] begrenzter transaktionaler SE(3)-Pose-Graph mit festem Gauge, Unsicherheitsgewichtung, robusten Loop-Faktoren, matrixfreiem PCG und Line Search;
+- Map merge und globales Bundle Adjustment;
 - [x] deterministische Multi-Plane-API mit robustem RANSAC, orthogonaler Least-Squares-Inlier-Verfeinerung und stabilen Plane-IDs;
 - [x] gravitationsbezogene geometrische Klassifikation als Boden, Decke, Wand oder Schräge;
 - [x] konservative Raumlayout-Zusammenfassung mit Boden-/Deckenhöhe, plausibler Raumhöhe und beobachteter Wandfläche;

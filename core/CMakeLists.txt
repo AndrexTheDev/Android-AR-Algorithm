@@ -20,6 +20,7 @@ add_library(arkernel STATIC
     src/loop_closure.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp
+    src/multi_view_stereo.cpp
     src/place_recognition.cpp
     src/pose_graph.cpp
     src/relocalization.cpp

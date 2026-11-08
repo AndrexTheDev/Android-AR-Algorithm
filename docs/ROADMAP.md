@@ -105,7 +105,8 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add host scan controller wiring quality gate, reservation, I420 packet, bounded writer and durable commit/cancel.
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
-- [ ] Add uncertainty-aware calibrated MVS and tiled sparse TSDF fusion, meshing and simplification.
+- [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
+- [ ] Add coarse-to-fine/census refinement, forward-backward depth consistency, tiled sparse TSDF fusion, meshing and simplification.
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [ ] Add held-out scale-target and dimensional-error evaluator; never claim centimetre accuracy without it.

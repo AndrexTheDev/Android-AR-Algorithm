@@ -22,6 +22,7 @@
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/landmark_merge.h"
 #include "arkernel/loop_closure.h"
+#include "arkernel/multi_view_stereo.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
 #include "arkernel/pose_graph.h"
@@ -220,6 +221,36 @@ int main() {
     return value.position_world_m.x<0&&value.position_world_m.y<0;}));
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
+
+  // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
+  constexpr int mvs_width=64,mvs_height=48;
+  auto mvs_texture=[](double x,double y){return static_cast<std::uint8_t>(std::max(0.0,
+    std::min(255.0,128.0+48.0*std::sin(0.17*x)+37.0*std::cos(0.13*y)+
+      31.0*std::sin(0.07*x*y))));};
+  std::vector<std::uint8_t> mvs_reference(mvs_width*mvs_height),mvs_left(mvs_width*mvs_height),
+    mvs_right(mvs_width*mvs_height);
+  for(int y=0;y<mvs_height;++y)for(int x=0;x<mvs_width;++x){
+    mvs_reference[y*mvs_width+x]=mvs_texture(x,y);
+    mvs_left[y*mvs_width+x]=mvs_texture(x+2.0,y);
+    mvs_right[y*mvs_width+x]=mvs_texture(x-2.0,y);}
+  const PinholeRadTanCamera mvs_camera({mvs_width,mvs_height,40,40,31.5,23.5});
+  const GrayImageView mvs_reference_view{mvs_width,mvs_height,mvs_width,mvs_reference.data(),mvs_reference.size()};
+  const GrayImageView mvs_left_view{mvs_width,mvs_height,mvs_width,mvs_left.data(),mvs_left.size()};
+  const GrayImageView mvs_right_view{mvs_width,mvs_height,mvs_width,mvs_right.data(),mvs_right.size()};
+  const MultiViewStereoFrame mvs_reference_frame{mvs_reference_view,&mvs_camera,{}};
+  const std::vector<MultiViewStereoFrame> mvs_sources{
+    {mvs_left_view,&mvs_camera,{{},{0.1,0,0}}},
+    {mvs_right_view,&mvs_camera,{{},{-0.1,0,0}}}};
+  MultiViewStereoConfig mvs_config;mvs_config.min_depth_m=1;mvs_config.max_depth_m=4;
+  mvs_config.depth_hypotheses=31;mvs_config.pixel_stride=4;mvs_config.min_zncc=0.85;
+  mvs_config.min_winner_margin=0.005;
+  const auto mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_sources,mvs_config);
+  CHECK(mvs_depth.valid&&mvs_depth.valid_pixels>40);
+  const std::size_t mvs_center=23*mvs_width+31;
+  CHECK(std::isfinite(mvs_depth.depth_m[mvs_center])&&
+        std::abs(mvs_depth.depth_m[mvs_center]-2.0F)<0.12F&&
+        mvs_depth.confidence[mvs_center]>0.5F&&mvs_depth.uncertainty_m[mvs_center]>0);
+  CHECK(!estimateMultiViewDepth(mvs_reference_frame,{mvs_sources.front()},mvs_config).valid);
 
   TemporalDepthFilterConfig temporal_config;temporal_config.max_absolute_difference_m=0.5;
   temporal_config.max_relative_difference=0.5;temporal_config.history_weight=0.5;

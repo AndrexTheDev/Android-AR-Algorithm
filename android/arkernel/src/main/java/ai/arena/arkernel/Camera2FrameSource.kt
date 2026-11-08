@@ -73,6 +73,7 @@ class Camera2FrameSource(
     private var session: CameraCaptureSession? = null
     @Volatile private var running = false
     private var lastTimestampNs = 0L
+    private val timestampNormalizer = CameraTimestampNormalizer()
     private val captureMetadata = CameraCaptureMetadataMatcher()
     private val pendingReconstructionFrames = TreeMap<Long, PendingCameraReconstructionFrame>()
 
@@ -85,6 +86,7 @@ class Camera2FrameSource(
         }
         frontend.reset()
         lastTimestampNs = 0L
+        timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()
         val cameraThread = HandlerThread("ARKernel-Camera").also { it.start() }
@@ -135,9 +137,11 @@ class Camera2FrameSource(
                                 request: CaptureRequest,
                                 result: TotalCaptureResult,
                             ) {
-                                val timestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
+                                val rawTimestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
                                 emitCompatibilityTiming(CameraTimingSampleKind.CAPTURE_RESULT,
-                                    timestamp)
+                                    rawTimestamp)
+                                val timestamp = timestampNormalizer.normalize(rawTimestamp)
+                                    ?.normalizedTimestampNs ?: return
                                 handleCaptureMetadata(timestamp,
                                     result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
                                     result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
@@ -167,20 +171,24 @@ class Camera2FrameSource(
     private fun consumeLatest(source: ImageReader) {
         val image = source.acquireLatestImage() ?: return
         try {
-            if (!running || image.timestamp <= lastTimestampNs) return
-            emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
+            if (!running) return
+            val timing = emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
+            val timestamp = timestampNormalizer.observeAndNormalize(image.timestamp,
+                timing.callbackElapsedRealtimeNs, timing.callbackUptimeNs)
+                ?.normalizedTimestampNs ?: return
+            if (timestamp <= lastTimestampNs) return
             val y = image.planes[0]
             check(y.pixelStride == 1) { "Unsupported Camera2 Y-plane pixel stride ${y.pixelStride}" }
-            lastTimestampNs = image.timestamp
+            lastTimestampNs = timestamp
             val snapshot = frontend.processGray(
-                y.buffer, image.timestamp, y.rowStride, rotationPrediction(image.timestamp))
+                y.buffer, timestamp, y.rowStride, rotationPrediction(timestamp))
             onResult(snapshot)
             val reconstructionCallback = onReconstructionFrame
             if (snapshot.keyframe && reconstructionCallback != null) {
                 val quality = CameraFrameQualityEvaluator.evaluate(y.buffer, image.width, image.height,
                     y.rowStride, y.pixelStride)
                 if (reconstructionQualityGate?.invoke(snapshot, quality) == false) return
-                val exposure = captureMetadata.take(image.timestamp)
+                val exposure = captureMetadata.take(timestamp)
                 val planes = image.planes
                 check(planes.size == 3) { "YUV_420_888 image must expose three planes" }
                 val i420 = ReconstructionI420Packer.pack(image.width, image.height,
@@ -191,11 +199,11 @@ class Camera2FrameSource(
                     ReconstructionYuvPlane(planes[2].buffer, planes[2].rowStride,
                         planes[2].pixelStride))
                 if (exposure != null) reconstructionCallback(CameraReconstructionFrame(
-                    image.timestamp, image.width, image.height, i420,
+                    timestamp, image.width, image.height, i420,
                     exposure.exposureTimeNs, exposure.sensitivityIso))
                 else {
-                    pendingReconstructionFrames[image.timestamp] = PendingCameraReconstructionFrame(
-                        image.timestamp, image.width, image.height, i420)
+                    pendingReconstructionFrames[timestamp] = PendingCameraReconstructionFrame(
+                        timestamp, image.width, image.height, i420)
                     // Captured image data is already owned, but memory remains strictly bounded.
                     while (pendingReconstructionFrames.size > MAX_PENDING_RECONSTRUCTION_FRAMES)
                         pendingReconstructionFrames.pollFirstEntry()
@@ -208,15 +216,18 @@ class Camera2FrameSource(
         }
     }
 
-    private fun emitCompatibilityTiming(kind: CameraTimingSampleKind, timestampNs: Long) {
-        val sink = compatibilityTimingSink ?: return
-        val elapsed = SystemClock.elapsedRealtimeNanos()
-        val uptime = Math.multiplyExact(SystemClock.uptimeMillis(), 1_000_000L)
+    private fun emitCompatibilityTiming(kind: CameraTimingSampleKind,
+        timestampNs: Long): CameraTimingSample {
+        val sample = CameraTimingSample(kind, timestampNs,
+            SystemClock.elapsedRealtimeNanos(),
+            Math.multiplyExact(SystemClock.uptimeMillis(), 1_000_000L))
+        val sink = compatibilityTimingSink ?: return sample
         try {
-            sink(CameraTimingSample(kind, timestampNs, elapsed, uptime))
+            sink(sample)
         } catch (error: Throwable) {
             if (running) onError(error)
         }
+        return sample
     }
 
     @Synchronized
@@ -228,6 +239,7 @@ class Camera2FrameSource(
         handler = null
         thread?.quitSafely(); thread = null
         lastTimestampNs = 0L
+        timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()
         frontend.reset()

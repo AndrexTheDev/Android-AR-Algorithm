@@ -7,7 +7,7 @@ private const val MAX_ACTIVE_IMU_SAMPLES = 8_192
 
 enum class CameraTimingSampleKind { IMAGE, CAPTURE_RESULT }
 enum class ImuTimingSampleKind { ACCELEROMETER, GYROSCOPE }
-enum class ObservedCameraTimebase { REALTIME, UPTIME, AMBIGUOUS, UNRESOLVED }
+enum class ObservedCameraTimebase { REALTIME, UPTIME, EQUIVALENT, AMBIGUOUS, UNRESOLVED }
 
 data class CameraTimingSample(
     val kind: CameraTimingSampleKind,
@@ -55,6 +55,7 @@ data class ActiveCompatibilityConfig(
     val maximumLargeFrameGapRatio: Double = 0.10,
     val largeFrameGapFactor: Double = 2.5,
     val timebaseDecisionMarginNs: Long = 5_000_000,
+    val maximumEquivalentClockDeltaNs: Long = 20_000_000,
     val maximumMedianImuCallbackLatencyNs: Long = 250_000_000,
 ) {
     init {
@@ -68,6 +69,7 @@ data class ActiveCompatibilityConfig(
         require(maximumLargeFrameGapRatio in 0.0..1.0)
         require(largeFrameGapFactor in 1.1..20.0)
         require(timebaseDecisionMarginNs in 0..1_000_000_000)
+        require(maximumEquivalentClockDeltaNs in 0..1_000_000_000)
         require(maximumMedianImuCallbackLatencyNs in 1_000_000..5_000_000_000)
     }
 }
@@ -111,11 +113,13 @@ class ActiveDeviceCompatibilityProbe(
     private val calibrationTrusted: Boolean,
     private val cameraImuExtrinsicsTrusted: Boolean,
     private val config: ActiveCompatibilityConfig = ActiveCompatibilityConfig(),
+    private val cameraTimestampNormalizationEnabled: Boolean = true,
 ) {
     private val imageTimestamps = ArrayList<Long>()
     private val captureTimestamps = ArrayList<Long>()
     private val cameraElapsedResiduals = ArrayList<Long>()
     private val cameraUptimeResiduals = ArrayList<Long>()
+    private val cameraClockDeltas = ArrayList<Long>()
     private val accelerometerTimestamps = ArrayList<Long>()
     private val gyroscopeTimestamps = ArrayList<Long>()
     private val accelerometerCallbackLatencies = ArrayList<Long>()
@@ -143,6 +147,8 @@ class ActiveDeviceCompatibilityProbe(
                 sample.sensorTimestampNs)
             cameraUptimeResiduals += absDifference(sample.callbackUptimeNs,
                 sample.sensorTimestampNs)
+            cameraClockDeltas += absDifference(sample.callbackElapsedRealtimeNs,
+                sample.callbackUptimeNs)
         }
         return true
     }
@@ -175,8 +181,12 @@ class ActiveDeviceCompatibilityProbe(
         val denominator = maxOf(imageTimestamps.size, captureTimestamps.size)
         val matchRatio = if (denominator == 0) 0.0 else matched.toDouble() / denominator
         val timebase = classifyTimebase(cameraElapsedResiduals, cameraUptimeResiduals,
-            config.timebaseDecisionMarginNs)
-        val overlap = overlapNs(cameraStats, accelerometerStats, gyroscopeStats)
+            cameraClockDeltas, config.timebaseDecisionMarginNs,
+            config.maximumEquivalentClockDeltaNs)
+        val cameraOffset = if (timebase == ObservedCameraTimebase.UPTIME)
+            median(cameraClockDeltas) else 0L
+        val overlap = overlapNs(cameraStats, accelerometerStats, gyroscopeStats,
+            cameraOffset)
         val accelerometerLatency = median(accelerometerCallbackLatencies)
         val gyroscopeLatency = median(gyroscopeCallbackLatencies)
         val reasons = mutableListOf<ActiveCompatibilityReasonCode>()
@@ -206,7 +216,10 @@ class ActiveDeviceCompatibilityProbe(
             reasons += ActiveCompatibilityReasonCode.GYROSCOPE_TIMESTAMP_DOMAIN_INVALID
         if (cameraStats.largeGapRatio > config.maximumLargeFrameGapRatio)
             reasons += ActiveCompatibilityReasonCode.CAMERA_FRAME_GAPS_EXCESSIVE
-        if (timebase != ObservedCameraTimebase.REALTIME)
+        val acceptedTimebase = timebase == ObservedCameraTimebase.REALTIME ||
+            timebase == ObservedCameraTimebase.EQUIVALENT ||
+            (timebase == ObservedCameraTimebase.UPTIME && cameraTimestampNormalizationEnabled)
+        if (!acceptedTimebase)
             reasons += ActiveCompatibilityReasonCode.CAMERA_TIMESTAMP_DOMAIN_NOT_REALTIME
         if (overlap == 0L)
             reasons += ActiveCompatibilityReasonCode.CAMERA_IMU_WINDOWS_DO_NOT_OVERLAP
@@ -250,12 +263,15 @@ private fun statistics(values: List<Long>, largeGapFactor: Double): TimingStream
 }
 
 private fun classifyTimebase(elapsedResiduals: List<Long>, uptimeResiduals: List<Long>,
-    marginNs: Long): ObservedCameraTimebase {
-    if (elapsedResiduals.isEmpty() || elapsedResiduals.size != uptimeResiduals.size)
-        return ObservedCameraTimebase.UNRESOLVED
+    clockDeltas: List<Long>, marginNs: Long,
+    maximumEquivalentClockDeltaNs: Long): ObservedCameraTimebase {
+    if (elapsedResiduals.isEmpty() || elapsedResiduals.size != uptimeResiduals.size ||
+        elapsedResiduals.size != clockDeltas.size) return ObservedCameraTimebase.UNRESOLVED
     val elapsed = median(elapsedResiduals)
     val uptime = median(uptimeResiduals)
     return when {
+        median(clockDeltas) <= maximumEquivalentClockDeltaNs ->
+            ObservedCameraTimebase.EQUIVALENT
         elapsed + marginNs < uptime -> ObservedCameraTimebase.REALTIME
         uptime + marginNs < elapsed -> ObservedCameraTimebase.UPTIME
         else -> ObservedCameraTimebase.AMBIGUOUS
@@ -263,12 +279,14 @@ private fun classifyTimebase(elapsedResiduals: List<Long>, uptimeResiduals: List
 }
 
 private fun overlapNs(camera: TimingStreamStatistics, accelerometer: TimingStreamStatistics,
-    gyroscope: TimingStreamStatistics): Long {
+    gyroscope: TimingStreamStatistics, cameraOffsetNs: Long): Long {
     if (camera.sampleCount == 0 || accelerometer.sampleCount == 0 || gyroscope.sampleCount == 0)
         return 0
-    val start = maxOf(camera.firstTimestampNs, accelerometer.firstTimestampNs,
+    val cameraStart = Math.addExact(camera.firstTimestampNs, cameraOffsetNs)
+    val cameraEnd = Math.addExact(camera.lastTimestampNs, cameraOffsetNs)
+    val start = maxOf(cameraStart, accelerometer.firstTimestampNs,
         gyroscope.firstTimestampNs)
-    val end = minOf(camera.lastTimestampNs, accelerometer.lastTimestampNs,
+    val end = minOf(cameraEnd, accelerometer.lastTimestampNs,
         gyroscope.lastTimestampNs)
     return maxOf(0, end - start)
 }

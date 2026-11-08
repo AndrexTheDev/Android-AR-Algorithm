@@ -28,7 +28,7 @@ class ActiveDeviceCompatibilityTest {
     }
 
     @Test
-    fun detectsUptimeCameraEvenWhenStreamsOtherwiseHealthy() {
+    fun acceptsUptimeCameraWhenSessionNormalizationIsEnabled() {
         val probe = ActiveDeviceCompatibilityProbe(staticReport(), true, true)
         val start = 10_000_000_000L
         repeat(30) { index ->
@@ -41,18 +41,17 @@ class ActiveDeviceCompatibilityTest {
                 timestamp, callbackElapsed, callbackUptime))
         }
         repeat(120) { index ->
-            val timestamp = start + index * 10_000_000L
+            val timestamp = start + 5_000_000_000L + index * 10_000_000L
             probe.addImuSample(ImuTimingSample(ImuTimingSampleKind.ACCELEROMETER,
-                timestamp, timestamp + 5_020_000_000L))
+                timestamp, timestamp + 20_000_000L))
             probe.addImuSample(ImuTimingSample(ImuTimingSampleKind.GYROSCOPE,
-                timestamp, timestamp + 5_020_000_000L))
+                timestamp, timestamp + 20_000_000L))
         }
 
         val report = probe.finish()
         assertEquals(ObservedCameraTimebase.UPTIME, report.observedCameraTimebase)
-        assertTrue(ActiveCompatibilityReasonCode.CAMERA_TIMESTAMP_DOMAIN_NOT_REALTIME in
-            report.blockingReasons)
-        assertEquals(DeviceCompatibilityTier.DEGRADED_TRACKING, report.promotedTier)
+        assertTrue(report.blockingReasons.isEmpty())
+        assertEquals(DeviceCompatibilityTier.RUNTIME_VERIFIED_METRIC, report.promotedTier)
     }
 
     @Test
@@ -73,7 +72,7 @@ class ActiveDeviceCompatibilityTest {
     @Test
     fun detectsNonMonotonicGyroscopeSamples() {
         val probe = ActiveDeviceCompatibilityProbe(staticReport(), true, true,
-            ActiveCompatibilityConfig(minimumCameraSamples = 3,
+            config = ActiveCompatibilityConfig(minimumCameraSamples = 3,
                 minimumAccelerometerSamples = 3, minimumGyroscopeSamples = 3,
                 minimumCameraRateHz = 1.0, minimumAccelerometerRateHz = 1.0,
                 minimumGyroscopeRateHz = 1.0))

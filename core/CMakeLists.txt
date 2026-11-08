@@ -5,6 +5,7 @@ add_library(arkernel STATIC
     src/core_engine.cpp
     src/depth_postprocessor.cpp
     src/depth_sampling.cpp
+    src/detection_postprocessor.cpp
     src/feature_detector.cpp
     src/fixed_lag_smoother.cpp
     src/geometry_model_selector.cpp

@@ -9,6 +9,7 @@
 #include "arkernel/core_engine.h"
 #include "arkernel/depth_postprocessor.h"
 #include "arkernel/depth_sampling.h"
+#include "arkernel/detection_postprocessor.h"
 #include "arkernel/feature_detector.h"
 #include "arkernel/fixed_lag_smoother.h"
 #include "arkernel/epipolar_ransac.h"
@@ -148,6 +149,54 @@ int main() {
     &c_depth_confidence,1,&c_depth_output)==ARK_RESULT_OK);
   CHECK(std::abs(c_depth_value-2.5F)<1e-6F&&c_depth_confidence==1.0F&&
         c_depth_output.required_elements==1);
+
+  const std::array<float,24> detection_rows{
+    0.10F,0.10F,0.50F,0.50F,0.90F,1.0F,
+    0.12F,0.12F,0.48F,0.48F,0.80F,1.0F,
+    0.12F,0.12F,0.48F,0.48F,0.85F,2.0F,
+    0.20F,0.20F,0.10F,0.30F,0.95F,3.0F};
+  const DetectionTensorView detection_tensor{4,6,6,DetectionTensorElementType::kFloat32,
+    detection_rows.data(),sizeof(detection_rows),1.0,0};
+  DetectionPostprocessConfig detection_config;detection_config.image_width=100;
+  detection_config.image_height=50;detection_config.score_threshold=0.5;
+  const auto decoded=decodeDetectionTensor(detection_tensor,detection_config);
+  CHECK(decoded.size()==2&&decoded[0].class_id==1&&decoded[1].class_id==2);
+  CHECK(std::abs(decoded[0].left-10.0)<1e-5&&std::abs(decoded[0].bottom-25.0)<1e-5);
+  detection_config.class_aware_nms=false;
+  CHECK(decodeDetectionTensor(detection_tensor,detection_config).size()==1);
+  const std::array<std::uint8_t,8> quantized_detection{50,50,20,40,80,100,7,7};
+  const DetectionTensorView quantized_detection_tensor{1,6,8,
+    DetectionTensorElementType::kUInt8,quantized_detection.data(),
+    quantized_detection.size(),0.01,0};
+  detection_config.class_aware_nms=true;detection_config.box_format=DetectionBoxFormat::kCenterXywh;
+  const auto quantized_decoded=decodeDetectionTensor(quantized_detection_tensor,detection_config);
+  CHECK(quantized_decoded.size()==1&&quantized_decoded[0].class_id==1);
+  CHECK(std::abs(quantized_decoded[0].left-40.0)<1e-6&&
+        std::abs(quantized_decoded[0].top-15.0)<1e-6);
+  bool candidate_budget_rejected=false;detection_config.max_candidates=0;
+  try{(void)decodeDetectionTensor(detection_tensor,detection_config);}
+  catch(const std::invalid_argument&){candidate_budget_rejected=true;}
+  CHECK(candidate_budget_rejected);
+  ark_detection_tensor_v1 c_detection_tensor{};
+  c_detection_tensor.struct_size=sizeof(c_detection_tensor);c_detection_tensor.rows=4;
+  c_detection_tensor.columns=6;c_detection_tensor.row_stride_elements=6;
+  c_detection_tensor.element_type=ARK_TENSOR_FLOAT32;c_detection_tensor.data=detection_rows.data();
+  c_detection_tensor.data_size_bytes=sizeof(detection_rows);c_detection_tensor.quantization_scale=1;
+  ark_detection_postprocess_config_v1 c_detection_config{};
+  c_detection_config.struct_size=sizeof(c_detection_config);c_detection_config.image_width=100;
+  c_detection_config.image_height=50;c_detection_config.x0_column=0;
+  c_detection_config.y0_column=1;c_detection_config.x1_or_width_column=2;
+  c_detection_config.y1_or_height_column=3;c_detection_config.score_column=4;
+  c_detection_config.class_column=5;c_detection_config.box_format=ARK_DETECTION_XYXY;
+  c_detection_config.normalized_coordinates=1;c_detection_config.class_aware_nms=1;
+  c_detection_config.score_threshold=0.5;c_detection_config.iou_threshold=0.45;
+  c_detection_config.max_candidates=4096;c_detection_config.max_detections=256;
+  ark_detection_postprocess_output_v1 c_detection_output{};
+  c_detection_output.struct_size=sizeof(c_detection_output);
+  std::array<std::uint32_t,2> c_class_ids{};std::array<double,10> c_detection_values{};
+  CHECK(ark_postprocess_detection_tensor(&c_detection_tensor,&c_detection_config,
+    c_class_ids.data(),c_detection_values.data(),2,&c_detection_output)==ARK_RESULT_OK);
+  CHECK(c_detection_output.detection_count==2&&c_class_ids[0]==1&&c_class_ids[1]==2);
 
   const std::vector<std::uint8_t> tensor_rgb{
     255,0,0, 0,255,0,

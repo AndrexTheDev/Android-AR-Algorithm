@@ -17,6 +17,12 @@ The adapter is responsible for converting image detections into metric 3D observ
 
 For plane-supported objects, `projectSemanticObservation` unprojects an in-image calibrated pixel, rotates its ray with the frame-associated `world_from_camera` pose, and chooses the nearest bounded hit. The request can allow any plane or require `FLOOR`/`WALL`; a semantic point is never created outside an observed polygon or when the requested surface class is absent. The adapter chooses the meaningful pixel (for example, bottom-center for a floor-supported detection) and must retain the exact camera pose from that detection frame.
 
+## Detection tensor decoding
+
+`ArKernelDetectionPostprocessor` decodes an explicitly described direct FLOAT32/INT8/UINT8 row tensor into bounded `SemanticDetection2d` records. Column indices, XYXY versus center-XYWH representation, normalized/pixel coordinates, confidence threshold, NMS mode, and IoU threshold are configuration rather than guesses. Coordinates are clipped to the calibrated image, malformed rows are dropped, class IDs must be integral and manifest-known, candidates are capped at 4,096, and deterministic NMS returns at most 256 detections. `SemanticDetectionTensorBackend.createVerified` composes this decoder with model hash verification, shared preprocessing, reusable raw tensors, and the single-flight inference contract.
+
+This generic decoder assumes each row already contains one box, score, and class. Architecture-specific score fusion, anchors, masks, and tracking remain explicit adapter work.
+
 ## Conservative fusion
 
 The bounded map first prefers a matching class/track pair subject to a maximum jump. Otherwise it uses nearest-neighbor association only within the same class and dynamic state. Positions are confidence-weighted. Objects remain unpublished until a configurable number of observations confirms them. Capacity eviction is deterministic and prioritizes unconfirmed, dynamic, weak, sparsely observed and old entries.

@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -730,4 +731,48 @@ Java_ai_arena_arkernel_ArKernelDepthPostprocessor_nativePostprocess(JNIEnv* env,
   const jlong values[3]={result.width,result.height,static_cast<jlong>(result.required_elements)};
   env->SetLongArrayRegion(metadata,0,3,values);
   return status;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelDetectionPostprocessor_nativeDecode(JNIEnv* env,jobject,
+    jobject tensor,jint tensor_offset,jint tensor_size,jint rows,jint columns,jint row_stride,
+    jint element_type,jdouble quantization_scale,jint quantization_zero_point,
+    jint image_width,jint image_height,jint x0_column,jint y0_column,jint x1_column,
+    jint y1_column,jint score_column,jint class_column,jint box_format,
+    jboolean normalized,jboolean class_aware_nms,jdouble score_threshold,jdouble iou_threshold,
+    jint max_detections,jlongArray class_ids,jdoubleArray values,jlongArray metadata) {
+  if(!tensor||!class_ids||!values||!metadata||tensor_offset<0||tensor_size<0||
+     max_detections<1||max_detections>256||env->GetArrayLength(class_ids)<max_detections||
+     env->GetArrayLength(values)<max_detections*5||env->GetArrayLength(metadata)<1)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  auto* base=static_cast<std::uint8_t*>(env->GetDirectBufferAddress(tensor));
+  const jlong capacity=env->GetDirectBufferCapacity(tensor);
+  if(!base||capacity<0||static_cast<jlong>(tensor_offset)+tensor_size>capacity)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  ark_detection_tensor_v1 input{};input.struct_size=sizeof(input);input.rows=rows;
+  input.columns=columns;input.row_stride_elements=row_stride;
+  input.element_type=static_cast<uint32_t>(element_type);input.data=base+tensor_offset;
+  input.data_size_bytes=static_cast<size_t>(tensor_size);
+  input.quantization_scale=quantization_scale;input.quantization_zero_point=quantization_zero_point;
+  ark_detection_postprocess_config_v1 config{};config.struct_size=sizeof(config);
+  config.image_width=image_width;config.image_height=image_height;config.x0_column=x0_column;
+  config.y0_column=y0_column;config.x1_or_width_column=x1_column;
+  config.y1_or_height_column=y1_column;config.score_column=score_column;
+  config.class_column=class_column;config.box_format=static_cast<uint32_t>(box_format);
+  config.normalized_coordinates=normalized?1u:0u;config.class_aware_nms=class_aware_nms?1u:0u;
+  config.score_threshold=score_threshold;config.iou_threshold=iou_threshold;
+  config.max_candidates=4096;config.max_detections=static_cast<size_t>(max_detections);
+  std::array<uint32_t,256> native_ids{};std::array<double,256*5> native_values{};
+  ark_detection_postprocess_output_v1 result{};result.struct_size=sizeof(result);
+  const ark_result status=ark_postprocess_detection_tensor(&input,&config,native_ids.data(),
+    native_values.data(),static_cast<size_t>(max_detections),&result);
+  if(status!=ARK_RESULT_OK)return status;
+  std::array<jlong,256> java_ids{};
+  for(size_t i=0;i<result.detection_count;++i)java_ids[i]=native_ids[i];
+  env->SetLongArrayRegion(class_ids,0,static_cast<jsize>(result.detection_count),java_ids.data());
+  env->SetDoubleArrayRegion(values,0,static_cast<jsize>(result.detection_count*5),
+    native_values.data());
+  const jlong count=static_cast<jlong>(result.detection_count);
+  env->SetLongArrayRegion(metadata,0,1,&count);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
 }

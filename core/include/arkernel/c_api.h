@@ -58,6 +58,11 @@ typedef enum ark_depth_value_transform {
   ARK_DEPTH_INVERSE = 1
 } ark_depth_value_transform;
 
+typedef enum ark_detection_box_format {
+  ARK_DETECTION_XYXY = 0,
+  ARK_DETECTION_CENTER_XYWH = 1
+} ark_detection_box_format;
+
 typedef enum ark_plane_semantic {
   ARK_PLANE_UNKNOWN = 0,
   ARK_PLANE_FLOOR = 1,
@@ -152,6 +157,42 @@ typedef struct ark_depth_postprocess_output_v1 {
   int32_t height;
   size_t required_elements;
 } ark_depth_postprocess_output_v1;
+
+typedef struct ark_detection_tensor_v1 {
+  uint32_t struct_size;
+  int32_t rows;
+  int32_t columns;
+  int32_t row_stride_elements;
+  uint32_t element_type;
+  const void* data;
+  size_t data_size_bytes;
+  double quantization_scale;
+  int32_t quantization_zero_point;
+} ark_detection_tensor_v1;
+
+typedef struct ark_detection_postprocess_config_v1 {
+  uint32_t struct_size;
+  int32_t image_width;
+  int32_t image_height;
+  int32_t x0_column;
+  int32_t y0_column;
+  int32_t x1_or_width_column;
+  int32_t y1_or_height_column;
+  int32_t score_column;
+  int32_t class_column;
+  uint32_t box_format;
+  uint32_t normalized_coordinates;
+  uint32_t class_aware_nms;
+  double score_threshold;
+  double iou_threshold;
+  size_t max_candidates;
+  size_t max_detections;
+} ark_detection_postprocess_config_v1;
+
+typedef struct ark_detection_postprocess_output_v1 {
+  uint32_t struct_size;
+  size_t detection_count;
+} ark_detection_postprocess_output_v1;
 
 typedef struct ark_vio_config_v1 {
   uint32_t struct_size;
@@ -539,6 +580,12 @@ ark_result ark_postprocess_depth_tensor(
     const ark_depth_postprocess_config_v1* config,
     float* depth_output, float* confidence_output, size_t output_capacity_elements,
     ark_depth_postprocess_output_v1* out_depth);
+ark_result ark_postprocess_detection_tensor(
+    const ark_detection_tensor_v1* tensor,
+    const ark_detection_postprocess_config_v1* config,
+    uint32_t* class_ids, double* confidence_and_boxes,
+    size_t output_capacity_detections,
+    ark_detection_postprocess_output_v1* out_detections);
 ark_result ark_visual_default_config(int32_t width, int32_t height,
                                      double fx, double fy, double cx, double cy,
                                      ark_visual_config_v1* out_config);

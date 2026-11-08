@@ -12,6 +12,7 @@
 #include <string>
 #include "arkernel/depth_postprocessor.h"
 #include "arkernel/depth_sampling.h"
+#include "arkernel/detection_postprocessor.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
@@ -211,6 +212,46 @@ ark_result ark_postprocess_depth_tensor(const ark_depth_tensor_v1* tensor,
     if(!depth||!confidence||capacity<out->required_elements)return ARK_RESULT_INVALID_ARGUMENT;
     std::memcpy(depth,result.depth_meters.data(),out->required_elements*sizeof(float));
     std::memcpy(confidence,result.confidence.data(),out->required_elements*sizeof(float));
+    return ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::bad_alloc&){return ARK_RESULT_INTERNAL_ERROR;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+ark_result ark_postprocess_detection_tensor(const ark_detection_tensor_v1* tensor,
+    const ark_detection_postprocess_config_v1* config,uint32_t* class_ids,double* values,
+    size_t capacity,ark_detection_postprocess_output_v1* out){
+  if(!validStruct(tensor)||!validStruct(config)||!validStruct(out)||
+     tensor->element_type>ARK_TENSOR_UINT8||config->box_format>ARK_DETECTION_CENTER_XYWH)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    const arkernel::DetectionTensorView view{tensor->rows,tensor->columns,
+      tensor->row_stride_elements,
+      static_cast<arkernel::DetectionTensorElementType>(tensor->element_type),tensor->data,
+      tensor->data_size_bytes,tensor->quantization_scale,tensor->quantization_zero_point};
+    arkernel::DetectionPostprocessConfig converted;converted.image_width=config->image_width;
+    converted.image_height=config->image_height;converted.x0_column=config->x0_column;
+    converted.y0_column=config->y0_column;
+    converted.x1_or_width_column=config->x1_or_width_column;
+    converted.y1_or_height_column=config->y1_or_height_column;
+    converted.score_column=config->score_column;converted.class_column=config->class_column;
+    converted.box_format=static_cast<arkernel::DetectionBoxFormat>(config->box_format);
+    converted.normalized_coordinates=config->normalized_coordinates!=0;
+    converted.class_aware_nms=config->class_aware_nms!=0;
+    converted.score_threshold=config->score_threshold;
+    converted.iou_threshold=config->iou_threshold;
+    converted.max_candidates=config->max_candidates;
+    converted.max_detections=config->max_detections;
+    const auto detections=arkernel::decodeDetectionTensor(view,converted);
+    const uint32_t size=out->struct_size;*out={};out->struct_size=size;
+    out->detection_count=detections.size();
+    if(!class_ids&&!values)return ARK_RESULT_OK;
+    if(!class_ids||!values||capacity<detections.size())return ARK_RESULT_INVALID_ARGUMENT;
+    for(size_t i=0;i<detections.size();++i){class_ids[i]=detections[i].class_id;
+      values[i*5]=detections[i].confidence;values[i*5+1]=detections[i].left;
+      values[i*5+2]=detections[i].top;values[i*5+3]=detections[i].right;
+      values[i*5+4]=detections[i].bottom;}
     return ARK_RESULT_OK;
   }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}

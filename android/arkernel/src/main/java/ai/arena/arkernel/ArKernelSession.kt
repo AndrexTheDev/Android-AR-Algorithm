@@ -39,6 +39,8 @@ class ArKernelSession(
     private val maxQueuedImuSamples: Int = 4096,
     private val bodyFromCameraTranslationMeters: Vector3 = Vector3(0.0, 0.0, 0.0),
     private val onReconstructionFrame: ((ArKernelReconstructionFrame) -> Unit)? = null,
+    private val reconstructionQualityGate:
+        ((ArKernelSessionResult, CameraFrameQuality) -> Boolean)? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -68,6 +70,13 @@ class ArKernelSession(
         onError = onError,
         onReconstructionFrame = if (onReconstructionFrame == null) null
             else ::handleReconstructionCameraFrame,
+        reconstructionQualityGate = if (onReconstructionFrame == null) null else { snapshot, quality ->
+            val result = pendingReconstructionResults[snapshot.timestampNs]
+            val accepted = result != null &&
+                (reconstructionQualityGate?.invoke(result, quality) ?: true)
+            if (!accepted) pendingReconstructionResults.remove(snapshot.timestampNs)
+            accepted
+        },
     )
 
     init { require(maxQueuedImuSamples >= 128) }

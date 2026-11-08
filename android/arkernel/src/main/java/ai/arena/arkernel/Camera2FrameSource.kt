@@ -59,6 +59,8 @@ class Camera2FrameSource(
     private val onResult: (VisualFrontendSnapshot) -> Unit,
     private val onError: (Throwable) -> Unit = {},
     private val onReconstructionFrame: ((CameraReconstructionFrame) -> Unit)? = null,
+    private val reconstructionQualityGate:
+        ((VisualFrontendSnapshot, CameraFrameQuality) -> Boolean)? = null,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -170,6 +172,9 @@ class Camera2FrameSource(
             onResult(snapshot)
             val reconstructionCallback = onReconstructionFrame
             if (snapshot.keyframe && reconstructionCallback != null) {
+                val quality = CameraFrameQualityEvaluator.evaluate(y.buffer, image.width, image.height,
+                    y.rowStride, y.pixelStride)
+                if (reconstructionQualityGate?.invoke(snapshot, quality) == false) return
                 val exposure = captureMetadata.take(image.timestamp)
                 val planes = image.planes
                 check(planes.size == 3) { "YUV_420_888 image must expose three planes" }

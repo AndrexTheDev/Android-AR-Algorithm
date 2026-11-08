@@ -85,6 +85,10 @@ Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand,
 
 Eigenständiger Code: Apache-2.0. Externe Backends und **Modellgewichte** müssen vor jeder Distribution separat geprüft werden. Insbesondere ist „Open Source Code“ nicht automatisch gleichbedeutend mit kommerziell frei nutzbaren Gewichten.
 
+### Quality relative to ARCore
+
+ARCore remains the mature live-tracking baseline on certified devices; the standalone kernel does not claim parity without device/scene evidence. Its advantage is a controllable ARCore-independent reconstruction/export path that can use global offline optimization. The required same-device parity metrics and claim rules are in [`docs/ARCORE_COMPARISON.md`](docs/ARCORE_COMPARISON.md).
+
 ### Reconstruction and viewing
 
 The portable core now validates canonical textured triangle assets and exports glTF 2.0, OBJ/MTL and PLY. `tools/viewer/index.html` opens the generated glTF, binary and texture locally in WebGL 2. Accuracy labels are evidence-based: metric output is not called centimetre-validated unless calibration, independent scale, global optimization, residual, uncertainty and coverage gates all pass. See [`docs/RECONSTRUCTION.md`](docs/RECONSTRUCTION.md).

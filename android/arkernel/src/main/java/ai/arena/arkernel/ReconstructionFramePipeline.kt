@@ -122,7 +122,8 @@ class BoundedReconstructionFrameWriter(
         check(worker !== Thread.currentThread()) { "Frame writer cannot close itself" }
         val shouldClose = synchronized(this) { open.getAndSet(false) }
         if (!shouldClose) return
-        worker.interrupt()
+        // Do not interrupt an active sink: interruption could turn an already accepted durable
+        // write into a false failure. The bounded poll wakes by itself within 100 ms.
         worker.join(30_000)
         check(!worker.isAlive) { "Timed out draining reconstruction frame writer" }
     }

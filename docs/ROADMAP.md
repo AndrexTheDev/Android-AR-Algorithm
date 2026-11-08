@@ -47,7 +47,7 @@
 - [x] begrenzter transaktionaler SE(3)-Pose-Graph mit festem Gauge, Unsicherheitsgewichtung, robusten Loop-Faktoren, matrixfreiem PCG und Line Search;
 - [x] begrenztes transaktionales globales Bundle Adjustment für Keyframe-Posen und mehransichtige metrische Landmarks mit robusten Reprojektionsfaktoren und Pose-Graph-Priors;
 - [x] atomare generationierte Archiv-Pose-Propagation über CRC-geschütztes Manifest mit exakter Frame-ID-/Timestamp-Bindung und Invalidierung bei Frame-Verlust;
-- Map merge;
+- [x] deterministischer globaler Landmark-Map-Merge aus geometrischen Loop-Inliern mit metrischem Complete-Link-Gate, beobachtungsgewichteter Fusion und stabiler Alias-Tabelle;
 - [x] deterministische Multi-Plane-API mit robustem RANSAC, orthogonaler Least-Squares-Inlier-Verfeinerung und stabilen Plane-IDs;
 - [x] gravitationsbezogene geometrische Klassifikation als Boden, Decke, Wand oder Schräge;
 - [x] konservative Raumlayout-Zusammenfassung mit Boden-/Deckenhöhe, plausibler Raumhöhe und beobachteter Wandfläche;

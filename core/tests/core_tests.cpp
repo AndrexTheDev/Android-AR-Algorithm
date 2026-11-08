@@ -20,6 +20,7 @@
 #include "arkernel/homography_ransac.h"
 #include "arkernel/image_descriptor.h"
 #include "arkernel/imu_preintegrator.h"
+#include "arkernel/landmark_merge.h"
 #include "arkernel/loop_closure.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
@@ -1089,7 +1090,11 @@ int main() {
   CHECK(verified_loop.valid&&verified_loop.rejection_reason==LoopClosureRejectionReason::kNone);
   CHECK(verified_loop.descriptor_match_count==saved_points.size()+2&&
         verified_loop.inlier_count==saved_points.size()&&verified_loop.inlier_ratio==0.8&&
+        verified_loop.inlier_landmark_matches.size()==saved_points.size()&&
         verified_loop.rmse_m<1e-8);
+  CHECK(std::none_of(verified_loop.inlier_landmark_matches.begin(),
+        verified_loop.inlier_landmark_matches.end(),[](const auto& match){
+          return match.reference_feature_id>=108||match.current_feature_id>=208;}));
   CHECK((verified_loop.current_from_reference.translation-loop_transform.translation).norm()<1e-8);
   auto near_loop=loop_current;near_loop.timestamp_ns=loop_reference.timestamp_ns+1000;
   CHECK(verifyLoopClosure(loop_reference,near_loop).rejection_reason==
@@ -1110,6 +1115,22 @@ int main() {
     degenerate_loop.landmarks[i].position_keyframe_m={static_cast<double>(i),0,0};
   CHECK(verifyLoopClosure(loop_reference,degenerate_loop).rejection_reason==
         LoopClosureRejectionReason::kGeometryRejected);
+
+  // Complete-link merging combines true duplicates without chaining nearby points.
+  LandmarkMergeConfig merge_config;merge_config.max_cluster_diameter_m=0.03;
+  const std::vector<GlobalLandmark> merge_input{
+    {10,{0,0,2},2,0.02,1000},{20,{0.02,0,2},3,0.01,2000},
+    {30,{0.04,0,2},4,0.03,3000},{40,{1,0,2},2,0.01,4000}};
+  const auto merge_result=mergeGlobalLandmarks(merge_input,{{20,30},{10,20}},merge_config);
+  CHECK(merge_result.valid&&merge_result.accepted_associations==1&&
+        merge_result.rejected_associations==1&&merge_result.landmarks.size()==3);
+  const auto merged_landmark=std::find_if(merge_result.landmarks.begin(),merge_result.landmarks.end(),
+    [](const auto& value){return value.id==10;});
+  CHECK(merged_landmark!=merge_result.landmarks.end()&&merged_landmark->observation_count==5);
+  CHECK(std::abs(merged_landmark->position_world_m.x-0.012)<1e-12);
+  const auto alias20=std::find_if(merge_result.aliases.begin(),merge_result.aliases.end(),
+    [](const auto& value){return value.source_id==20;});
+  CHECK(alias20!=merge_result.aliases.end()&&alias20->canonical_id==10);
 
   // A fixed gauge plus a verified loop distributes accumulated odometry drift.
   PoseGraphConfig graph_config;graph_config.minimum_cost_reduction=1e-10;

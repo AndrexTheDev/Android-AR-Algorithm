@@ -16,6 +16,7 @@ add_library(arkernel STATIC
     src/epipolar_ransac.cpp
     src/essential_pose.cpp
     src/imu_preintegrator.cpp
+    src/landmark_merge.cpp
     src/loop_closure.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp

@@ -44,12 +44,19 @@ struct LoopClosureConfig {
   double max_rotation_disagreement_degrees{35.0};
 };
 
+struct LoopClosureLandmarkMatch {
+  std::uint32_t reference_feature_id{0};
+  std::uint32_t current_feature_id{0};
+  std::uint16_t hamming_distance{0};
+};
+
 struct LoopClosureConstraint {
   LoopKeyframeId reference_keyframe_id{0};
   LoopKeyframeId current_keyframe_id{0};
   Pose current_from_reference{};
   std::size_t descriptor_match_count{0};
   std::size_t inlier_count{0};
+  std::vector<LoopClosureLandmarkMatch> inlier_landmark_matches;
   double inlier_ratio{0.0};
   double rmse_m{0.0};
   double translation_disagreement_m{0.0};

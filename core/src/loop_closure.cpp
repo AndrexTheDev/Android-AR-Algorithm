@@ -101,6 +101,13 @@ LoopClosureConstraint verifyLoopClosure(const LoopKeyframe& reference,
      result.rotation_disagreement_degrees>config.max_rotation_disagreement_degrees){
     result.rejection_reason=LoopClosureRejectionReason::kPoseDisagreement;return result;
   }
+  result.inlier_landmark_matches.reserve(geometry.inlier_indices.size());
+  for(const auto index:geometry.inlier_indices)if(index<matches.size())
+    result.inlier_landmark_matches.push_back({matches[index].query_feature_id,
+      matches[index].train_feature_id,matches[index].hamming_distance});
+  if(result.inlier_landmark_matches.size()!=geometry.inlier_count){
+    result.rejection_reason=LoopClosureRejectionReason::kGeometryRejected;return result;
+  }
   result.valid=true;result.rejection_reason=LoopClosureRejectionReason::kNone;return result;
 }
 

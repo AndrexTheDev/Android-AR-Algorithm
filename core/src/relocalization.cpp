@@ -141,6 +141,7 @@ RelocalizationResult estimateRelocalization(
   const double rmse=std::sqrt(squared_error/static_cast<double>(final_inliers.size()));
   if(!std::isfinite(rmse)||rmse>config.max_rmse_m)return result;
   result.current_from_saved=*final_pose;result.inlier_count=final_inliers.size();
+  result.inlier_indices=std::move(final_inliers);
   result.rmse_m=rmse;result.valid=true;return result;
 }
 

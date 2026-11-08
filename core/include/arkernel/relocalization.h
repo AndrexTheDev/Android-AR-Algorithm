@@ -28,6 +28,7 @@ struct RelocalizationResult {
   Pose current_from_saved{};
   std::size_t correspondence_count{0};
   std::size_t inlier_count{0};
+  std::vector<std::size_t> inlier_indices;
   double rmse_m{0.0};
   bool valid{false};
 };

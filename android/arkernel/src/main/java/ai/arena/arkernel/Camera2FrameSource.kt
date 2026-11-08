@@ -70,6 +70,7 @@ class Camera2FrameSource(
     private val rotationPrediction: (timestampNs: Long) -> Rotation? = { null },
     private val onResult: ((VisualFrontendSnapshot) -> Unit)? = null,
     private val onError: (Throwable) -> Unit = {},
+    private val onLifecycleFailure: ((Camera2LifecycleFailure) -> Unit)? = null,
     private val onReconstructionFrame: ((CameraReconstructionFrame) -> Unit)? = null,
     private val onCaptureFrame:
         ((CameraReconstructionFrame, CameraFrameQuality) -> Unit)? = null,
@@ -102,6 +103,7 @@ class Camera2FrameSource(
     private val captureMetadata = CameraCaptureMetadataMatcher()
     private val pendingReconstructionFrames = TreeMap<Long, PendingCameraReconstructionFrame>()
     private val frameRateLimiter = CameraFrameRateLimiter(maximumOutputFramesPerSecond)
+    private val lifecycle = Camera2LifecycleStateMachine()
 
     init {
         require(maximumOutputFramesPerSecond in 1..240)
@@ -132,6 +134,7 @@ class Camera2FrameSource(
         val imageReader = ImageReader.newInstance(
             calibration.width, calibration.height, ImageFormat.YUV_420_888, 3)
         imageReader.setOnImageAvailableListener({ source -> consumeLatest(source) }, cameraHandler)
+        val lifecycleGeneration = lifecycle.beginStart()
         thread = cameraThread; handler = cameraHandler; reader = imageReader; running = true
         try {
             val binding = calibrationRuntimeMonitor?.binding
@@ -145,15 +148,30 @@ class Camera2FrameSource(
             }
             manager.openCamera(selectedCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!running) { camera.close(); return }
+                    val transition = lifecycle.deviceOpened(lifecycleGeneration)
+                    if (!transition.accepted || !running) { camera.close(); return }
                     device = camera
-                    createSession(camera, imageReader, cameraHandler)
+                    try {
+                        createSession(camera, imageReader, cameraHandler, lifecycleGeneration)
+                    } catch (error: Throwable) {
+                        camera.close()
+                        reportLifecycleFailure(lifecycle.fail(lifecycleGeneration,
+                            Camera2LifecycleFailure.SESSION_START_FAILED), error)
+                    }
                 }
                 override fun onDisconnected(camera: CameraDevice) {
-                    camera.close(); if (running) onError(IllegalStateException("Camera disconnected"))
+                    val transition = lifecycle.fail(lifecycleGeneration,
+                        Camera2LifecycleFailure.DEVICE_DISCONNECTED)
+                    camera.close()
+                    reportLifecycleFailure(transition,
+                        IllegalStateException("Camera disconnected"))
                 }
                 override fun onError(camera: CameraDevice, error: Int) {
-                    camera.close(); if (running) onError(IllegalStateException("Camera2 error $error"))
+                    val transition = lifecycle.fail(lifecycleGeneration,
+                        Camera2LifecycleFailure.DEVICE_ERROR)
+                    camera.close()
+                    reportLifecycleFailure(transition,
+                        IllegalStateException("Camera2 error $error"))
                 }
             }, cameraHandler)
         } catch (error: Throwable) {
@@ -166,13 +184,16 @@ class Camera2FrameSource(
             CameraCharacteristics.LENS_FACING_BACK
     } ?: error("No back-facing Camera2 device")
 
-    private fun createSession(camera: CameraDevice, imageReader: ImageReader, handler: Handler) {
+    private fun createSession(camera: CameraDevice, imageReader: ImageReader, handler: Handler,
+        lifecycleGeneration: Long) {
         camera.createCaptureSession(listOf(imageReader.surface),
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(captureSession: CameraCaptureSession) {
-                    if (!running) { captureSession.close(); return }
-                    session = captureSession
-                    val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                    val transition = lifecycle.sessionConfigured(lifecycleGeneration)
+                    if (!transition.accepted || !running) { captureSession.close(); return }
+                    try {
+                        session = captureSession
+                        val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                         addTarget(imageReader.surface)
                         selectBoundedFpsRange(selectedCameraRanges(camera.id),
                             maximumOutputFramesPerSecond)?.let {
@@ -218,10 +239,18 @@ class Camera2FrameSource(
                                     result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
                             }
                         }, handler)
+                    } catch (error: Throwable) {
+                        captureSession.close()
+                        reportLifecycleFailure(lifecycle.fail(lifecycleGeneration,
+                            Camera2LifecycleFailure.SESSION_START_FAILED), error)
+                    }
                 }
                 override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+                    val transition = lifecycle.fail(lifecycleGeneration,
+                        Camera2LifecycleFailure.SESSION_CONFIGURE_FAILED)
                     captureSession.close()
-                    if (running) onError(IllegalStateException("Camera capture session failed"))
+                    reportLifecycleFailure(transition,
+                        IllegalStateException("Camera capture session failed"))
                 }
             }, handler)
     }
@@ -371,9 +400,18 @@ class Camera2FrameSource(
         return sample
     }
 
+    private fun reportLifecycleFailure(transition: Camera2LifecycleTransition,
+        error: Throwable) {
+        if (!transition.shouldReportFailure) return
+        stop()
+        transition.failure?.let { failure -> runCatching { onLifecycleFailure?.invoke(failure) } }
+        onError(error)
+    }
+
     @Synchronized
     fun stop() {
         running = false
+        lifecycle.stop()
         session?.close(); session = null
         device?.close(); device = null
         reader?.close(); reader = null

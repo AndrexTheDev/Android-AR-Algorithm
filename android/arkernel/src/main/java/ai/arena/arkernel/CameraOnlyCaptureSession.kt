@@ -27,6 +27,7 @@ class CameraOnlyCaptureSession(
         calibration = calibration,
         frontend = null,
         onError = onError,
+        onLifecycleFailure = { stop() },
         onCaptureFrame = { frame, quality -> onFrame(CameraOnlyCaptureFrame(frame, quality)) },
         onTimestampNormalizationFailure = { reason ->
             handleTerminalFailure("Camera clock invalidated: $reason")

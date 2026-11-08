@@ -83,6 +83,7 @@ class ArKernelSession(
         rotationPrediction = ::predictRotationAt,
         onResult = ::handleVisualResult,
         onError = onError,
+        onLifecycleFailure = { handleCameraLifecycleFailure() },
         onReconstructionFrame = if (onReconstructionFrame == null) null
             else ::handleReconstructionCameraFrame,
         reconstructionQualityGate = if (onReconstructionFrame == null) null else { snapshot, quality ->
@@ -150,6 +151,10 @@ class ArKernelSession(
             previousVisualFrameTimestampNs = null
             pendingReconstructionResults.clear()
         }
+    }
+
+    private fun handleCameraLifecycleFailure() {
+        stop()
     }
 
     private fun enqueueImu(timestamp: Long, acceleration: Vector3, angularVelocity: Vector3) {

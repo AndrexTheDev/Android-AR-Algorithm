@@ -83,7 +83,7 @@ class DistributionFocalDetectionOptions(
     init {
         require(strides.isNotEmpty() && strides.size <= 8 &&
             strides.all { it in 1..512 } && strides.toSet().size == strides.size)
-        require(strides.zipWithNext().all { (a, b) -> a < b })
+        require((1 until strides.size).all { index -> strides[index - 1] < strides[index] })
         require(classCount in 1..1_024 && regressionMax in 1..32)
         require(classActivation != DetectionScoreActivation.SOFTMAX) {
             "Independent DFL class heads use probability or sigmoid activation"

@@ -43,6 +43,7 @@ class ArKernelSession(
         ((ArKernelSessionResult, CameraFrameQuality) -> Boolean)? = null,
     private val compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
     private val guidedRotationProbe: GuidedRotationObservabilityProbe? = null,
+    private val guidedTimeOffsetProbe: GuidedTimeOffsetObservabilityProbe? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -61,6 +62,7 @@ class ArKernelSession(
     private var previousBodyWorldRotation: Rotation? = null
     private var pendingBodyWorldRotation: Pair<Long, Rotation>? = null
     private var pendingCameraRotationPrediction: Pair<Long, Rotation>? = null
+    private var previousVisualFrameTimestampNs: Long? = null
     private val pendingReconstructionResults = TreeMap<Long, ArKernelSessionResult>()
     @Volatile private var running = false
     @Volatile private var closed = false
@@ -99,6 +101,7 @@ class ArKernelSession(
             queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
             previousBodyWorldRotation = null; pendingBodyWorldRotation = null
             pendingCameraRotationPrediction = null
+            previousVisualFrameTimestampNs = null
             pendingReconstructionResults.clear()
         }
         latestMappingGate = MappingGateDecision(
@@ -125,12 +128,14 @@ class ArKernelSession(
         synchronized(lock) {
             queue.clear(); previousBodyWorldRotation = null; pendingBodyWorldRotation = null
             pendingCameraRotationPrediction = null
+            previousVisualFrameTimestampNs = null
             pendingReconstructionResults.clear()
         }
     }
 
     private fun enqueueImu(timestamp: Long, acceleration: Vector3, angularVelocity: Vector3) {
         if (!running) return
+        guidedTimeOffsetProbe?.addGyroscopeBody(timestamp, angularVelocity)
         synchronized(lock) {
             if (queue.isNotEmpty() && timestamp <= queue.peekLast().timestampNs) return
             if (queue.size >= maxQueuedImuSamples) {
@@ -173,13 +178,20 @@ class ArKernelSession(
 
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
-        val rotationPrediction = synchronized(lock) {
-            pendingCameraRotationPrediction?.takeIf { it.first == result.timestampNs }?.second
-                .also { pendingCameraRotationPrediction = null }
+        val (rotationPrediction, previousVisualTimestamp) = synchronized(lock) {
+            val prediction = pendingCameraRotationPrediction
+                ?.takeIf { it.first == result.timestampNs }?.second
+            pendingCameraRotationPrediction = null
+            val previous = previousVisualFrameTimestampNs
+            previousVisualFrameTimestampNs = result.timestampNs
+            prediction to previous
         }
-        if (rotationPrediction != null) result.relativePose?.let { pose ->
-            guidedRotationProbe?.addMatchedRotation(
+        result.relativePose?.let { pose ->
+            if (rotationPrediction != null) guidedRotationProbe?.addMatchedRotation(
                 pose.rotationCurrentFromPrevious, rotationPrediction)
+            if (previousVisualTimestamp != null) guidedTimeOffsetProbe?.addVisualRotation(
+                previousVisualTimestamp, result.timestampNs,
+                pose.rotationCurrentFromPrevious)
         }
         val stateBeforeFusion = vio.snapshot()
         val fusionApplied = result.relativePose?.let(vio::fuseVisual) ?: false

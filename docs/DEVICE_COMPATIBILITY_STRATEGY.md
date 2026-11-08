@@ -122,7 +122,7 @@ This catches behavior classes, including new devices, without knowing their name
 
 ### Stage 2: guided observability/self-calibration check
 
-A short optional user-guided motion sequence can establish much more than metadata. The implemented bounded `GuidedRotationObservabilityProbe` now receives the visual frame-to-frame rotation and the camera-axis IMU prediction supplied to that exact frame. It requires enough signed, moderate motion and checks direction correlation and magnitude agreement; it deliberately rejects rather than estimates when motion is insufficient. This first observability gate can expose incorrect axes, signs, extrinsics or timing, but does not independently identify which one failed.
+A short optional user-guided motion sequence can establish much more than metadata. The implemented bounded `GuidedRotationObservabilityProbe` receives the visual frame-to-frame rotation and the camera-axis IMU prediction supplied to that exact frame. It requires enough signed, moderate motion and checks direction correlation and magnitude agreement; it deliberately rejects rather than estimates when motion is insufficient. `GuidedTimeOffsetObservabilityProbe` additionally retains bounded raw gyro and visual angular-rate observations, transforms Android body axes through the supplied extrinsics, and searches a fixed ±100 ms offset grid. It accepts only changing multi-axis motion with a strong, unique, interior correlation peak. The reported uncertainty and variance come conservatively from the near-peak grid width; they are not a full calibration covariance. Neither probe rewrites live timestamps or self-installs calibration.
 
 - pure rotations at moderate angular velocity correlate gyro motion with visual rotation;
 - estimate camera/IMU time offset and drift from angular-rate alignment;
@@ -428,7 +428,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 ### P3 — calibration reach
 
-1. [Implemented foundation] Add guided rotation verification; continue with observable time-offset search and covariance.
+1. [Implemented foundation] Add guided rotation verification and bounded observable time-offset search with conservative peak-width uncertainty; continue with drift estimation and laboratory covariance validation.
 2. Add target-based user calibration as a separate explicit flow.
 3. Support signed calibration profiles with uncertainty, expiry and firmware/mode binding.
 4. Add bounded per-session refinement that can lower but never self-award validation status.

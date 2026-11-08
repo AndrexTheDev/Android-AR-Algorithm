@@ -10,7 +10,7 @@ import java.io.File
 import java.util.zip.CRC32
 
 private const val ADMISSION_EVIDENCE_MAGIC = 0x41524B41 // ARKA
-private const val ADMISSION_EVIDENCE_VERSION = 1
+private const val ADMISSION_EVIDENCE_VERSION = 2
 private const val MAX_ADMISSION_EVIDENCE_BYTES = 16 * 1024
 private const val MAX_ADMISSION_ID_LENGTH = 256
 private const val MAX_PERSISTED_ROTATION_OBSERVATIONS = 512
@@ -25,6 +25,7 @@ data class PersistedAdmissionEvidence(
     val observedCameraTimebase: ObservedCameraTimebase,
     val activeBlockingReasons: List<ActiveCompatibilityReasonCode>,
     val rotationReport: RotationObservabilityReport?,
+    val timeOffsetReport: TimeOffsetObservabilityReport? = null,
 ) {
     init {
         require(capabilitySignatureSha256.isSha256())
@@ -46,12 +47,14 @@ data class PersistedAdmissionEvidence(
         fun fromReports(signature: DeviceCapabilitySignature, calibrationProfileSha256: String,
             softwareRevision: String, activeReport: ActiveCompatibilityReport,
             rotationReport: RotationObservabilityReport?, recordedAtEpochMillis: Long,
-            validityMillis: Long): PersistedAdmissionEvidence {
+            validityMillis: Long,
+            timeOffsetReport: TimeOffsetObservabilityReport? = null): PersistedAdmissionEvidence {
             require(validityMillis in 1..30L * 24 * 60 * 60 * 1_000)
             return PersistedAdmissionEvidence(signature.stableIdSha256,
                 calibrationProfileSha256, softwareRevision, recordedAtEpochMillis,
                 Math.addExact(recordedAtEpochMillis, validityMillis), activeReport.promotedTier,
-                activeReport.observedCameraTimebase, activeReport.blockingReasons, rotationReport)
+                activeReport.observedCameraTimebase, activeReport.blockingReasons, rotationReport,
+                timeOffsetReport)
         }
     }
 }
@@ -123,6 +126,22 @@ internal object AdmissionEvidenceCodec {
                     output.writeInt(report.reasons.size)
                     report.reasons.forEach { output.writeInt(it.ordinal) }
                 }
+                output.writeBoolean(value.timeOffsetReport != null)
+                value.timeOffsetReport?.let { report ->
+                    output.writeInt(report.gyroscopeSamples)
+                    output.writeInt(report.visualRotations)
+                    output.writeLong(report.observedSpanNs)
+                    output.writeBoolean(report.visualToGyroscopeOffsetNs != null)
+                    if (report.visualToGyroscopeOffsetNs != null) {
+                        output.writeLong(report.visualToGyroscopeOffsetNs)
+                        output.writeLong(requireNotNull(report.offsetUncertaintyNs))
+                        output.writeDouble(requireNotNull(report.offsetVarianceNsSquared))
+                    }
+                    output.writeDouble(report.bestCorrelation)
+                    output.writeDouble(report.peakMargin)
+                    output.writeInt(report.reasons.size)
+                    report.reasons.forEach { output.writeInt(it.ordinal) }
+                }
             }
         }.toByteArray()
         require(payload.size + 8 <= MAX_ADMISSION_EVIDENCE_BYTES)
@@ -167,9 +186,22 @@ internal object AdmissionEvidenceCodec {
                 RotationObservabilityReport(matched, visual, predicted, cosine, ratio,
                     readEnums(data))
             }
+            val timeOffset = if (!data.readBoolean()) null else {
+                val gyroSamples = data.readInt()
+                val visualRotations = data.readInt()
+                val span = data.readLong()
+                val hasEstimate = data.readBoolean()
+                val estimate = if (hasEstimate) data.readLong() else null
+                val uncertainty = if (hasEstimate) data.readLong() else null
+                val variance = if (hasEstimate) data.readDouble() else null
+                val correlation = data.readDouble()
+                val margin = data.readDouble()
+                TimeOffsetObservabilityReport(gyroSamples, visualRotations, span,
+                    estimate, uncertainty, variance, correlation, margin, readEnums(data))
+            }
             require(data.available() == 0)
             PersistedAdmissionEvidence(signature, calibration, revision, recorded, expires,
-                tier, timebase, activeReasons, rotation)
+                tier, timebase, activeReasons, rotation, timeOffset)
         }
     }
 

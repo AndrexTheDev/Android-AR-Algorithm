@@ -73,6 +73,8 @@ struct CaptureDecision {
   CaptureRejection rejection{CaptureRejection::kNone};
   double quality_score{0.0};
   std::optional<std::size_t> object_view_bin;
+  // Non-zero only for reserve(). Coverage/keyframes change after commit().
+  std::uint64_t reservation_token{0};
 };
 
 struct ObjectCoverage {
@@ -85,7 +87,13 @@ class ReconstructionCapturePlanner {
  public:
   explicit ReconstructionCapturePlanner(ScanMode mode,
       CaptureQualityConfig config = {});
+  // Immediate legacy path for callers whose payload is already durable.
   CaptureDecision consider(const ReconstructionFrameCandidate& candidate);
+  // Two-phase path for camera pipelines. At most one reservation may be open.
+  CaptureDecision reserve(const ReconstructionFrameCandidate& candidate);
+  bool commit(std::uint64_t reservation_token);
+  bool cancel(std::uint64_t reservation_token);
+  bool hasPendingReservation() const;
   const std::vector<SelectedReconstructionFrame>& keyframes() const;
   ObjectCoverage objectCoverage() const;
   void reset();
@@ -96,6 +104,12 @@ class ReconstructionCapturePlanner {
   std::vector<SelectedReconstructionFrame> keyframes_;
   std::vector<bool> object_bins_;
   std::optional<Vec3> reference_object_center_world_m_;
+  struct PendingReservation {
+    std::uint64_t token{0};
+    ReconstructionFrameCandidate candidate;
+  };
+  std::optional<PendingReservation> pending_reservation_;
+  std::uint64_t next_reservation_token_{1};
   TimestampNs last_seen_timestamp_ns_{0};
 };
 

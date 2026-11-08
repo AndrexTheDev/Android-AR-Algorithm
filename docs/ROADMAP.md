@@ -95,7 +95,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add stride-safe canonical I420 copy and bounded asynchronous archive writer with explicit backpressure.
 - [x] Add bounded pre-copy luminance sharpness/clipping metrics and a session-level quality gate.
 - [x] Connect the native portable planner through JNI (pose, uncertainty, quality, ROI, view bins and rejection reason).
-- [ ] Add two-phase planner selection/archive confirmation so storage failure cannot overstate durable coverage.
+- [x] Add one-at-a-time planner reservation with tokenized commit/cancel and unchanged pre-commit coverage.
 - [ ] Add host scan-controller convenience wiring from planner decision through I420 archive submission.
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.

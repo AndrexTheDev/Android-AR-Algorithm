@@ -87,6 +87,22 @@ int main() {
   candidate.translation_sigma_m=0.005;candidate.rotation_sigma_degrees=0.2;
   candidate.object_foreground_ratio=0.5;candidate.object_center_world_m=Vec3{};
   candidate.image_reference="frames/1.yuv";
+  ReconstructionCapturePlanner transactional_capture(ScanMode::kObject,capture_config);
+  auto reserved=transactional_capture.reserve(candidate);
+  CHECK(reserved.accepted&&reserved.reservation_token!=0&&
+        transactional_capture.hasPendingReservation());
+  CHECK(transactional_capture.keyframes().empty()&&
+        transactional_capture.objectCoverage().covered_bins==0);
+  CHECK(!transactional_capture.commit(reserved.reservation_token+1));
+  CHECK(transactional_capture.commit(reserved.reservation_token));
+  CHECK(transactional_capture.keyframes().size()==1&&
+        transactional_capture.objectCoverage().covered_bins==1);
+  transactional_capture.reset();
+  reserved=transactional_capture.reserve(candidate);
+  CHECK(reserved.accepted&&transactional_capture.cancel(reserved.reservation_token));
+  CHECK(transactional_capture.keyframes().empty()&&
+        transactional_capture.objectCoverage().covered_bins==0);
+  CHECK(!transactional_capture.commit(reserved.reservation_token));
   auto capture=object_capture.consider(candidate);
   CHECK(capture.accepted&&capture.object_view_bin.has_value());
   candidate.frame_id=2;candidate.timestamp_ns=1200;candidate.image_reference="frames/2.yuv";

@@ -39,6 +39,7 @@ data class ReconstructionPlannerDecision(
     val coveredObjectBins: Long,
     val totalObjectBins: Long,
     val objectCoverageRatio: Double,
+    val reservationToken: Long = 0,
 )
 
 /** Android owner for the portable bounded C++ capture planner. */
@@ -58,28 +59,47 @@ class ArKernelReconstructionPlanner(
         require(it != 0L) { "Invalid reconstruction planner configuration" }
     }
 
-    /** Suitable directly as the session pre-copy quality gate. */
-    @Synchronized
-    fun consider(
-        frameId: Long,
-        session: ArKernelSessionResult,
-        quality: CameraFrameQuality,
-        translationSigmaMeters: Double,
+    /** Immediate path only when the frame payload is already durable. */
+    @Synchronized fun consider(frameId: Long, session: ArKernelSessionResult,
+        quality: CameraFrameQuality, translationSigmaMeters: Double,
         rotationSigmaDegrees: Double,
-        objectObservation: ReconstructionObjectObservation? = null,
-    ): ReconstructionPlannerDecision {
+        objectObservation: ReconstructionObjectObservation? = null
+    ) = decide(false, frameId, session, quality, translationSigmaMeters,
+        rotationSigmaDegrees, objectObservation)
+
+    /** Pre-copy path. Call commit(token) only after durable storage, otherwise cancel(token). */
+    @Synchronized fun reserve(frameId: Long, session: ArKernelSessionResult,
+        quality: CameraFrameQuality, translationSigmaMeters: Double,
+        rotationSigmaDegrees: Double,
+        objectObservation: ReconstructionObjectObservation? = null
+    ) = decide(true, frameId, session, quality, translationSigmaMeters,
+        rotationSigmaDegrees, objectObservation)
+
+    @Synchronized fun commit(reservationToken: Long): Boolean {
+        check(nativeHandle != 0L)
+        return nativeCommit(nativeHandle, reservationToken)
+    }
+
+    @Synchronized fun cancel(reservationToken: Long): Boolean {
+        check(nativeHandle != 0L)
+        return nativeCancel(nativeHandle, reservationToken)
+    }
+
+    private fun decide(reserve: Boolean, frameId: Long, session: ArKernelSessionResult,
+        quality: CameraFrameQuality, translationSigmaMeters: Double,
+        rotationSigmaDegrees: Double,
+        objectObservation: ReconstructionObjectObservation?): ReconstructionPlannerDecision {
         check(nativeHandle != 0L) { "Reconstruction planner is closed" }
         val pose = session.worldFromCamera
         if (pose == null) return unavailable(ReconstructionFrameRejection.TRACKING_UNRELIABLE)
         require(pose.timestampNs == session.visual.timestampNs)
         val objectCenter = objectObservation?.centerWorldMeters ?: Vector3(0.0, 0.0, 0.0)
-        val metadata = LongArray(6)
+        val metadata = LongArray(7)
         val values = DoubleArray(2)
-        val status = nativeConsider(nativeHandle, frameId, pose.timestampNs,
+        val status = nativeDecide(nativeHandle, reserve, frameId, pose.timestampNs,
             pose.rotation.w, pose.rotation.x, pose.rotation.y, pose.rotation.z,
             pose.positionMeters.x, pose.positionMeters.y, pose.positionMeters.z,
-            session.visual.state == FrontendState.TRACKING &&
-                session.vio?.status != VioStatus.LIMITED,
+            session.visual.state == FrontendState.TRACKING && session.vio?.status != VioStatus.LIMITED,
             session.visual.acceptedTrackCount, quality.sharpness, quality.clippedPixelRatio,
             translationSigmaMeters, rotationSigmaDegrees,
             objectObservation?.foregroundRatio ?: 0.0, objectObservation != null,
@@ -88,7 +108,7 @@ class ArKernelReconstructionPlanner(
         return ReconstructionPlannerDecision(metadata[0] != 0L,
             ReconstructionFrameRejection.entries[metadata[1].toInt()], values[0],
             if (metadata[2] != 0L) metadata[3] else null,
-            metadata[4], metadata[5], values[1])
+            metadata[4], metadata[5], values[1], metadata[6])
     }
 
     @Synchronized fun reset() {
@@ -105,13 +125,16 @@ class ArKernelReconstructionPlanner(
 
     private external fun nativeCreate(objectMode: Boolean, integerConfig: LongArray,
                                       scalarConfig: DoubleArray): Long
-    private external fun nativeConsider(handle: Long, frameId: Long, timestampNs: Long,
+    private external fun nativeDecide(handle: Long, reserve: Boolean,
+        frameId: Long, timestampNs: Long,
         rw: Double, rx: Double, ry: Double, rz: Double, px: Double, py: Double, pz: Double,
         tracking: Boolean, trackedFeatures: Long, sharpness: Double, clippedRatio: Double,
         translationSigmaMeters: Double, rotationSigmaDegrees: Double,
         objectForegroundRatio: Double, hasObjectCenter: Boolean,
         objectCenterX: Double, objectCenterY: Double, objectCenterZ: Double,
         metadata: LongArray, values: DoubleArray): Int
+    private external fun nativeCommit(handle: Long, reservationToken: Long): Boolean
+    private external fun nativeCancel(handle: Long, reservationToken: Long): Boolean
     private external fun nativeReset(handle: Long): Int
     private external fun nativeDestroy(handle: Long)
 

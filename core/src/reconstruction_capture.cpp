@@ -66,6 +66,7 @@ std::optional<std::size_t> ReconstructionCapturePlanner::objectBin(
 CaptureDecision ReconstructionCapturePlanner::consider(
     const ReconstructionFrameCandidate& c) {
   CaptureDecision result;
+  if(pending_reservation_){result.rejection=CaptureRejection::kInvalid;return result;}
   if(c.timestamp_ns<=0||c.frame_id==0||c.image_reference.empty()||!validPose(c.world_from_camera)||
      !finite(c.sharpness)||c.sharpness<0||c.sharpness>1||
      !finite(c.clipped_pixel_ratio)||c.clipped_pixel_ratio<0||c.clipped_pixel_ratio>1||
@@ -123,6 +124,42 @@ CaptureDecision ReconstructionCapturePlanner::consider(
   return result;
 }
 
+CaptureDecision ReconstructionCapturePlanner::reserve(
+    const ReconstructionFrameCandidate& candidate) {
+  CaptureDecision result;
+  if(pending_reservation_){result.rejection=CaptureRejection::kInvalid;return result;}
+  ReconstructionCapturePlanner preview=*this;
+  result=preview.consider(candidate);
+  if(!result.accepted){
+    // Preserve monotonic observation semantics for rejected frames.
+    return consider(candidate);
+  }
+  std::uint64_t token=next_reservation_token_++;
+  if(token==0){token=next_reservation_token_++;}
+  pending_reservation_=PendingReservation{token,candidate};
+  result.reservation_token=token;
+  return result;
+}
+
+bool ReconstructionCapturePlanner::commit(std::uint64_t token) {
+  if(!pending_reservation_||token==0||pending_reservation_->token!=token)return false;
+  const ReconstructionFrameCandidate candidate=pending_reservation_->candidate;
+  pending_reservation_.reset();
+  const CaptureDecision decision=consider(candidate);
+  return decision.accepted;
+}
+
+bool ReconstructionCapturePlanner::cancel(std::uint64_t token) {
+  if(!pending_reservation_||token==0||pending_reservation_->token!=token)return false;
+  last_seen_timestamp_ns_=std::max(last_seen_timestamp_ns_,
+                                   pending_reservation_->candidate.timestamp_ns);
+  pending_reservation_.reset();return true;
+}
+
+bool ReconstructionCapturePlanner::hasPendingReservation() const {
+  return pending_reservation_.has_value();
+}
+
 const std::vector<SelectedReconstructionFrame>&
 ReconstructionCapturePlanner::keyframes() const{return keyframes_;}
 
@@ -136,6 +173,6 @@ ObjectCoverage ReconstructionCapturePlanner::objectCoverage() const {
 
 void ReconstructionCapturePlanner::reset(){keyframes_.clear();
   std::fill(object_bins_.begin(),object_bins_.end(),false);reference_object_center_world_m_.reset();
-  last_seen_timestamp_ns_=0;}
+  pending_reservation_.reset();last_seen_timestamp_ns_=0;}
 
 }  // namespace arkernel

@@ -13,7 +13,7 @@ The Android library now contains:
 
 ## Reconstruction quality planner
 
-`ArKernelReconstructionPlanner` exposes the portable C++ environment/object capture planner through JNI. It combines timestamp-matched world pose, tracking/features, pre-copy sharpness/clipping, pose uncertainty and optional object ROI into an accepted/rejected decision with a stable reason, score, view bin and coverage. The decision can drive `ArKernelSession.reconstructionQualityGate` before I420 copying.
+`ArKernelReconstructionPlanner` exposes the portable C++ environment/object capture planner through JNI. It combines timestamp-matched world pose, tracking/features, pre-copy sharpness/clipping, pose uncertainty and optional object ROI into an accepted/rejected decision with a stable reason, score, view bin and coverage. The decision can drive `ArKernelSession.reconstructionQualityGate` before I420 copying. Camera pipelines use tokenized `reserve()` and publish keyframe/coverage state only through `commit()` after durable storage; `cancel()` rolls back copy, queue or storage failures.
 
 ## Reconstruction frame archive
 

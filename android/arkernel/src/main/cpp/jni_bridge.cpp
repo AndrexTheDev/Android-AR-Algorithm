@@ -925,8 +925,8 @@ Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeCreate(
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeConsider(
-    JNIEnv* env,jobject,jlong handle,jlong frame_id,jlong timestamp,
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeDecide(
+    JNIEnv* env,jobject,jlong handle,jboolean reserve,jlong frame_id,jlong timestamp,
     jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble px,jdouble py,jdouble pz,
     jboolean tracking,jlong tracked_features,jdouble sharpness,jdouble clipped_ratio,
     jdouble translation_sigma,jdouble rotation_sigma,jdouble foreground_ratio,
@@ -934,7 +934,7 @@ Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeConsider(
     jlongArray metadata,jdoubleArray values) {
   auto* planner=fromReconstructionPlannerHandle(handle);
   if(!planner||!metadata||!values||frame_id<=0||tracked_features<0||
-     env->GetArrayLength(metadata)<6||env->GetArrayLength(values)<2)
+     env->GetArrayLength(metadata)<7||env->GetArrayLength(values)<2)
     return ARK_RESULT_INVALID_ARGUMENT;
   try {
     arkernel::ReconstructionFrameCandidate candidate;
@@ -950,17 +950,32 @@ Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeConsider(
     candidate.object_foreground_ratio=foreground_ratio;
     if(has_object_center)candidate.object_center_world_m=arkernel::Vec3{center_x,center_y,center_z};
     candidate.image_reference="precopy://"+std::to_string(frame_id);
-    const auto decision=planner->consider(candidate);
+    const auto decision=reserve?planner->reserve(candidate):planner->consider(candidate);
     const auto coverage=planner->objectCoverage();
-    const jlong output[6]={decision.accepted?1L:0L,
+    const jlong output[7]={decision.accepted?1L:0L,
       static_cast<jlong>(decision.rejection),decision.object_view_bin?1L:0L,
       decision.object_view_bin?static_cast<jlong>(*decision.object_view_bin):0L,
-      static_cast<jlong>(coverage.covered_bins),static_cast<jlong>(coverage.total_bins)};
+      static_cast<jlong>(coverage.covered_bins),static_cast<jlong>(coverage.total_bins),
+      static_cast<jlong>(decision.reservation_token)};
     const jdouble scalar_output[2]={decision.quality_score,coverage.ratio};
-    env->SetLongArrayRegion(metadata,0,6,output);
+    env->SetLongArrayRegion(metadata,0,7,output);
     env->SetDoubleArrayRegion(values,0,2,scalar_output);
     return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
   }catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeCommit(
+    JNIEnv*,jobject,jlong handle,jlong token) {
+  auto* planner=fromReconstructionPlannerHandle(handle);
+  return planner&&token>0&&planner->commit(static_cast<uint64_t>(token))?JNI_TRUE:JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeCancel(
+    JNIEnv*,jobject,jlong handle,jlong token) {
+  auto* planner=fromReconstructionPlannerHandle(handle);
+  return planner&&token>0&&planner->cancel(static_cast<uint64_t>(token))?JNI_TRUE:JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jint JNICALL

@@ -53,6 +53,8 @@ class RuntimeResourceTelemetryCollector {
         if (durationNs <= 0) return false
         if (processingNs.size == MAX_RESOURCE_LATENCY_SAMPLES) {
             budgetExceeded = true
+            processingNs.removeAt(0)
+            processingNs += durationNs
             return false
         }
         processingNs += durationNs

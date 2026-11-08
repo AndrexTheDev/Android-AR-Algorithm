@@ -71,6 +71,17 @@ class RuntimeResourcePolicyTest {
     }
 
     @Test
+    fun fullTelemetryWindowKeepsObservingRecentSlowFrames() {
+        val collector = RuntimeResourceTelemetryCollector()
+        repeat(256) { collector.addFrameProcessingDuration(5_000_000L) }
+        repeat(20) { assertFalse(collector.addFrameProcessingDuration(100_000_000L)) }
+        val snapshot = collector.snapshot()
+        assertEquals(256, snapshot.processingSamples)
+        assertEquals(100_000_000L, snapshot.processingP95Ns)
+        assertTrue(snapshot.budgetExceeded)
+    }
+
+    @Test
     fun telemetryIsBoundedAndReportsP95() {
         val collector = RuntimeResourceTelemetryCollector()
         repeat(256) { index -> assertTrue(collector.addFrameProcessingDuration(

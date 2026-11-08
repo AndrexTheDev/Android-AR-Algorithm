@@ -42,7 +42,9 @@ The runtime adapter remains responsible for selecting delegates and binding the 
 
 ## Bounded scheduler
 
-`BoundedInferenceScheduler` owns one worker and permits exactly one in-flight request with no hidden queue. Submissions report `ACCEPTED`, `RATE_LIMITED`, `BUSY`, `OUT_OF_ORDER`, or `CLOSED`. The default minimum interval is 100 ms (10 Hz). This explicit dropping policy prevents camera-rate input from growing latency and memory without bound. Frames must be monotonic. Backend calls are serialized, callback execution occurs on the inference worker, and close safely defers backend destruction until an in-flight call returns.
+`BoundedInferenceScheduler` owns one worker and permits exactly one in-flight request with no hidden queue. Submissions report `ACCEPTED`, `RATE_LIMITED`, `THERMAL_PAUSED`, `BUSY`, `OUT_OF_ORDER`, or `CLOSED`. The default fixed minimum interval is 100 ms (10 Hz). This explicit dropping policy prevents camera-rate input from growing latency and memory without bound. Frames must be monotonic. Backend calls are serialized, callback execution occurs on the inference worker, and close safely defers backend destruction until an in-flight call returns.
+
+An optional bounded `InferenceCadenceController` measures backend-plus-validation latency (not callback time), keeps a 64-sample p95 and EWMA, and raises the effective interval to respect a configurable target duty cycle. `WARM` and `HOT` multiply that interval; `CRITICAL` returns `THERMAL_PAUSED` without accepting work. Repeated failures back off by a bounded factor. The host supplies thermal state from platform policy; the controller does not claim to read device thermals itself. Snapshots expose sample count, EWMA, p95, recommendation, failure streak, and pause state.
 
 Outputs are checked against the backend manifest and source frame: exact timestamp/pose, at most 256 detections, known class IDs (or Unknown), in-image boxes/anchor pixels, matching calibrated metric-depth dimensions, and declared task capability. Relative depth cannot appear as `MetricDepthImage`.
 

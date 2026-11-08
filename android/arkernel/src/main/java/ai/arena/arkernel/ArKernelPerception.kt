@@ -188,13 +188,91 @@ interface OnDeviceInferenceBackend : AutoCloseable {
     override fun close() = Unit
 }
 
-enum class InferenceSubmitResult { ACCEPTED, RATE_LIMITED, BUSY, OUT_OF_ORDER, CLOSED }
+enum class InferenceThermalState { NORMAL, WARM, HOT, CRITICAL }
+
+data class InferenceCadenceOptions(
+    val minimumIntervalNs: Long = 50_000_000L,
+    val maximumIntervalNs: Long = 2_000_000_000L,
+    val targetDutyCycle: Double = 0.35,
+    val latencyEwmaAlpha: Double = 0.20,
+) {
+    init {
+        require(minimumIntervalNs > 0 && maximumIntervalNs >= minimumIntervalNs)
+        require(targetDutyCycle.isFinite() && targetDutyCycle in 0.05..1.0)
+        require(latencyEwmaAlpha.isFinite() && latencyEwmaAlpha in 0.01..1.0)
+    }
+}
+
+data class InferenceCadenceSnapshot(
+    val sampleCount: Long,
+    val latencyEwmaNs: Long,
+    val latencyP95Ns: Long,
+    val recommendedIntervalNs: Long,
+    val thermalState: InferenceThermalState,
+    val consecutiveFailures: Int,
+    val paused: Boolean,
+)
+
+/** Bounded latency/thermal controller; it observes runtime only and never queues work. */
+class InferenceCadenceController(
+    private val options: InferenceCadenceOptions = InferenceCadenceOptions(),
+) {
+    private val recentLatencyNs = LongArray(64)
+    private var recentCount = 0
+    private var recentIndex = 0
+    private var sampleCount = 0L
+    private var latencyEwmaNs = 0.0
+    private var thermalState = InferenceThermalState.NORMAL
+    private var consecutiveFailures = 0
+
+    @Synchronized fun updateThermalState(state: InferenceThermalState) { thermalState = state }
+
+    @Synchronized fun record(latencyNs: Long, succeeded: Boolean) {
+        require(latencyNs > 0)
+        latencyEwmaNs = if (sampleCount == 0L) latencyNs.toDouble() else
+            options.latencyEwmaAlpha * latencyNs +
+                (1.0 - options.latencyEwmaAlpha) * latencyEwmaNs
+        recentLatencyNs[recentIndex] = latencyNs
+        recentIndex = (recentIndex + 1) % recentLatencyNs.size
+        recentCount = minOf(recentCount + 1, recentLatencyNs.size)
+        ++sampleCount
+        consecutiveFailures = if (succeeded) 0 else minOf(consecutiveFailures + 1, 16)
+    }
+
+    @Synchronized fun recommendedIntervalNs(): Long {
+        val latencyDriven = if (sampleCount == 0L) options.minimumIntervalNs else
+            (latencyEwmaNs / options.targetDutyCycle).toLong().coerceAtLeast(1L)
+        val thermalMultiplier = when (thermalState) {
+            InferenceThermalState.NORMAL -> 1.0
+            InferenceThermalState.WARM -> 1.5
+            InferenceThermalState.HOT -> 2.5
+            InferenceThermalState.CRITICAL -> 1.0
+        }
+        val failureMultiplier = 1.0 + minOf(consecutiveFailures, 4) * 0.25
+        return (latencyDriven * thermalMultiplier * failureMultiplier).toLong()
+            .coerceIn(options.minimumIntervalNs, options.maximumIntervalNs)
+    }
+
+    @Synchronized fun isPaused(): Boolean = thermalState == InferenceThermalState.CRITICAL
+
+    @Synchronized fun snapshot(): InferenceCadenceSnapshot {
+        val sorted = LongArray(recentCount) { recentLatencyNs[it] }.apply { sort() }
+        val p95 = if (sorted.isEmpty()) 0L else sorted[((sorted.size - 1) * 95) / 100]
+        return InferenceCadenceSnapshot(sampleCount, latencyEwmaNs.toLong(), p95,
+            recommendedIntervalNs(), thermalState, consecutiveFailures, isPaused())
+    }
+}
+
+enum class InferenceSubmitResult {
+    ACCEPTED, RATE_LIMITED, BUSY, OUT_OF_ORDER, CLOSED, THERMAL_PAUSED
+}
 
 /** One in-flight request, no hidden queue, explicit drops and monotonic frames. */
 class BoundedInferenceScheduler(
     private val backend: OnDeviceInferenceBackend,
     private val minimumIntervalNs: Long = 100_000_000L,
     threadName: String = "ArKernelInference",
+    private val cadenceController: InferenceCadenceController? = null,
 ) : AutoCloseable {
     private val lock = Any()
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -214,22 +292,32 @@ class BoundedInferenceScheduler(
     ): InferenceSubmitResult {
         synchronized(lock) {
             if (closed) return InferenceSubmitResult.CLOSED
+            if (cadenceController?.isPaused() == true)
+                return InferenceSubmitResult.THERMAL_PAUSED
             if (frame.timestampNs <= lastAcceptedTimestampNs)
                 return InferenceSubmitResult.OUT_OF_ORDER
             if (inFlight) return InferenceSubmitResult.BUSY
+            val effectiveIntervalNs = maxOf(minimumIntervalNs,
+                cadenceController?.recommendedIntervalNs() ?: minimumIntervalNs)
             if (lastAcceptedTimestampNs > 0 &&
-                frame.timestampNs - lastAcceptedTimestampNs < minimumIntervalNs)
+                frame.timestampNs - lastAcceptedTimestampNs < effectiveIntervalNs)
                 return InferenceSubmitResult.RATE_LIMITED
             inFlight = true
             lastAcceptedTimestampNs = frame.timestampNs
         }
         try {
             executor.execute {
+                val startedNs = System.nanoTime()
+                var cadenceRecorded = false
                 try {
                     val output = backend.infer(frame)
                     validateOutput(frame, output)
+                    cadenceController?.record(maxOf(1L, System.nanoTime() - startedNs), true)
+                    cadenceRecorded = true
                     onResult(output)
                 } catch (error: Exception) {
+                    if (!cadenceRecorded)
+                        cadenceController?.record(maxOf(1L, System.nanoTime() - startedNs), false)
                     onError(error)
                 } finally {
                     var closeBackend = false
@@ -284,6 +372,12 @@ class BoundedInferenceScheduler(
             require(it.width == frame.calibration.width && it.height == frame.calibration.height)
         }
     }
+
+    fun updateThermalState(state: InferenceThermalState) {
+        cadenceController?.updateThermalState(state)
+    }
+
+    fun cadenceSnapshot(): InferenceCadenceSnapshot? = cadenceController?.snapshot()
 
     override fun close() {
         var closeBackend = false

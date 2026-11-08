@@ -75,6 +75,8 @@ class BoundedReconstructionFrameWriter(
     private val sink: (ArchivedReconstructionFrame) -> String,
     private val onStored: (String) -> Unit = {},
     private val onError: (Throwable) -> Unit = {},
+    private val onStoredFrame: (ArchivedReconstructionFrame, String) -> Unit = { _, _ -> },
+    private val onFailedFrame: (ArchivedReconstructionFrame, Throwable) -> Unit = { _, _ -> },
 ) : AutoCloseable {
     private val open = AtomicBoolean(true)
     private val queue: ArrayBlockingQueue<ArchivedReconstructionFrame>
@@ -104,7 +106,14 @@ class BoundedReconstructionFrameWriter(
         while (open.get() || queue.isNotEmpty()) {
             val frame = try { queue.poll(100, TimeUnit.MILLISECONDS) }
             catch (_: InterruptedException) { continue }
-            if (frame != null) try { onStored(sink(frame)) } catch (error: Throwable) { onError(error) }
+            if (frame != null) try {
+                val reference = sink(frame)
+                onStored(reference)
+                onStoredFrame(frame, reference)
+            } catch (error: Throwable) {
+                onError(error)
+                onFailedFrame(frame, error)
+            }
         }
     }
 

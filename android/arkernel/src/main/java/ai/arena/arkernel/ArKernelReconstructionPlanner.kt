@@ -42,11 +42,19 @@ data class ReconstructionPlannerDecision(
     val reservationToken: Long = 0,
 )
 
+interface TransactionalReconstructionPlanner : AutoCloseable {
+    fun reserve(frameId: Long, session: ArKernelSessionResult, quality: CameraFrameQuality,
+        translationSigmaMeters: Double, rotationSigmaDegrees: Double,
+        objectObservation: ReconstructionObjectObservation? = null): ReconstructionPlannerDecision
+    fun commit(reservationToken: Long): Boolean
+    fun cancel(reservationToken: Long): Boolean
+}
+
 /** Android owner for the portable bounded C++ capture planner. */
 class ArKernelReconstructionPlanner(
     mode: ReconstructionScanMode,
     config: ReconstructionPlannerConfig = ReconstructionPlannerConfig(),
-) : AutoCloseable {
+) : TransactionalReconstructionPlanner {
     private var nativeHandle = nativeCreate(mode == ReconstructionScanMode.OBJECT,
         longArrayOf(config.maxKeyframes, config.minIntervalNs, config.minTrackedFeatures,
             config.objectAzimuthBins, config.objectElevationBins),
@@ -68,19 +76,19 @@ class ArKernelReconstructionPlanner(
         rotationSigmaDegrees, objectObservation)
 
     /** Pre-copy path. Call commit(token) only after durable storage, otherwise cancel(token). */
-    @Synchronized fun reserve(frameId: Long, session: ArKernelSessionResult,
+    @Synchronized override fun reserve(frameId: Long, session: ArKernelSessionResult,
         quality: CameraFrameQuality, translationSigmaMeters: Double,
         rotationSigmaDegrees: Double,
         objectObservation: ReconstructionObjectObservation? = null
     ) = decide(true, frameId, session, quality, translationSigmaMeters,
         rotationSigmaDegrees, objectObservation)
 
-    @Synchronized fun commit(reservationToken: Long): Boolean {
+    @Synchronized override fun commit(reservationToken: Long): Boolean {
         check(nativeHandle != 0L)
         return nativeCommit(nativeHandle, reservationToken)
     }
 
-    @Synchronized fun cancel(reservationToken: Long): Boolean {
+    @Synchronized override fun cancel(reservationToken: Long): Boolean {
         check(nativeHandle != 0L)
         return nativeCancel(nativeHandle, reservationToken)
     }

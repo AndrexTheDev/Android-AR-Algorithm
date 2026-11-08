@@ -55,12 +55,13 @@ object ArKernelDepthPostprocessor {
         transform: DepthTensorTransform = DepthTensorTransform.DIRECT,
         minDepthMeters: Double = 0.05,
         maxDepthMeters: Double = 20.0,
+        maxRelativeDiscontinuity: Double = 0.10,
     ): MetricDepthBuffer {
         require(InferenceTask.METRIC_DEPTH in manifest.tasks)
         val unitToMeters = requireNotNull(manifest.depthUnitToMeters)
         return postprocess(tensor, spec, frame.calibration.width, frame.calibration.height,
             frame.timestampNs, DepthPostprocessOptions(transform, unitToMeters,
-                minDepthMeters, maxDepthMeters))
+                minDepthMeters, maxDepthMeters, maxRelativeDiscontinuity))
     }
 
     fun postprocess(

@@ -24,6 +24,12 @@ The implementation validates row stride and visible input extent, finite normali
 
 Adapters must supply the actual output-tensor encoding and transform from the model's documented signature. They must not guess that relative monocular output is metric. Only a model manifest declaring `METRIC_DEPTH`, with a verified conversion, may route this result into spatial fusion.
 
+## Runtime composition
+
+`SingleInputTensorRuntime` is the narrow dependency boundary for LiteRT, ONNX Runtime, NNAPI, or a host engine: one direct native-order input, one direct native-order output, serialized execution, exact written-byte count, and no buffer retention. `MetricDepthTensorBackend.createVerified` composes this runtime with the shared preprocessor and depth postprocessor. Construction first checks the exact model bytes against the manifest SHA-256 and size, then allocates one reusable input tensor and one reusable raw-output tensor, each capped at 64 MiB. Every inference preserves the frame timestamp and pose, rejects partial runtime output, converts only a manifest-declared metric-depth model, and returns camera-sized direct metric depth/confidence for the normal scheduler and mapping gate.
+
+The runtime adapter remains responsible for selecting delegates and binding the correct model input/output indices. It receives model bytes only during factory creation and must own any state required afterward. The backend owns and closes the runtime exactly once. This provides a usable end-to-end depth backend without forcing an ML runtime dependency or pretending that all engines share a delegate/device policy.
+
 ## Bounded scheduler
 
 `BoundedInferenceScheduler` owns one worker and permits exactly one in-flight request with no hidden queue. Submissions report `ACCEPTED`, `RATE_LIMITED`, `BUSY`, `OUT_OF_ORDER`, or `CLOSED`. The default minimum interval is 100 ms (10 Hz). This explicit dropping policy prevents camera-rate input from growing latency and memory without bound. Frames must be monotonic. Backend calls are serialized, callback execution occurs on the inference worker, and close safely defers backend destruction until an in-flight call returns.

@@ -7,6 +7,7 @@
 - [x] IMU-Vorintegration, Qualitätsgate, Sensor-Orchestrator
 - [x] Unit-Tests ohne Drittanbieterabhängigkeiten
 - [x] Linux Native-CI mit Unit-, Sanitizer- und deterministischem Replay sowie Android-35/NDK-27-Compile-/JVM-Test-/Lint-CI
+- [x] API-35-Emulator-Instrumentation mit gepinntem Open-Source-Runner für echte AAR/JNI-Paket-, Lade- und Lifecycle-Smoke-Tests; physische Sensor-/Thermal-/Genauigkeitstests bleiben separat
 - [x] stabile C-ABI und Kotlin/JNI-Wrapper
 - [x] verzerrtes Kameramodell und numerisch geprüfte Projektion
 - [x] robuste Sensor-Uhrenausrichtung

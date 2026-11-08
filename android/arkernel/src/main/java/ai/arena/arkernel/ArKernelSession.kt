@@ -62,6 +62,7 @@ class ArKernelSession(
     private val pendingReconstructionResults = TreeMap<Long, ArKernelSessionResult>()
     @Volatile private var running = false
     @Volatile private var closed = false
+    @Volatile private var cameraClockDiscontinuity = false
 
     private val imu = AndroidImuSource(context, vio, sampleSink = ::enqueueImu,
         compatibilityTimingSink = compatibilityProbe?.let { probe ->
@@ -84,6 +85,7 @@ class ArKernelSession(
         compatibilityTimingSink = compatibilityProbe?.let { probe ->
             { sample -> probe.addCameraSample(sample); Unit }
         },
+        onTimestampNormalizationFailure = ::handleCameraClockFailure,
     )
 
     init { require(maxQueuedImuSamples >= 128) }
@@ -98,6 +100,7 @@ class ArKernelSession(
         }
         latestMappingGate = MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
+        cameraClockDiscontinuity = false
         running = true
         try {
             imu.start()
@@ -111,6 +114,7 @@ class ArKernelSession(
     fun stop() {
         if (!running) return
         running = false
+        cameraClockDiscontinuity = false
         latestMappingGate = MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
         camera.stop()
@@ -154,6 +158,13 @@ class ArKernelSession(
         }
     }
 
+    private fun handleCameraClockFailure(reason: CameraTimestampFailureReason) {
+        cameraClockDiscontinuity = true
+        latestMappingGate = MappingGateDecision(MappingGateState.PAUSED,
+            MappingPauseReason.CAMERA_CLOCK_DISCONTINUITY, false)
+        if (running) onError(IllegalStateException("Camera clock invalidated: $reason"))
+    }
+
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
         val stateBeforeFusion = vio.snapshot()
@@ -176,13 +187,16 @@ class ArKernelSession(
             acceptedTracks = result.acceptedTrackCount,
             imuQueueOverflow = queueStatus.third,
         )
-        val mappingGate = compatibilityProbe?.let { probe ->
+        val compatibilityGate = compatibilityProbe?.let { probe ->
             if (probe.metricAdmissionGranted) kernelMappingGate else MappingGateDecision(
                 MappingGateState.PAUSED,
                 if (probe.isFinished) MappingPauseReason.DEVICE_COMPATIBILITY_REJECTED
                 else MappingPauseReason.DEVICE_COMPATIBILITY_PENDING,
                 false)
         } ?: kernelMappingGate
+        val mappingGate = if (cameraClockDiscontinuity) MappingGateDecision(
+            MappingGateState.PAUSED, MappingPauseReason.CAMERA_CLOCK_DISCONTINUITY, false)
+        else compatibilityGate
         latestMappingGate = mappingGate
         val worldFromCamera = snapshot?.let { state ->
             val cameraOffsetWorld = rotate(state.rotation, bodyFromCameraTranslationMeters)

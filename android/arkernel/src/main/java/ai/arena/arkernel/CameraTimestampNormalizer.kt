@@ -3,6 +3,13 @@ package ai.arena.arkernel
 import kotlin.math.abs
 
 enum class CameraTimestampDomain { REALTIME, UPTIME, EQUIVALENT }
+enum class CameraTimestampFailureReason {
+    AMBIGUOUS_DOMAIN,
+    ELAPSED_REALTIME_PRECEDES_UPTIME,
+    SESSION_OFFSET_CHANGED,
+    REALTIME_RESIDUAL_CHANGED,
+    EQUIVALENT_CLOCKS_DIVERGED,
+}
 
 data class CameraTimestampNormalization(
     val rawTimestampNs: Long,
@@ -16,22 +23,28 @@ class CameraTimestampNormalizer(
     private val minimumObservations: Int = 8,
     private val decisionMarginNs: Long = 5_000_000L,
     private val equivalentClockDeltaNs: Long = 20_000_000L,
+    private val maximumSessionOffsetChangeNs: Long = 50_000_000L,
+    private val maximumRealtimeResidualChangeNs: Long = 250_000_000L,
 ) {
     private val elapsedResiduals = ArrayList<Long>()
     private val uptimeResiduals = ArrayList<Long>()
     private val elapsedMinusUptime = ArrayList<Long>()
     private var lockedDomain: CameraTimestampDomain? = null
     private var lockedOffsetNs = 0L
-    private var failed = false
+    private var lockedRealtimeResidualNs = 0L
+    private var failure: CameraTimestampFailureReason? = null
 
     init {
         require(minimumObservations in 3..64)
         require(decisionMarginNs in 0..1_000_000_000L)
         require(equivalentClockDeltaNs in 0..1_000_000_000L)
+        require(maximumSessionOffsetChangeNs in 1_000_000L..5_000_000_000L)
+        require(maximumRealtimeResidualChangeNs in 1_000_000L..5_000_000_000L)
     }
 
-    val isReady: Boolean get() = lockedDomain != null
-    val isFailed: Boolean get() = failed
+    val isReady: Boolean get() = lockedDomain != null && failure == null
+    val isFailed: Boolean get() = failure != null
+    val failureReason: CameraTimestampFailureReason? get() = failure
     val domain: CameraTimestampDomain? get() = lockedDomain
     val offsetNs: Long get() = lockedOffsetNs
 
@@ -40,7 +53,7 @@ class CameraTimestampNormalizer(
     fun observeAndNormalize(rawTimestampNs: Long, callbackElapsedRealtimeNs: Long,
         callbackUptimeNs: Long): CameraTimestampNormalization? {
         require(rawTimestampNs > 0 && callbackElapsedRealtimeNs > 0 && callbackUptimeNs > 0)
-        if (failed) return null
+        if (failure != null) return null
         if (lockedDomain == null) {
             if (elapsedResiduals.size < minimumObservations) {
                 elapsedResiduals += absDifference(callbackElapsedRealtimeNs, rawTimestampNs)
@@ -48,6 +61,9 @@ class CameraTimestampNormalizer(
                 elapsedMinusUptime += callbackElapsedRealtimeNs - callbackUptimeNs
             }
             if (elapsedResiduals.size == minimumObservations) lockDecision()
+        } else {
+            monitorLockedSession(rawTimestampNs, callbackElapsedRealtimeNs,
+                callbackUptimeNs)
         }
         return normalize(rawTimestampNs)
     }
@@ -56,6 +72,7 @@ class CameraTimestampNormalizer(
     @Synchronized
     fun normalize(rawTimestampNs: Long): CameraTimestampNormalization? {
         require(rawTimestampNs > 0)
+        if (failure != null) return null
         val currentDomain = lockedDomain ?: return null
         val normalized = Math.addExact(rawTimestampNs, lockedOffsetNs)
         return CameraTimestampNormalization(rawTimestampNs, normalized, currentDomain,
@@ -69,7 +86,8 @@ class CameraTimestampNormalizer(
         elapsedMinusUptime.clear()
         lockedDomain = null
         lockedOffsetNs = 0L
-        failed = false
+        lockedRealtimeResidualNs = 0L
+        failure = null
     }
 
     private fun lockDecision() {
@@ -77,23 +95,52 @@ class CameraTimestampNormalizer(
         val uptimeResidual = median(uptimeResiduals)
         val clockDelta = median(elapsedMinusUptime)
         if (clockDelta < 0L) {
-            failed = true
+            failure = CameraTimestampFailureReason.ELAPSED_REALTIME_PRECEDES_UPTIME
             return
         }
+        lockedRealtimeResidualNs = elapsedResidual
         when {
             abs(clockDelta) <= equivalentClockDeltaNs -> {
                 lockedDomain = CameraTimestampDomain.EQUIVALENT
                 lockedOffsetNs = 0L
             }
-            elapsedResidual + decisionMarginNs < uptimeResidual -> {
+            elapsedResidual < uptimeResidual &&
+                uptimeResidual - elapsedResidual > decisionMarginNs -> {
                 lockedDomain = CameraTimestampDomain.REALTIME
                 lockedOffsetNs = 0L
             }
-            uptimeResidual + decisionMarginNs < elapsedResidual -> {
+            uptimeResidual < elapsedResidual &&
+                elapsedResidual - uptimeResidual > decisionMarginNs -> {
                 lockedDomain = CameraTimestampDomain.UPTIME
                 lockedOffsetNs = clockDelta
             }
-            else -> failed = true
+            else -> failure = CameraTimestampFailureReason.AMBIGUOUS_DOMAIN
+        }
+    }
+
+    private fun monitorLockedSession(rawTimestampNs: Long, callbackElapsedRealtimeNs: Long,
+        callbackUptimeNs: Long) {
+        val currentDomain = lockedDomain ?: return
+        val currentOffset = callbackElapsedRealtimeNs - callbackUptimeNs
+        if (currentOffset < 0L) {
+            failure = CameraTimestampFailureReason.ELAPSED_REALTIME_PRECEDES_UPTIME
+            return
+        }
+        when (currentDomain) {
+            CameraTimestampDomain.UPTIME -> {
+                if (absDifference(currentOffset, lockedOffsetNs) > maximumSessionOffsetChangeNs)
+                    failure = CameraTimestampFailureReason.SESSION_OFFSET_CHANGED
+            }
+            CameraTimestampDomain.REALTIME -> {
+                val residual = absDifference(callbackElapsedRealtimeNs, rawTimestampNs)
+                if (absDifference(residual, lockedRealtimeResidualNs) >
+                    maximumRealtimeResidualChangeNs)
+                    failure = CameraTimestampFailureReason.REALTIME_RESIDUAL_CHANGED
+            }
+            CameraTimestampDomain.EQUIVALENT -> {
+                if (currentOffset > equivalentClockDeltaNs + maximumSessionOffsetChangeNs)
+                    failure = CameraTimestampFailureReason.EQUIVALENT_CLOCKS_DIVERGED
+            }
         }
     }
 }

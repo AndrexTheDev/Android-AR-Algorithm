@@ -63,6 +63,8 @@ class Camera2FrameSource(
     private val reconstructionQualityGate:
         ((VisualFrontendSnapshot, CameraFrameQuality) -> Boolean)? = null,
     private val compatibilityTimingSink: ((CameraTimingSample) -> Unit)? = null,
+    private val onTimestampNormalizationFailure:
+        ((CameraTimestampFailureReason) -> Unit)? = null,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -73,6 +75,7 @@ class Camera2FrameSource(
     private var session: CameraCaptureSession? = null
     @Volatile private var running = false
     private var lastTimestampNs = 0L
+    private var timestampFailureReported = false
     private val timestampNormalizer = CameraTimestampNormalizer()
     private val captureMetadata = CameraCaptureMetadataMatcher()
     private val pendingReconstructionFrames = TreeMap<Long, PendingCameraReconstructionFrame>()
@@ -86,6 +89,7 @@ class Camera2FrameSource(
         }
         frontend.reset()
         lastTimestampNs = 0L
+        timestampFailureReported = false
         timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()
@@ -173,9 +177,17 @@ class Camera2FrameSource(
         try {
             if (!running) return
             val timing = emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
-            val timestamp = timestampNormalizer.observeAndNormalize(image.timestamp,
+            val normalization = timestampNormalizer.observeAndNormalize(image.timestamp,
                 timing.callbackElapsedRealtimeNs, timing.callbackUptimeNs)
-                ?.normalizedTimestampNs ?: return
+            if (normalization == null) {
+                val failure = timestampNormalizer.failureReason
+                if (failure != null && !timestampFailureReported) {
+                    timestampFailureReported = true
+                    onTimestampNormalizationFailure?.invoke(failure)
+                }
+                return
+            }
+            val timestamp = normalization.normalizedTimestampNs
             if (timestamp <= lastTimestampNs) return
             val y = image.planes[0]
             check(y.pixelStride == 1) { "Unsupported Camera2 Y-plane pixel stride ${y.pixelStride}" }
@@ -239,6 +251,7 @@ class Camera2FrameSource(
         handler = null
         thread?.quitSafely(); thread = null
         lastTimestampNs = 0L
+        timestampFailureReported = false
         timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()

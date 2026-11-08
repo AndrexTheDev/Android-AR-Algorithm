@@ -410,7 +410,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 ### P1 — safe adaptation
 
-1. Add runtime camera/IMU offset monitoring and bounded estimator with observability checks. Independent Android accelerometer/gyro callbacks are synchronized at a common observed timestamp by bounded interpolation without extrapolation. `CameraTimestampNormalizer` now classifies realtime, uptime or practically equivalent session clocks from bounded callback observations and maps uptime with one robust fixed offset; continuous drift/clock-jump monitoring remains open.
+1. Add runtime camera/IMU offset monitoring and bounded estimator with observability checks. Independent Android accelerometer/gyro callbacks are synchronized at a common observed timestamp by bounded interpolation without extrapolation. `CameraTimestampNormalizer` now classifies realtime, uptime or practically equivalent session clocks from bounded callback observations and maps uptime with one robust fixed offset; locked sessions now monitor uptime offset, realtime callback residual and equivalent-clock divergence; a threshold violation terminally invalidates normalization and immediately pauses mapping. Affine long-window drift estimation remains open.
 2. Add conservative stream/FPS tiers and low-memory policies.
 3. Add CPU/delegate golden conformance tests and exact-signature success cache.
 4. Add signed quirk/policy parsing with offline defaults and disable-only remote rules.

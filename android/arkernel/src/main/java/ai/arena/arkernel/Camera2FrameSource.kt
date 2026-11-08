@@ -226,12 +226,12 @@ class Camera2FrameSource(
             }, handler)
     }
 
-    private fun selectedCameraRanges(cameraId: String): Array<Range<Int>> =
+    private fun selectedCameraRanges(cameraId: String): Array<out Range<Int>> =
         manager.getCameraCharacteristics(cameraId)
             .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
 
     private fun selectBoundedFpsRange(
-        ranges: Array<Range<Int>>,
+        ranges: Array<out Range<Int>>,
         maximumFramesPerSecond: Int,
     ): Range<Int>? = ranges
         .filter { it.upper <= maximumFramesPerSecond }

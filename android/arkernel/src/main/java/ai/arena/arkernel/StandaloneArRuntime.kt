@@ -30,6 +30,10 @@ interface ArRuntime : AutoCloseable {
     fun stop()
 }
 
+interface RuntimeExecutionPlanOwner {
+    fun updateExecutionPlan(candidate: RuntimeExecutionPlan): RuntimeExecutionPlanResult
+}
+
 /** Optional adapter boundary; the core AAR never links against or requires ARCore. */
 interface OptionalExternalArRuntimeFactory {
     val backendName: String
@@ -182,7 +186,8 @@ class StandaloneArRuntime private constructor(
     private val cameraId: String,
     val supportReport: StandaloneSupportReport,
     override val capabilities: ArRuntimeCapabilities,
-) : ArRuntime {
+    private val executionPlanController: RuntimeExecutionPlanController?,
+) : ArRuntime, RuntimeExecutionPlanOwner {
     override val backend = ArRuntimeBackend.STANDALONE_ARKERNEL
     private var closed = false
 
@@ -191,6 +196,19 @@ class StandaloneArRuntime private constructor(
         session.start(cameraId)
     }
     @Synchronized override fun stop() { if (!closed) session.stop() }
+
+    @Synchronized
+    override fun updateExecutionPlan(candidate: RuntimeExecutionPlan): RuntimeExecutionPlanResult {
+        check(!closed) { "Standalone AR runtime is closed" }
+        val controller = requireNotNull(executionPlanController) {
+            "Runtime was created without a measured execution plan"
+        }
+        return controller.update(candidate).also { result ->
+            if (result.update == RuntimeExecutionPlanUpdate.RESTART_REQUIRED)
+                session.invalidateForResourceRestart(result.restartReasons)
+        }
+    }
+
     @Synchronized override fun close() {
         if (closed) return
         closed = true
@@ -206,6 +224,7 @@ class StandaloneArRuntime private constructor(
             compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
             resourceDecision: RuntimeResourceDecision? = null,
             calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+            calibrationProfileSha256: String? = null,
         ): StandaloneArRuntime {
             require(resourceDecision == null || resourceDecision.liveMappingEnabled) {
                 "A non-mapping resource decision cannot create the VIO runtime"
@@ -235,8 +254,11 @@ class StandaloneArRuntime private constructor(
                 maximumCameraFramesPerSecond = resourceDecision?.targetFramesPerSecond ?: 30,
                 maximumPendingReconstructionFrames =
                     resourceDecision?.maximumPendingReconstructionFrames ?: 2)
+            val executionController = resourceDecision?.let {
+                RuntimeExecutionPlanController(RuntimeExecutionPlan(it, calibrationProfileSha256))
+            }
             return StandaloneArRuntime(session, requireNotNull(report.selectedCameraId), report,
-                mappingCapabilities(resourceDecision))
+                mappingCapabilities(resourceDecision), executionController)
         }
     }
 }
@@ -246,7 +268,8 @@ class CameraOnlyArRuntime private constructor(
     val session: CameraOnlyCaptureSession,
     private val cameraId: String,
     val supportReport: StandaloneSupportReport,
-) : ArRuntime {
+    private val executionPlanController: RuntimeExecutionPlanController?,
+) : ArRuntime, RuntimeExecutionPlanOwner {
     override val backend = ArRuntimeBackend.STANDALONE_CAMERA_CAPTURE
     override val capabilities = captureOnlyCapabilities
     private var closed = false
@@ -256,6 +279,19 @@ class CameraOnlyArRuntime private constructor(
         session.start(cameraId)
     }
     @Synchronized override fun stop() { if (!closed) session.stop() }
+
+    @Synchronized
+    override fun updateExecutionPlan(candidate: RuntimeExecutionPlan): RuntimeExecutionPlanResult {
+        check(!closed) { "Camera-only runtime is closed" }
+        val controller = requireNotNull(executionPlanController) {
+            "Runtime was created without a measured execution plan"
+        }
+        return controller.update(candidate).also { result ->
+            if (result.update == RuntimeExecutionPlanUpdate.RESTART_REQUIRED)
+                session.invalidateForResourceRestart(result.restartReasons)
+        }
+    }
+
     @Synchronized override fun close() {
         if (closed) return
         closed = true
@@ -270,6 +306,7 @@ class CameraOnlyArRuntime private constructor(
             onError: (Throwable) -> Unit = {},
             resourceDecision: RuntimeResourceDecision? = null,
             calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+            calibrationProfileSha256: String? = null,
         ): CameraOnlyArRuntime {
             require(resourceDecision == null ||
                 resourceDecision.tier == RuntimeResourceTier.CAPTURE_ONLY) {
@@ -291,7 +328,11 @@ class CameraOnlyArRuntime private constructor(
                 maximumPendingFrames =
                     resourceDecision?.maximumPendingReconstructionFrames ?: 1,
                 calibrationRuntimeMonitor = calibrationRuntimeMonitor)
-            return CameraOnlyArRuntime(session, requireNotNull(report.selectedCameraId), report)
+            val executionController = resourceDecision?.let {
+                RuntimeExecutionPlanController(RuntimeExecutionPlan(it, calibrationProfileSha256))
+            }
+            return CameraOnlyArRuntime(session, requireNotNull(report.selectedCameraId), report,
+                executionController)
         }
     }
 }
@@ -341,6 +382,7 @@ object ArRuntimeSelector {
             resourceDecision = selected.resourceDecision,
             onCameraOnlyFrame = onCameraOnlyFrame,
             calibrationRuntimeMonitor = selected.newRuntimeMonitor(),
+            calibrationProfileSha256 = selected.profileSha256,
         )
     }
 
@@ -355,6 +397,7 @@ object ArRuntimeSelector {
         resourceDecision: RuntimeResourceDecision? = null,
         onCameraOnlyFrame: (CameraOnlyCaptureFrame) -> Unit = {},
         calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+        calibrationProfileSha256: String? = null,
     ): ArRuntimeSelection {
         val diagnostics = mutableListOf<String>()
         if (preferExternal && optionalExternalFactory != null) {
@@ -378,7 +421,7 @@ object ArRuntimeSelector {
         if (resourceDecision?.tier == RuntimeResourceTier.CAPTURE_ONLY) {
             val capture = CameraOnlyArRuntime.create(context, standaloneConfig.captureOnly(),
                 onCameraOnlyFrame, onStandaloneError, resourceDecision,
-                calibrationRuntimeMonitor)
+                calibrationRuntimeMonitor, calibrationProfileSha256)
             diagnostics += capture.supportReport.warnings
             diagnostics += "Selected calibrated camera-only capture runtime by resource policy"
             return ArRuntimeSelection(capture, true, diagnostics)
@@ -387,7 +430,7 @@ object ArRuntimeSelector {
         if (mappingReport.supported) {
             val standalone = StandaloneArRuntime.create(context, standaloneConfig,
                 onStandaloneResult, onStandaloneError, activeCompatibilityProbe,
-                resourceDecision, calibrationRuntimeMonitor)
+                resourceDecision, calibrationRuntimeMonitor, calibrationProfileSha256)
             diagnostics += standalone.supportReport.warnings
             diagnostics += "Selected standalone Camera2 + SensorManager + ARKernel runtime"
             return ArRuntimeSelection(standalone, true, diagnostics)
@@ -398,7 +441,8 @@ object ArRuntimeSelector {
         }
         val capture = CameraOnlyArRuntime.create(context, standaloneConfig.captureOnly(),
             onCameraOnlyFrame, onStandaloneError,
-            calibrationRuntimeMonitor = calibrationRuntimeMonitor)
+            calibrationRuntimeMonitor = calibrationRuntimeMonitor,
+            calibrationProfileSha256 = calibrationProfileSha256)
         diagnostics += mappingReport.blockingReasons
         diagnostics += capture.supportReport.warnings
         diagnostics += "Selected calibrated camera-only capture runtime because VIO prerequisites are unavailable"

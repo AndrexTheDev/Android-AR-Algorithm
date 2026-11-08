@@ -243,7 +243,10 @@ object RuntimeResourcePolicy {
     }
 }
 
-/** Session policy only degrades; upgrades require a clean restart and re-admission. */
+/**
+ * Planning-only degrade filter. Never apply a changed result to a live owner; use
+ * [RuntimeExecutionPlanController] to convert executable changes into a terminal restart.
+ */
 class RuntimeResourceController(initial: RuntimeResourceDecision) {
     @Volatile private var current = initial
     val decision: RuntimeResourceDecision get() = current

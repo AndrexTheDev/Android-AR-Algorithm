@@ -72,6 +72,7 @@ class ArKernelSession(
     @Volatile private var closed = false
     @Volatile private var cameraClockDiscontinuity = false
     @Volatile private var calibrationChanged = false
+    @Volatile private var resourceRestartRequired = false
 
     private val imu = AndroidImuSource(context, vio, sampleSink = ::enqueueImu,
         compatibilityTimingSink = compatibilityProbe?.let { probe ->
@@ -109,6 +110,9 @@ class ArKernelSession(
 
     fun start(cameraId: String? = null) {
         check(!closed) { "AR kernel session is closed" }
+        check(!resourceRestartRequired) {
+            "AR kernel session was invalidated by a resource-plan change; create a new owner"
+        }
         if (running) return
         synchronized(lock) {
             queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
@@ -199,6 +203,17 @@ class ArKernelSession(
         if (running) onError(IllegalStateException("Camera calibration binding invalidated: $reason"))
     }
 
+    @Synchronized
+    fun invalidateForResourceRestart(reasons: List<RuntimeRestartReason>) {
+        require(reasons.isNotEmpty())
+        if (resourceRestartRequired) return
+        resourceRestartRequired = true
+        latestMappingGate = MappingGateDecision(MappingGateState.PAUSED,
+            MappingPauseReason.RESOURCE_RESTART_REQUIRED, false)
+        if (running) onError(IllegalStateException(
+            "Runtime resource plan changed; clean owner restart required: ${reasons.joinToString()}"))
+    }
+
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
         val (rotationPrediction, previousVisualTimestamp) = synchronized(lock) {
@@ -249,6 +264,8 @@ class ArKernelSession(
             MappingGateState.PAUSED, MappingPauseReason.CAMERA_CLOCK_DISCONTINUITY, false)
         else if (calibrationChanged) MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.CALIBRATION_CHANGED, false)
+        else if (resourceRestartRequired) MappingGateDecision(
+            MappingGateState.PAUSED, MappingPauseReason.RESOURCE_RESTART_REQUIRED, false)
         else compatibilityGate
         latestMappingGate = mappingGate
         val worldFromCamera = snapshot?.let { state ->

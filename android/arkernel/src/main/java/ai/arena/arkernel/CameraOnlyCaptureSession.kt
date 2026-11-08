@@ -40,10 +40,14 @@ class CameraOnlyCaptureSession(
     )
     @Volatile private var running = false
     @Volatile private var closed = false
+    @Volatile private var resourceRestartRequired = false
 
     @Synchronized
     fun start(cameraId: String? = null) {
         check(!closed) { "Camera-only capture session is closed" }
+        check(!resourceRestartRequired) {
+            "Camera-only session was invalidated by a resource-plan change; create a new owner"
+        }
         if (running) return
         running = true
         try {
@@ -60,6 +64,18 @@ class CameraOnlyCaptureSession(
         if (!running) return
         running = false
         camera.stop()
+    }
+
+    @Synchronized
+    fun invalidateForResourceRestart(reasons: List<RuntimeRestartReason>) {
+        require(reasons.isNotEmpty())
+        if (resourceRestartRequired) return
+        resourceRestartRequired = true
+        val report = running
+        running = false
+        camera.stop()
+        if (report) onError(IllegalStateException(
+            "Runtime resource plan changed; clean owner restart required: ${reasons.joinToString()}"))
     }
 
     private fun handleTerminalFailure(message: String) {

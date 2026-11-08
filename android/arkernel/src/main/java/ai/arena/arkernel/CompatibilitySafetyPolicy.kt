@@ -111,6 +111,21 @@ class CompatibilitySafetyPolicyVerifier(
     fun verify(signed: SignedCompatibilitySafetyPolicy,
         nowEpochMillis: Long): SafetyPolicyVerificationResult {
         require(nowEpochMillis >= 0)
+        val authenticated = verifyAuthenticity(signed)
+        val policy = authenticated.policy ?: return authenticated
+        if (policy.revision < minimumRevision)
+            return rejected(SafetyPolicyVerificationReason.REVISION_ROLLBACK)
+        if (nowEpochMillis < policy.validFromEpochMillis)
+            return rejected(SafetyPolicyVerificationReason.NOT_YET_VALID)
+        if (nowEpochMillis >= policy.validUntilEpochMillis)
+            return rejected(SafetyPolicyVerificationReason.EXPIRED)
+        return SafetyPolicyVerificationResult(policy, null)
+    }
+
+    /** Verifies trust and canonical payload without applying wall-clock validity. */
+    internal fun verifyAuthenticity(
+        signed: SignedCompatibilitySafetyPolicy,
+    ): SafetyPolicyVerificationResult {
         val root = roots[signed.rootKeyId] ?: return rejected(
             SafetyPolicyVerificationReason.UNKNOWN_ROOT_KEY)
         if (root !is ECPublicKey || root.params.order.bitLength() != 256)
@@ -126,10 +141,6 @@ class CompatibilitySafetyPolicyVerifier(
         }.getOrNull() ?: return rejected(SafetyPolicyVerificationReason.PAYLOAD_INVALID)
         if (policy.revision < minimumRevision)
             return rejected(SafetyPolicyVerificationReason.REVISION_ROLLBACK)
-        if (nowEpochMillis < policy.validFromEpochMillis)
-            return rejected(SafetyPolicyVerificationReason.NOT_YET_VALID)
-        if (nowEpochMillis >= policy.validUntilEpochMillis)
-            return rejected(SafetyPolicyVerificationReason.EXPIRED)
         return SafetyPolicyVerificationResult(policy, null)
     }
 

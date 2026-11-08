@@ -85,7 +85,7 @@
 - OpenXR- und optionaler ARCore-/Geospatial-Adapter hinter `OptionalExternalArRuntimeFactory`; Standalone bleibt zwingender Default-Fallback;
 - Privacy Threat Model, Fuzzing, SBOM, API-Stabilität;
 - [ ] versionierte verhaltensbasierte Gerätekompatibilität: statische Signatur/Reason Codes sowie begrenzte aktive Kamera-/CaptureResult-/IMU-Messung für Monotonie, Rate, Jitter, Lücken, Paarung, Überlappung und Realtime/Uptime-Klassifikation sind implementiert; ein automatischer terminaler Testzeitraum und nicht-extrapolierende Accelerometer-/Gyro-Synchronisierung sind ebenfalls implementiert; sessionkonstantes Uptime→Realtime-Alignment mit robuster Domänenentscheidung ist implementiert; sessioninterne Offset-/Residual-Sprungüberwachung mit sofortigem Mapping-Stopp ist implementiert; begrenzte robuste native affine Langzeitdrift-/Residualüberwachung mit ppm-Gate ist implementiert; geführte visuell-inertiale Bewegungsobservierbarkeit bleibt offen;
-- [ ] synthetische Camera2-/IMU-Fehlerinjektion und paarweise Hochrisiko-Konfigurationen; [x] signierte disable-only Quirk-Policy mit Offline-Fallback;
+- [ ] synthetische Camera2-/IMU-Fehlerinjektion und paarweise Hochrisiko-Konfigurationen; [x] signierte disable-only Quirk-Policy mit atomarer lokaler Installation und Offline-Fallback;
 - [ ] nach Capability-Set-Cover ausgewählte reale Geräte statt reiner Modellliste, Mobly-Sensorfusionsrig, thermische 30-Minuten-Läufe sowie Tag/Nacht/Weather-Szenen;
 - [ ] optionales Feld-Diagnosepaket ohne Bilder/Trajektorien als Default; Zentimetervalidierung bleibt an unabhängige Targets und exakte Capability-/Kalibriersignatur gebunden.
 

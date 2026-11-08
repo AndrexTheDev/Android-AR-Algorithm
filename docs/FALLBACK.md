@@ -47,7 +47,7 @@ The fallback is comparable for local tracking, planes, anchors, scanning and on-
 
 ## Calibration is non-negotiable
 
-Camera2 may omit `LENS_INTRINSIC_CALIBRATION`, and Android does not provide a universally reliable camera-to-IMU extrinsic transform. `StandaloneArRuntimeConfig` therefore requires calibrated intrinsics and a body-from-camera rotation, with optional translation. The probe warns when Camera2 lacks published intrinsics and always reports that extrinsics must be device-calibrated. Shipping a broad device fallback requires a signed/versioned calibration profile per supported camera configuration or an explicit calibration flow.
+Camera2 may omit `LENS_INTRINSIC_CALIBRATION`, and Android does not provide a universally reliable camera-to-IMU extrinsic transform. `StandaloneArRuntimeConfig` therefore requires calibrated intrinsics and a body-from-camera rotation, with optional translation. The probe warns when Camera2 lacks published intrinsics and always reports that extrinsics must be device-calibrated. Shipping a broad device fallback requires a signed/versioned calibration profile per supported camera configuration or an explicit calibration flow. The scalable probe/fingerprint/self-test/tier strategy, including runtime timebase verification and behavior-based device selection, is specified in `DEVICE_COMPATIBILITY_STRATEGY.md`.
 
 ## Indoor and outdoor scope
 

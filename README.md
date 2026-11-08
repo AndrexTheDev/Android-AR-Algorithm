@@ -79,7 +79,7 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 /tmp/arkernel_tests
 ```
 
-Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/FALLBACK.md`](docs/FALLBACK.md), [`docs/INFERENCE.md`](docs/INFERENCE.md), [`docs/SEMANTICS.md`](docs/SEMANTICS.md) und [`docs/OPEN_SOURCE_ADOPTION.md`](docs/OPEN_SOURCE_ADOPTION.md).
+Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/FALLBACK.md`](docs/FALLBACK.md), [`docs/DEVICE_COMPATIBILITY_STRATEGY.md`](docs/DEVICE_COMPATIBILITY_STRATEGY.md), [`docs/INFERENCE.md`](docs/INFERENCE.md), [`docs/SEMANTICS.md`](docs/SEMANTICS.md) und [`docs/OPEN_SOURCE_ADOPTION.md`](docs/OPEN_SOURCE_ADOPTION.md).
 
 ## Lizenz
 

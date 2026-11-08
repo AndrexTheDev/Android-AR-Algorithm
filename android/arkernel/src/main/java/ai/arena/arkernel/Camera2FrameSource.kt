@@ -76,6 +76,9 @@ class Camera2FrameSource(
     @Volatile private var running = false
     private var lastTimestampNs = 0L
     private var timestampFailureReported = false
+    private var affineSampleCounter = 0L
+    private var affineClockAligner: ArKernelClockAligner? = null
+    private val affineDriftPolicy = CameraClockDriftPolicy()
     private val timestampNormalizer = CameraTimestampNormalizer()
     private val captureMetadata = CameraCaptureMetadataMatcher()
     private val pendingReconstructionFrames = TreeMap<Long, PendingCameraReconstructionFrame>()
@@ -90,6 +93,9 @@ class Camera2FrameSource(
         frontend.reset()
         lastTimestampNs = 0L
         timestampFailureReported = false
+        affineSampleCounter = 0
+        affineClockAligner?.close()
+        affineClockAligner = ArKernelClockAligner()
         timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()
@@ -172,19 +178,35 @@ class Camera2FrameSource(
         }
     }
 
+    @Synchronized
     private fun consumeLatest(source: ImageReader) {
         val image = source.acquireLatestImage() ?: return
         try {
-            if (!running) return
+            if (!running || timestampFailureReported) return
             val timing = emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
+            affineSampleCounter++
+            if (affineSampleCounter % AFFINE_SAMPLE_INTERVAL == 0) {
+                val aligner = affineClockAligner
+                if (aligner != null && aligner.addObservation(image.timestamp,
+                        timing.callbackElapsedRealtimeNs)) {
+                    when (aligner.alignment()?.let(affineDriftPolicy::evaluate)) {
+                        CameraClockDriftFailureReason.DRIFT_EXCEEDED -> {
+                            reportTimestampFailure(CameraTimestampFailureReason.AFFINE_DRIFT_EXCEEDED)
+                            return
+                        }
+                        CameraClockDriftFailureReason.RESIDUAL_EXCEEDED -> {
+                            reportTimestampFailure(CameraTimestampFailureReason.AFFINE_RESIDUAL_EXCEEDED)
+                            return
+                        }
+                        null -> Unit
+                    }
+                }
+            }
             val normalization = timestampNormalizer.observeAndNormalize(image.timestamp,
                 timing.callbackElapsedRealtimeNs, timing.callbackUptimeNs)
             if (normalization == null) {
                 val failure = timestampNormalizer.failureReason
-                if (failure != null && !timestampFailureReported) {
-                    timestampFailureReported = true
-                    onTimestampNormalizationFailure?.invoke(failure)
-                }
+                if (failure != null) reportTimestampFailure(failure)
                 return
             }
             val timestamp = normalization.normalizedTimestampNs
@@ -228,6 +250,12 @@ class Camera2FrameSource(
         }
     }
 
+    private fun reportTimestampFailure(reason: CameraTimestampFailureReason) {
+        if (timestampFailureReported) return
+        timestampFailureReported = true
+        onTimestampNormalizationFailure?.invoke(reason)
+    }
+
     private fun emitCompatibilityTiming(kind: CameraTimingSampleKind,
         timestampNs: Long): CameraTimingSample {
         val sample = CameraTimingSample(kind, timestampNs,
@@ -252,6 +280,9 @@ class Camera2FrameSource(
         thread?.quitSafely(); thread = null
         lastTimestampNs = 0L
         timestampFailureReported = false
+        affineSampleCounter = 0
+        affineClockAligner?.close()
+        affineClockAligner = null
         timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()
@@ -260,5 +291,8 @@ class Camera2FrameSource(
 
     override fun close() = stop()
 
-    private companion object { const val MAX_PENDING_RECONSTRUCTION_FRAMES = 2 }
+    private companion object {
+        const val MAX_PENDING_RECONSTRUCTION_FRAMES = 2
+        const val AFFINE_SAMPLE_INTERVAL = 15L
+    }
 }

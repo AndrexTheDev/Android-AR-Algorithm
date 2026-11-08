@@ -180,6 +180,9 @@ int main() {
     const TimestampNs outlier = (i == 9) ? 5000000LL : 0LL;
     CHECK(aligner.addObservation(source, source + 123456LL + outlier));
   }
+  const auto clock_model = aligner.alignment();
+  CHECK(clock_model.has_value() && clock_model->source_span_ns == 190000000LL &&
+        clock_model->observation_count >= 19);
   const auto aligned = aligner.toCoreTime(base + 250000000LL);
   CHECK(aligned.has_value());
   CHECK(std::llabs(*aligned - (base + 250000000LL + 123456LL)) < 100);

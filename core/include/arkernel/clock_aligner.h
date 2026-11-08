@@ -13,6 +13,7 @@ struct ClockAlignment {
   double offset_ns{0.0};
   double rms_error_ns{0.0};
   std::size_t observation_count{0};
+  TimestampNs source_span_ns{0};
 };
 
 // Estimates core_time = scale * source_time + offset from paired timestamp

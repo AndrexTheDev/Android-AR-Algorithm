@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "arkernel/c_api.h"
+#include "arkernel/clock_aligner.h"
 #include "arkernel/detection_tracker.h"
 #include "arkernel/reconstruction_capture.h"
 #include "arkernel/temporal_depth_filter.h"
@@ -19,10 +20,56 @@ ark_visual_handle* fromVisualHandle(jlong value) {
 arkernel::ReconstructionCapturePlanner* fromReconstructionPlannerHandle(jlong value) {
   return reinterpret_cast<arkernel::ReconstructionCapturePlanner*>(static_cast<intptr_t>(value));
 }
+arkernel::ClockAligner* fromClockAlignerHandle(jlong value) {
+  return reinterpret_cast<arkernel::ClockAligner*>(static_cast<intptr_t>(value));
+}
 jlong toHandle(const void* value) {
   return static_cast<jlong>(reinterpret_cast<intptr_t>(value));
 }
 }  // namespace
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelClockAligner_nativeCreate(
+    JNIEnv*,jobject,jint capacity,jint min_observations) {
+  try {
+    if(capacity<2||capacity>4096||min_observations<2||min_observations>capacity)return 0;
+    return toHandle(new arkernel::ClockAligner(static_cast<std::size_t>(capacity),
+      static_cast<std::size_t>(min_observations)));
+  }catch(...){return 0;}
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ai_arena_arkernel_ArKernelClockAligner_nativeAddObservation(
+    JNIEnv*,jobject,jlong handle,jlong source_ns,jlong core_ns) {
+  auto* aligner=fromClockAlignerHandle(handle);
+  return aligner&&source_ns>0&&core_ns>0&&aligner->addObservation(source_ns,core_ns)?
+    JNI_TRUE:JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ai_arena_arkernel_ArKernelClockAligner_nativeAlignment(
+    JNIEnv* env,jobject,jlong handle,jlongArray metadata,jdoubleArray values) {
+  auto* aligner=fromClockAlignerHandle(handle);
+  if(!aligner||!metadata||!values||env->GetArrayLength(metadata)<2||
+      env->GetArrayLength(values)<3)return JNI_FALSE;
+  const auto model=aligner->alignment();if(!model)return JNI_FALSE;
+  const jlong meta[2]={static_cast<jlong>(model->observation_count),
+    static_cast<jlong>(model->source_span_ns)};
+  const jdouble data[3]={model->scale,model->offset_ns,model->rms_error_ns};
+  env->SetLongArrayRegion(metadata,0,2,meta);
+  env->SetDoubleArrayRegion(values,0,3,data);
+  return env->ExceptionCheck()?JNI_FALSE:JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ArKernelClockAligner_nativeReset(
+    JNIEnv*,jobject,jlong handle) {
+  auto* aligner=fromClockAlignerHandle(handle);if(aligner)aligner->reset();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ArKernelClockAligner_nativeDestroy(
+    JNIEnv*,jobject,jlong handle) {delete fromClockAlignerHandle(handle);}
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_ArKernelVio_nativeCreate(JNIEnv*,jobject,

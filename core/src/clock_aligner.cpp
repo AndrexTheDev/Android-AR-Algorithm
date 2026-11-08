@@ -9,7 +9,8 @@ namespace arkernel {
 
 ClockAligner::ClockAligner(std::size_t capacity, std::size_t min_observations)
     : capacity_(capacity), min_observations_(min_observations) {
-  if (capacity_ < 2 || min_observations_ < 2 || min_observations_ > capacity_)
+  if (capacity_ < 2 || capacity_ > 4096 || min_observations_ < 2 ||
+      min_observations_ > capacity_)
     throw std::invalid_argument("Invalid clock aligner window");
 }
 
@@ -47,7 +48,8 @@ std::optional<ClockAlignment> ClockAligner::fit(bool trim_outliers) const {
     if (!std::isfinite(static_cast<double>(scale)) || scale < 0.9L || scale > 1.1L)
       return std::nullopt;
     return ClockAlignment{static_cast<double>(scale), static_cast<double>(offset),
-      std::sqrt(static_cast<double>(squared / p.size())), p.size()};
+      std::sqrt(static_cast<double>(squared / p.size())), p.size(),
+      p.back().source-p.front().source};
   };
 
   auto initial = solve(points);

@@ -9,6 +9,8 @@ enum class CameraTimestampFailureReason {
     SESSION_OFFSET_CHANGED,
     REALTIME_RESIDUAL_CHANGED,
     EQUIVALENT_CLOCKS_DIVERGED,
+    AFFINE_DRIFT_EXCEEDED,
+    AFFINE_RESIDUAL_EXCEEDED,
 }
 
 data class CameraTimestampNormalization(

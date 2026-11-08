@@ -10,6 +10,7 @@
 #include "arkernel/depth_postprocessor.h"
 #include "arkernel/depth_sampling.h"
 #include "arkernel/detection_postprocessor.h"
+#include "arkernel/detection_tracker.h"
 #include "arkernel/feature_detector.h"
 #include "arkernel/fixed_lag_smoother.h"
 #include "arkernel/epipolar_ransac.h"
@@ -198,6 +199,21 @@ int main() {
   const auto decoded=decodeDetectionTensor(detection_tensor,detection_config);
   CHECK(decoded.size()==2&&decoded[0].class_id==1&&decoded[1].class_id==2);
   CHECK(std::abs(decoded[0].left-10.0)<1e-5&&std::abs(decoded[0].bottom-25.0)<1e-5);
+  DetectionTracker detection_tracker;
+  const auto tracked_detections_first=detection_tracker.update(1000,decoded);
+  CHECK(tracked_detections_first.size()==2&&tracked_detections_first[0].track_id>0&&
+        tracked_detections_first[1].track_id!=tracked_detections_first[0].track_id);
+  auto moved_detections=decoded;moved_detections[0].left+=1;moved_detections[0].right+=1;
+  const auto tracked_detections_second=detection_tracker.update(2000,moved_detections);
+  CHECK(tracked_detections_second[0].track_id==tracked_detections_first[0].track_id&&
+        tracked_detections_second[1].track_id==tracked_detections_first[1].track_id);
+  CHECK(detection_tracker.update(3000,{}).empty());
+  const auto tracked_reappeared=detection_tracker.update(4000,moved_detections);
+  CHECK(tracked_reappeared[0].track_id==tracked_detections_first[0].track_id);
+  bool tracker_order_rejected=false;
+  try{(void)detection_tracker.update(4000,moved_detections);}
+  catch(const std::invalid_argument&){tracker_order_rejected=true;}
+  CHECK(tracker_order_rejected);
   detection_config.class_aware_nms=false;
   CHECK(decodeDetectionTensor(detection_tensor,detection_config).size()==1);
   const std::array<std::uint8_t,8> quantized_detection{50,50,20,40,80,100,7,7};

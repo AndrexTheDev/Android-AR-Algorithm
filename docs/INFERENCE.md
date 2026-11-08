@@ -36,6 +36,10 @@ The runtime adapter remains responsible for selecting delegates and binding the 
 
 `TemporalDepthInferenceBackend` owns and decorates any manifest-declared metric-depth backend. It verifies that the delegate preserves the exact inference-frame pose, timestamp, and calibrated dimensions, converts the legacy array depth form to a direct contiguous buffer when necessary, applies `TemporalMetricDepthFilter`, and passes detections through unchanged. `lastFilterResult` exposes blend/rejection telemetry, `resetHistory` handles explicit discontinuities, and closing the decorator closes both filter and delegate exactly once. Wrapping the backend before constructing `BoundedInferenceScheduler` therefore places conservative pose-compensated filtering in the normal inference path rather than relying on application-side ordering.
 
+## Optional detection tracking
+
+`TrackedInferenceBackend` decorates any semantic backend with `BoundedSemanticDetectionTracker`. Detections that already carry a non-negative model track ID pass through unchanged; untracked detections receive deterministic class-aware IoU IDs from a native tracker capped at 256 active tracks, five missed frames by default, and a one-second maximum frame gap. This improves downstream 3D association without presenting IoU matching as object recognition or long-term re-identification. Track state can be reset explicitly and is closed with the delegate.
+
 ## Bounded scheduler
 
 `BoundedInferenceScheduler` owns one worker and permits exactly one in-flight request with no hidden queue. Submissions report `ACCEPTED`, `RATE_LIMITED`, `BUSY`, `OUT_OF_ORDER`, or `CLOSED`. The default minimum interval is 100 ms (10 Hz). This explicit dropping policy prevents camera-rate input from growing latency and memory without bound. Frames must be monotonic. Backend calls are serialized, callback execution occurs on the inference worker, and close safely defers backend destruction until an in-flight call returns.

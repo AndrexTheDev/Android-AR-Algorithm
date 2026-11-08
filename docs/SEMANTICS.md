@@ -21,7 +21,9 @@ For plane-supported objects, `projectSemanticObservation` unprojects an in-image
 
 `ArKernelDetectionPostprocessor` decodes an explicitly described direct FLOAT32/INT8/UINT8 row tensor into bounded `SemanticDetection2d` records. Column indices, XYXY versus center-XYWH representation, normalized/pixel coordinates, confidence threshold, NMS mode, and IoU threshold are configuration rather than guesses. Coordinates are clipped to the calibrated image, malformed rows are dropped, class IDs must be integral and manifest-known, candidates are capped at 4,096, and deterministic NMS returns at most 256 detections. `SemanticDetectionTensorBackend.createVerified` composes this decoder with model hash verification, shared preprocessing, reusable raw tensors, and the single-flight inference contract.
 
-This generic decoder assumes each row already contains one box, score, and class. Architecture-specific score fusion, anchors, masks, and tracking remain explicit adapter work.
+This generic decoder assumes each row already contains one box, score, and class. Architecture-specific score fusion, anchors, and masks remain explicit adapter work.
+
+`BoundedSemanticDetectionTracker` provides an optional deterministic class-aware IoU fallback when a model does not emit track IDs. It greedily assigns globally sorted overlap candidates, retains unmatched tracks for a bounded missed-frame window, resets association after long frame gaps, supports at most 256 tracks/detections, and never overwrites IDs supplied by a model tracker. `TrackedInferenceBackend` owns this tracker around any semantic backend so stable local IDs reach the existing 3D semantic association path. IDs remain process-local and are not persisted.
 
 ## Conservative fusion
 

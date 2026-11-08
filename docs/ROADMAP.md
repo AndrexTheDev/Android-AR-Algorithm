@@ -66,7 +66,7 @@
 - [x] dependency-freies, begrenztes Native-Preprocessing für bilineares Resize, Normalisierung sowie FLOAT32-/INT8-/UINT8-NHWC-Ausgabe;
 - [x] ungültigkeitsbewusstes, begrenztes Depth-Tensor-Postprocessing für quantisierte/direct/inverse Modellausgaben zu kameragroßer metrischer Tiefe plus Konfidenz;
 - [x] verifizierte, pufferwiederverwendende metrische Depth-, row-basierte Detection- und kombinierte Multi-Head-Backends um schmale runtime-unabhängige Tensor-Schnittstellen; konkrete LiteRT-/ONNX-Adapter und Delegate-Profile bleiben offen;
-- Detektion + Tracking + Segmentierung mit gemessenen Geräteprofilen;
+- [x] begrenztes deterministisches klassenbewusstes IoU-Fallback-Tracking für Detektionen ohne Modell-Track-ID; modellgelerntes Re-ID, Segmentierung und gemessene Geräteprofile bleiben offen;
 - [x] begrenzte semantische 3D-Objektfusion, Unknown-Klasse und kalibrierte Boden-/Wandprojektion; konkrete Inferenzadapter bleiben offen;
 - [x] validiertes Modellmanifest für Hash, Lizenz, Labels, Quantisierung, metrische Tiefe und Geräteprofile; Paketierung muss Modellbytes/Notices weiterhin verifizieren.
 

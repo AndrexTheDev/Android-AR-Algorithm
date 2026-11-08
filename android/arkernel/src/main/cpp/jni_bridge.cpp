@@ -4,6 +4,7 @@
 #include <limits>
 #include <vector>
 #include "arkernel/c_api.h"
+#include "arkernel/detection_tracker.h"
 #include "arkernel/temporal_depth_filter.h"
 
 namespace {
@@ -840,5 +841,51 @@ Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeUpdate(JNIEnv* env,jobjec
     env->SetLongArrayRegion(metadata,0,3,values);return ARK_RESULT_OK;
   }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeCreate(JNIEnv*,jobject,
+    jdouble min_iou,jint max_tracks,jint max_missed,jlong max_gap){
+  try{arkernel::DetectionTrackerConfig config;config.min_iou=min_iou;
+    config.max_tracks=static_cast<size_t>(max_tracks);
+    config.max_missed_frames=static_cast<size_t>(max_missed);config.max_frame_gap_ns=max_gap;
+    return toHandle(new arkernel::DetectionTracker(config));}catch(...){return 0;}
+}
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeDestroy(JNIEnv*,jobject,jlong handle){
+  delete reinterpret_cast<arkernel::DetectionTracker*>(static_cast<intptr_t>(handle));
+}
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeReset(JNIEnv*,jobject,jlong handle){
+  auto* tracker=reinterpret_cast<arkernel::DetectionTracker*>(static_cast<intptr_t>(handle));
+  if(tracker)tracker->reset();
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeUpdate(JNIEnv* env,jobject,
+    jlong handle,jlong timestamp,jlongArray class_ids,jdoubleArray values,jlongArray track_ids){
+  auto* tracker=reinterpret_cast<arkernel::DetectionTracker*>(static_cast<intptr_t>(handle));
+  if(!tracker||!class_ids||!values||!track_ids)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize count=env->GetArrayLength(class_ids);
+  if(count<0||count>256||env->GetArrayLength(values)<count*5||
+     env->GetArrayLength(track_ids)<count)return ARK_RESULT_INVALID_ARGUMENT;
+  std::array<jlong,256> ids{};std::array<jdouble,256*5> data{};
+  env->GetLongArrayRegion(class_ids,0,count,ids.data());
+  env->GetDoubleArrayRegion(values,0,count*5,data.data());
+  if(env->ExceptionCheck())return ARK_RESULT_INTERNAL_ERROR;
+  std::vector<arkernel::DecodedDetection> detections;detections.reserve(count);
+  for(jsize i=0;i<count;++i){
+    if(ids[i]<0||static_cast<unsigned long long>(ids[i])>
+       std::numeric_limits<uint32_t>::max())return ARK_RESULT_INVALID_ARGUMENT;
+    const auto offset=static_cast<size_t>(i)*5;
+    detections.push_back({static_cast<uint32_t>(ids[i]),data[offset],data[offset+1],
+      data[offset+2],data[offset+3],data[offset+4],static_cast<size_t>(i)});
+  }
+  try{const auto tracked=tracker->update(timestamp,detections);
+    std::array<jlong,256> output{};
+    for(size_t i=0;i<tracked.size();++i)output[i]=static_cast<jlong>(tracked[i].track_id);
+    env->SetLongArrayRegion(track_ids,0,count,output.data());
+    return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(...){return ARK_RESULT_INTERNAL_ERROR;}
 }

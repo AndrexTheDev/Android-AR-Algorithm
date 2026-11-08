@@ -26,6 +26,7 @@
 
 - [x] Camera2-ImageReader mit direktem Y-Plane-JNI-Pfad und expliziter Kalibrierung; ein optionaler NDK-AImageReader-Pfad bleibt offen;
 - [x] gemeinsame Android-Session mit capture-synchroner IMU-Drainage, vollständiger rotatorisch-translatorischer Kamera-IMU-Extrinsik und visueller VIO-Rückkopplung;
+- [x] ARCore-unabhängige Standalone-Runtime samt Accelerometer-/Gyro-/Camera2-YUV-Probe und optionalem External-Runtime-Selector mit garantiertem Fallback; breite Geräteabdeckung benötigt weiterhin versionierte Kalibrierprofile;
 - [x] hysteretisches Mapping-Gate für Pose-, Frontend-, Track- und IMU-Queue-Qualität mit öffentlichen Pausengründen;
 - Kalibrierdatei und Online-Validierung; Verzerrungsmodell und Timestamp-Offset-Schätzer sind implementiert;
 - Vision-Frontend inklusive Feature-Lebenszyklus sowie orientierter BRIEF-Deskriptoraggregation ist nativ implementiert; ein optionales ORB-Backend und vollständiges nichtlineares Sliding Window bleiben offen;
@@ -73,7 +74,7 @@
 ## Phase 5 – Outdoor und Produktreife
 
 - GNSS/Barometer-Faktoren und robuste Georeferenzierung;
-- OpenXR- und optionaler ARCore-/Geospatial-Adapter;
+- OpenXR- und optionaler ARCore-/Geospatial-Adapter hinter `OptionalExternalArRuntimeFactory`; Standalone bleibt zwingender Default-Fallback;
 - Privacy Threat Model, Fuzzing, SBOM, API-Stabilität;
 - 8+ reale Geräte, thermische 30-Minuten-Läufe, Tag/Nacht/Weather-Szenen.
 

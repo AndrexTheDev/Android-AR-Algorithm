@@ -6,6 +6,8 @@ Wir bauen **keinen Monolithen und keinen Fork eines Forschungsprojekts**, sonder
 
 Die Metadaten und Lizenzen wurden direkt in den verlinkten GitHub-Repositories geprüft. Sterne sind nur ein Reifeindikator, kein Qualitätsbeweis.
 
+**Fallback-Entscheidung:** ARCore bleibt ausschließlich ein optionaler Adapter. Das ARCore-Repository beschreibt Motion Tracking und Environmental Understanding, bindet die Runtime aber an Google Play Services for AR, zusätzliche Bedingungen, Privacy-Hinweise und Runtime-/ABI-Kompatibilität. Kimera-VIO bestätigt Mono+IMU als valide VIO-Konfiguration; OpenVINS zeigt eine unabhängige Kamera-/IMU-Navigationsarchitektur und Android-orientierte Arbeit. Deshalb ist Camera2 + SensorManager + eigener nativer VIO-/Mappingkern der garantierte Installations- und Laufzeitpfad. `docs/FALLBACK.md` spezifiziert Probe, Auswahl und ehrliche Featuregrenzen.
+
 ## 2. Kandidatenmatrix
 
 | Baustein | Lizenz / Einschränkung | Android-Tauglichkeit | Entscheidung |

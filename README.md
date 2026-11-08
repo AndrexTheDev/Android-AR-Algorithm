@@ -51,7 +51,7 @@ Der portable C++17-Kern hat keine Android-, Google-, ML- oder Render-Abhängigke
 - kalibrierte native Tiefenbild-Unprojektion, pose-kompensierte konservative Temporalfilterung, voxelbegrenzte Surfel-Fusion und hart begrenzter metrischer CPU-Occlusion-Depthbuffer ohne LiDAR-Pflicht;
 - validiertes Modellmanifest, deterministisches begrenztes Native-Tensor-Pre-/Depth-/Detection-Postprocessing, verifizierte runtime-unabhängige Depth-/Detection-/Multi-Head-Backends und Single-Flight-Scheduler ohne unbegrenzte Queue;
 - modellunabhängige, begrenzte semantische 3D-Objektfusion mit Unknown-Klasse, Konfidenz-, Track-, Distanz- und Dynamik-Gates;
-- versionierte C-ABI, JNI/Kotlin-Fassade und lifecycle-sichere Android-SensorManager-/Camera2-Adapter;
+- versionierte C-ABI, JNI/Kotlin-Fassade, lifecycle-sichere Android-SensorManager-/Camera2-Adapter und eine explizite ARCore-unabhängige Standalone-Runtime mit optionalem External-Runtime-Fallback-Selector;
 - kalibrierter, direkter Camera2-Y-Plane-Pfad zum nativen Visual-Frontend ohne Java-Pixelkopie;
 - gemeinsame Android-Session mit zeitgeordneter IMU-Queue, Capture-Time-Propagation, vollständiger Kamera-IMU-Hebelarmextrinsik, visueller Rückkopplung und hysteretischem Mapping-Sicherheitsgate;
 - versionierter Offline-Replay-Runner mit deterministischen Metriken und CI-Regressionshash;
@@ -79,7 +79,7 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 /tmp/arkernel_tests
 ```
 
-Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/INFERENCE.md`](docs/INFERENCE.md) und [`docs/SEMANTICS.md`](docs/SEMANTICS.md).
+Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/FALLBACK.md`](docs/FALLBACK.md), [`docs/INFERENCE.md`](docs/INFERENCE.md) und [`docs/SEMANTICS.md`](docs/SEMANTICS.md).
 
 ## Lizenz
 

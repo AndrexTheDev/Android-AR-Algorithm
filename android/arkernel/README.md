@@ -11,7 +11,11 @@ The Android library now contains:
 - pause/resume/reset behavior that never mixes sensor sessions;
 - NDK/CMake wiring for `libarkernel_jni.so`.
 
-Host apps own runtime permissions and lifecycle calls. Typical use:
+## ARCore-independent runtime
+
+`StandaloneArRuntime` is the guaranteed fallback and directly owns the existing Camera2 + SensorManager + native VIO/mapping session. `StandaloneArSupportProbe` verifies accelerometer, gyroscope, back-camera YUV size, and the configured camera ID before startup. `ArRuntimeSelector` may try an application-supplied `OptionalExternalArRuntimeFactory` (for example a separately packaged ARCore adapter), but falls back on absence, unsupported status, or creation failure without linking this AAR to ARCore. Intrinsics and camera-to-IMU extrinsics remain mandatory device calibration inputs; package presence is never treated as proof of ARCore support. See `docs/FALLBACK.md`.
+
+Host apps own CAMERA runtime permission and lifecycle calls. Typical use:
 
 ```kotlin
 val vio = ArKernelVio()

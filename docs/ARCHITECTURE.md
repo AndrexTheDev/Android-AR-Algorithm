@@ -8,6 +8,10 @@
 4. **Bounded resources.** Queues, Map, Keyframes und Inferenzkadenz haben harte Grenzen.
 5. **Privacy by default.** Rohbilder werden nicht persistiert oder übertragen, außer der Host aktiviert dies explizit.
 
+## Android-Runtime-Auswahl
+
+Die Kern-AAR hat keine ARCore-Abhängigkeit. `ArRuntimeSelector` behandelt einen separat gelieferten ARCore-/External-Adapter als optionale Optimierung und fällt bei Abwesenheit, fehlendem Support oder Erzeugungsfehler auf `StandaloneArRuntime` zurück. Der Standalone-Pfad prüft Accelerometer, Gyroskop und einen zur expliziten Kalibrierung passenden Camera2-YUV-Stream; er rät keine Kamera-IMU-Extrinsik. Details und ehrliche Feature-Matrix: `FALLBACK.md`.
+
 ## Koordinatensysteme
 
 - rechtshändig; Meter und Sekunden;

@@ -90,7 +90,9 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add offline WebGL 2 viewer for exported textured glTF assets.
 - [x] Add bounded portable keyframe quality/novelty selector with pose uncertainty and opaque full-resolution image references.
 - [x] Add object ROI, distance, stable-center and azimuth/elevation coverage planner.
-- [ ] Implement the platform image archive behind those references, including exposure metadata and crash-safe storage.
+- [x] Implement bounded crash-safe Android frame archive with exposure, pose, uncertainty, CRC and opaque references.
+- [ ] Connect Camera2 colour capture and planner decisions to archive writes without blocking camera callbacks.
+- [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [ ] Add uncertainty-aware calibrated MVS and tiled sparse TSDF fusion, meshing and simplification.
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.

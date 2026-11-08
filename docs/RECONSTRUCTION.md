@@ -28,6 +28,8 @@ Object mode cannot reuse environment assumptions blindly: an object may move, be
 
 `ReconstructionCapturePlanner` now implements the portable selection layer. It rejects non-monotonic timestamps, weak tracking, blur, clipped exposure, too few features, excessive pose uncertainty, repeated viewpoints, invalid ROI, unsafe object distance and capacity overflow. Accepted image bytes stay in a platform archive; the core stores only an opaque reference and reproducibility metadata. Object views populate bounded azimuth/elevation bins around a stable object center, exposing measured directional coverage. This is capture coverage, not proof that every surface reconstructed successfully.
 
+Android provides `ReconstructionFrameArchive` behind those references. Every accepted frame is an independent, versioned `ARKFRM01` envelope written with `AtomicFile`; a failed write cannot invalidate earlier keyframes. The envelope binds frame ID, hardware timestamp, dimensions/stride, encoding, exposure time, ISO, full pose, pose uncertainty and image bytes with CRC32. Frame and total-byte budgets evict oldest files deterministically, while session IDs and references cannot escape app-private no-backup storage. CRC32 detects accidental corruption but is not authentication or encryption. Camera imagery is sensitive: hosts must expose explicit retention/deletion controls, call `clear()` when a temporary scan is abandoned, and apply stronger application-level encryption where the threat model requires protection beyond Android app-private file-based storage.
+
 ## Reconstruction stages
 
 1. **Calibrate and synchronize**: versioned intrinsics, distortion, rolling shutter/readout, camera/IMU transform and hardware timestamps.

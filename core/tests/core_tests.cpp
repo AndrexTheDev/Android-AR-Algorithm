@@ -20,6 +20,7 @@
 #include "arkernel/image_descriptor.h"
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/optical_flow.h"
+#include "arkernel/place_recognition.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
@@ -447,6 +448,36 @@ int main() {
   const auto restored_descriptors=descriptor_store.snapshot();
   CHECK(restored_descriptors.size()==1&&restored_descriptors[0].feature_id==11&&
         restored_descriptors[0].bytes==aggregated_descriptors[0].bytes);
+
+  // Bounded appearance retrieval finds old keyframes but never certifies loops.
+  const auto make_place_descriptors=[](std::uint32_t seed){
+    std::vector<BinaryFeatureDescriptor> output;
+    for(std::uint32_t i=0;i<24;++i){BinaryFeatureDescriptor descriptor;descriptor.feature_id=i+1;
+      for(std::size_t byte=0;byte<descriptor.bytes.size();++byte)
+        descriptor.bytes[byte]=static_cast<std::uint8_t>(seed+i*37+byte*13+(i*byte)%17);
+      output.push_back(descriptor);}
+    return output;
+  };
+  PlaceRecognitionConfig place_config;place_config.max_keyframes=2;
+  place_config.max_candidates=2;place_config.min_shared_words=10;
+  place_config.min_temporal_separation_ns=100;place_config.min_similarity=0.20;
+  PlaceRecognitionDatabase place_database(place_config);
+  const auto place_a=make_place_descriptors(11),place_b=make_place_descriptors(97);
+  CHECK(place_database.insert(1,1000,place_a));
+  CHECK(place_database.insert(2,2000,place_b));
+  CHECK(!place_database.insert(1,3000,place_a));
+  const auto temporally_near=place_database.query(1050,place_a);
+  CHECK(std::none_of(temporally_near.begin(),temporally_near.end(),
+                     [](const auto& value){return value.keyframe_id==1;}));
+  const auto recognized_place=place_database.query(5000,place_a);
+  CHECK(!recognized_place.empty()&&recognized_place.front().keyframe_id==1&&
+        recognized_place.front().similarity>0.99&&recognized_place.front().shared_words>=10);
+  CHECK(place_database.insert(3,3000,make_place_descriptors(173)));
+  CHECK(place_database.size()==2);
+  const auto after_eviction=place_database.query(5000,place_a);
+  CHECK(std::none_of(after_eviction.begin(),after_eviction.end(),
+                     [](const auto& value){return value.keyframe_id==1;}));
+  place_database.reset();CHECK(place_database.size()==0&&place_database.query(5000,place_a).empty());
 
   // IMU rotation prediction supplies LK with physically meaningful initial guesses.
   const std::vector<ImageFeature> prediction_features{{320,240,10,1},{420,260,9,2}};

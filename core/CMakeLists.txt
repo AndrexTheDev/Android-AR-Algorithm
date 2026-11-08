@@ -17,6 +17,7 @@ add_library(arkernel STATIC
     src/imu_preintegrator.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp
+    src/place_recognition.cpp
     src/relocalization.cpp
     src/reconstruction_asset.cpp
     src/reconstruction_capture.cpp

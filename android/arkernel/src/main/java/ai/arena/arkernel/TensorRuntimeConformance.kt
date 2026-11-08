@@ -49,6 +49,7 @@ data class TensorConformanceOptions(
 
 enum class TensorConformanceFailure {
     DELEGATE_EXECUTION_FAILED,
+    OUTPUT_COUNT_MISMATCH,
     OUTPUT_SIZE_MISMATCH,
     NON_FINITE_OUTPUT,
     VALUE_MISMATCH,
@@ -114,7 +115,7 @@ object TensorRuntimeConformanceSelector {
                     closeQuietly(delegate)
                     return ConformingTensorRuntimeSelection(cpuReference, false, report)
                 }
-                val comparison = compare(reference,
+                val comparison = compareForConformance(reference,
                     requireNotNull(candidateExecution.bytes), options)
                 compared += comparison.elements
                 maximumAbsolute = max(maximumAbsolute, comparison.maximumAbsoluteError)
@@ -171,7 +172,7 @@ object TensorRuntimeConformanceSelector {
         return ByteArray(count).also(source::get)
     }
 
-    private fun compare(reference: ByteArray, candidate: ByteArray,
+    internal fun compareForConformance(reference: ByteArray, candidate: ByteArray,
         options: TensorConformanceOptions): Comparison = when (options.encoding) {
         TensorConformanceEncoding.FLOAT32 -> compareFloat(reference, candidate, options)
         TensorConformanceEncoding.INT8 -> compareInteger(reference, candidate,
@@ -230,7 +231,7 @@ object TensorRuntimeConformanceSelector {
         val failure: TensorConformanceFailure?,
     )
 
-    private data class Comparison(
+    internal data class Comparison(
         val elements: Long,
         val maximumAbsoluteError: Double,
         val maximumRelativeError: Double,

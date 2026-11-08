@@ -65,6 +65,12 @@ data class StandaloneSupportReport(
 )
 
 object StandaloneArSupportProbe {
+    /** Versioned capability report; static probing never self-awards metric admission. */
+    fun inspectCompatibility(context: Context,
+        config: StandaloneArRuntimeConfig): DeviceCompatibilityReport =
+        AndroidDeviceCompatibilityProbe.inspect(context, config.cameraId,
+            config.calibration.width, config.calibration.height)
+
     fun inspect(context: Context, config: StandaloneArRuntimeConfig): StandaloneSupportReport {
         val reasons = mutableListOf<String>()
         val warnings = mutableListOf<String>()

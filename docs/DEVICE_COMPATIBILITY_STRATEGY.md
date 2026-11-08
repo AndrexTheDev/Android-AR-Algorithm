@@ -402,7 +402,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 ### P0 — make hidden assumptions observable
 
-1. Add a versioned `DeviceCapabilitySignature` and `CompatibilityReport` with stable reason codes.
+1. [Implemented foundation] Use the versioned `DeviceCapabilitySignature` and `DeviceCompatibilityReport` with stable reason codes; the static probe intentionally caps its provisional result at degraded tracking until active tests exist.
 2. Extend Camera2 probing with timestamp source, rolling-shutter skew, active/pre-correction arrays, distortion, focal/focus, stabilization, crop and physical camera identity.
 3. Add a bounded active camera/IMU smoke test and timestamp-domain classifier.
 4. Gate mapping by compatibility tier; persist no profile merely because a session opened.

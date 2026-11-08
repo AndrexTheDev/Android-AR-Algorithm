@@ -38,7 +38,7 @@ override fun onDestroy() { imu.close(); vio.close(); super.onDestroy() }
 
 ## Calibrated Camera2 stream
 
-`Camera2FrameSource` opens a back camera (or an explicit camera ID), requests the exact calibrated YUV size, consumes only the Y plane, and closes each `Image` after the synchronous native call. The host must pass intrinsics/distortion for that exact camera ID, output size, crop and stabilization mode; the adapter intentionally refuses to guess calibration. The requested size must be listed by that camera's `StreamConfigurationMap`.
+`StandaloneArSupportProbe.inspectCompatibility` builds a privacy-safe versioned capability signature from the exact YUV stream, camera metadata, physical-camera set, IMU properties, ABI, memory class, and hashed build fingerprint. It returns stable reason codes and never grants metric admission from static declarations alone. `Camera2FrameSource` opens a back camera (or an explicit camera ID), requests the exact calibrated YUV size, consumes only the Y plane, and closes each `Image` after the synchronous native call. The host must pass intrinsics/distortion for that exact camera ID, output size, crop and stabilization mode; the adapter intentionally refuses to guess calibration. The requested size must be listed by that camera's `StreamConfigurationMap`.
 
 ## Coordinated session
 

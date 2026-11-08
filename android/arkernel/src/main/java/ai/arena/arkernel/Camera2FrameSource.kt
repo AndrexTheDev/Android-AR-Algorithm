@@ -185,7 +185,7 @@ class Camera2FrameSource(
             if (!running || timestampFailureReported) return
             val timing = emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
             affineSampleCounter++
-            if (affineSampleCounter % AFFINE_SAMPLE_INTERVAL == 0) {
+            if (affineSampleCounter % AFFINE_SAMPLE_INTERVAL == 0L) {
                 val aligner = affineClockAligner
                 if (aligner != null && aligner.addObservation(image.timestamp,
                         timing.callbackElapsedRealtimeNs)) {

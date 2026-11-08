@@ -131,18 +131,22 @@ object MultiOutputTensorRuntimeConformanceSelector {
     }
 
     private fun executeDelegate(runtime: MultiOutputTensorRuntime, golden: TensorGoldenCase,
-        specs: List<TensorConformanceOptions>): DelegateExecution = try {
-        val buffers = outputBuffers(specs)
-        val written = runtime.execute(golden.newInputBuffer(), buffers)
-        if (written.size != specs.size) return DelegateExecution(null,
-            TensorConformanceFailure.OUTPUT_COUNT_MISMATCH, null)
-        for (index in specs.indices)
-            if (written[index] != specs[index].outputBytes) return DelegateExecution(null,
-                TensorConformanceFailure.OUTPUT_SIZE_MISMATCH, index)
-        DelegateExecution(specs.indices.map { outputBytes(buffers[it], written[it]) }, null, null)
-    } catch (error: Throwable) {
-        if (error is Error) throw error
-        DelegateExecution(null, TensorConformanceFailure.DELEGATE_EXECUTION_FAILED, null)
+        specs: List<TensorConformanceOptions>): DelegateExecution {
+        return try {
+            val buffers = outputBuffers(specs)
+            val written = runtime.execute(golden.newInputBuffer(), buffers)
+            if (written.size != specs.size) return DelegateExecution(null,
+                TensorConformanceFailure.OUTPUT_COUNT_MISMATCH, null)
+            for (index in specs.indices)
+                if (written[index] != specs[index].outputBytes) return DelegateExecution(null,
+                    TensorConformanceFailure.OUTPUT_SIZE_MISMATCH, index)
+            DelegateExecution(specs.indices.map {
+                outputBytes(buffers[it], written[it])
+            }, null, null)
+        } catch (error: Throwable) {
+            if (error is Error) throw error
+            DelegateExecution(null, TensorConformanceFailure.DELEGATE_EXECUTION_FAILED, null)
+        }
     }
 
     private fun outputBuffers(specs: List<TensorConformanceOptions>): List<ByteBuffer> =

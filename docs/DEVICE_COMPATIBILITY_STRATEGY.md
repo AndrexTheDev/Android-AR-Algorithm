@@ -410,7 +410,7 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 ### P1 — safe adaptation
 
-1. Add runtime camera/IMU offset monitoring and bounded estimator with observability checks.
+1. Add runtime camera/IMU offset monitoring and bounded estimator with observability checks. Independent Android accelerometer/gyro callbacks are now synchronized at a common observed timestamp by bounded interpolation without extrapolation; camera/IMU clock alignment remains open.
 2. Add conservative stream/FPS tiers and low-memory policies.
 3. Add CPU/delegate golden conformance tests and exact-signature success cache.
 4. Add signed quirk/policy parsing with offline defaults and disable-only remote rules.

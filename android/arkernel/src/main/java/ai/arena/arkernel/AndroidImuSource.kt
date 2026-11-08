@@ -30,17 +30,13 @@ class AndroidImuSource(
     private val gyroscope = manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
         ?: error("Device has no gyroscope")
     private var thread: HandlerThread? = null
-    private var latestAcceleration: Vector3? = null
-    private var latestAngularVelocity: Vector3? = null
-    private var lastTimestampNs = 0L
+    private val synchronizer = ImuSampleSynchronizer()
 
     @Synchronized
     fun start() {
         if (thread != null) return
         vio.resume()
-        latestAcceleration = null
-        latestAngularVelocity = null
-        lastTimestampNs = 0L
+        synchronizer.reset()
         val sensorThread = HandlerThread("ARKernel-IMU").also { it.start() }
         val handler = Handler(sensorThread.looper)
         val accelRegistered = manager.registerListener(this, accelerometer, sensorDelay, handler)
@@ -60,9 +56,7 @@ class AndroidImuSource(
         manager.unregisterListener(this)
         thread = null
         sensorThread.quitSafely()
-        latestAcceleration = null
-        latestAngularVelocity = null
-        lastTimestampNs = 0L
+        synchronizer.reset()
         vio.pause()
     }
 
@@ -79,16 +73,9 @@ class AndroidImuSource(
         }
         val value = Vector3(event.values[0].toDouble(), event.values[1].toDouble(),
                             event.values[2].toDouble())
-        when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> latestAcceleration = value
-            Sensor.TYPE_GYROSCOPE -> latestAngularVelocity = value
-            else -> return
-        }
-        val acceleration = latestAcceleration ?: return
-        val angularVelocity = latestAngularVelocity ?: return
-        if (event.timestamp <= lastTimestampNs) return
-        lastTimestampNs = event.timestamp
-        sampleSink(event.timestamp, acceleration, angularVelocity)
+        val synchronized = synchronizer.add(timingKind, event.timestamp, value) ?: return
+        sampleSink(synchronized.timestampNs, synchronized.acceleration,
+            synchronized.angularVelocity)
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit

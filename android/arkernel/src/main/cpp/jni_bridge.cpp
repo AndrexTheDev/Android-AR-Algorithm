@@ -4,6 +4,7 @@
 #include <limits>
 #include <vector>
 #include "arkernel/c_api.h"
+#include "arkernel/temporal_depth_filter.h"
 
 namespace {
 ark_vio_handle* fromVioHandle(jlong value) {
@@ -775,4 +776,69 @@ Java_ai_arena_arkernel_ArKernelDetectionPostprocessor_nativeDecode(JNIEnv* env,j
   const jlong count=static_cast<jlong>(result.detection_count);
   env->SetLongArrayRegion(metadata,0,1,&count);
   return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeCreate(JNIEnv*,jobject,
+    jdouble min_depth,jdouble max_depth,jdouble relative_gate,jdouble absolute_gate,
+    jdouble history_weight,jlong max_gap,jlong max_pixels) {
+  if(max_pixels<=0||static_cast<unsigned long long>(max_pixels)>
+     static_cast<unsigned long long>(std::numeric_limits<size_t>::max()))return 0;
+  try{arkernel::TemporalDepthFilterConfig config;config.min_depth_m=min_depth;
+    config.max_depth_m=max_depth;config.max_relative_difference=relative_gate;
+    config.max_absolute_difference_m=absolute_gate;config.history_weight=history_weight;
+    config.max_frame_gap_ns=max_gap;config.max_pixels=static_cast<size_t>(max_pixels);
+    return toHandle(new arkernel::TemporalDepthFilter(config));}catch(...){return 0;}
+}
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeDestroy(JNIEnv*,jobject,jlong handle){
+  delete reinterpret_cast<arkernel::TemporalDepthFilter*>(static_cast<intptr_t>(handle));
+}
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeReset(JNIEnv*,jobject,jlong handle){
+  auto* filter=reinterpret_cast<arkernel::TemporalDepthFilter*>(static_cast<intptr_t>(handle));
+  if(filter)filter->reset();
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeUpdate(JNIEnv* env,jobject,jlong handle,
+    jobject depth,jint depth_offset,jint depth_remaining,jobject confidence,jint confidence_offset,
+    jint confidence_remaining,jint width,jint height,jint depth_stride,jint confidence_stride,
+    jlong timestamp,jdouble fx,jdouble fy,jdouble cx,jdouble cy,jdouble k1,jdouble k2,
+    jdouble p1,jdouble p2,jdouble k3,jdouble rw,jdouble rx,jdouble ry,jdouble rz,
+    jdouble tx,jdouble ty,jdouble tz,jobject output_depth,jobject output_confidence,
+    jlongArray metadata){
+  auto* filter=reinterpret_cast<arkernel::TemporalDepthFilter*>(static_cast<intptr_t>(handle));
+  auto* depth_data=static_cast<float*>(env->GetDirectBufferAddress(depth));
+  auto* output_data=static_cast<float*>(env->GetDirectBufferAddress(output_depth));
+  auto* output_conf=static_cast<float*>(env->GetDirectBufferAddress(output_confidence));
+  auto* confidence_data=confidence?static_cast<float*>(env->GetDirectBufferAddress(confidence)):nullptr;
+  if(!filter||!depth_data||!output_data||!output_conf||!metadata||depth_offset<0||
+     depth_remaining<0||confidence_offset<0||confidence_remaining<0||
+     env->GetArrayLength(metadata)<3)return ARK_RESULT_INVALID_ARGUMENT;
+  const jlong depth_capacity=env->GetDirectBufferCapacity(depth);
+  const jlong output_capacity=env->GetDirectBufferCapacity(output_depth);
+  const jlong output_conf_capacity=env->GetDirectBufferCapacity(output_confidence);
+  const jlong confidence_capacity=confidence?env->GetDirectBufferCapacity(confidence):0;
+  const jlong pixels=static_cast<jlong>(width)*height;
+  if(depth_capacity<0||output_capacity<pixels||output_conf_capacity<pixels||
+     static_cast<jlong>(depth_offset)+depth_remaining>depth_capacity||
+     (confidence&&(!confidence_data||confidence_capacity<0||
+      static_cast<jlong>(confidence_offset)+confidence_remaining>confidence_capacity)))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{arkernel::TemporalDepthFrameView frame;frame.width=width;frame.height=height;
+    frame.row_stride_elements=depth_stride;frame.depth_m=depth_data+depth_offset;
+    frame.depth_elements=static_cast<size_t>(depth_remaining);frame.confidence=confidence_data?
+      confidence_data+confidence_offset:nullptr;frame.confidence_row_stride_elements=confidence_stride;
+    frame.confidence_elements=static_cast<size_t>(confidence_remaining);frame.timestamp_ns=timestamp;
+    frame.world_from_camera.rotation={rw,rx,ry,rz};frame.world_from_camera.translation={tx,ty,tz};
+    const arkernel::PinholeRadTanCamera camera({width,height,fx,fy,cx,cy},{k1,k2,p1,p2,k3});
+    const auto result=filter->update(frame,camera);
+    std::memcpy(output_data,result.depth_m.data(),result.depth_m.size()*sizeof(float));
+    std::memcpy(output_conf,result.confidence.data(),result.confidence.size()*sizeof(float));
+    const jlong values[3]={static_cast<jlong>(result.blended_pixels),
+      static_cast<jlong>(result.rejected_history_pixels),result.history_used?1:0};
+    env->SetLongArrayRegion(metadata,0,3,values);return ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
 }

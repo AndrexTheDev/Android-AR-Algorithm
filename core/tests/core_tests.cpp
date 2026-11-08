@@ -25,6 +25,7 @@
 #include "arkernel/spatial_snapshot.h"
 #include "arkernel/surfel_map.h"
 #include "arkernel/tensor_preprocessor.h"
+#include "arkernel/temporal_depth_filter.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
@@ -100,6 +101,28 @@ int main() {
                     [](const auto& value){return value.normal_valid;}));
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
+
+  TemporalDepthFilterConfig temporal_config;temporal_config.max_absolute_difference_m=0.5;
+  temporal_config.max_relative_difference=0.5;temporal_config.history_weight=0.5;
+  TemporalDepthFilter temporal_filter(temporal_config);
+  const PinholeRadTanCamera temporal_camera({2,1,1.0,1.0,0.0,0.0});
+  const std::array<float,2> temporal_first{2.0F,3.0F};
+  TemporalDepthFrameView temporal_frame;temporal_frame.width=2;temporal_frame.height=1;
+  temporal_frame.row_stride_elements=2;temporal_frame.depth_m=temporal_first.data();
+  temporal_frame.depth_elements=2;temporal_frame.timestamp_ns=100;
+  auto temporal_result=temporal_filter.update(temporal_frame,temporal_camera);
+  CHECK(!temporal_result.history_used&&temporal_result.blended_pixels==0);
+  const std::array<float,2> temporal_second{2.2F,6.0F};
+  temporal_frame.depth_m=temporal_second.data();temporal_frame.timestamp_ns=200;
+  temporal_result=temporal_filter.update(temporal_frame,temporal_camera);
+  CHECK(temporal_result.history_used&&temporal_result.blended_pixels==1&&
+        temporal_result.rejected_history_pixels==1);
+  CHECK(std::abs(temporal_result.depth_m[0]-2.1333334F)<1e-5F&&
+        temporal_result.depth_m[1]==6.0F);
+  bool temporal_order_rejected=false;
+  try{(void)temporal_filter.update(temporal_frame,temporal_camera);}
+  catch(const std::invalid_argument&){temporal_order_rejected=true;}
+  CHECK(temporal_order_rejected);
 
   const std::array<float,4> raw_depth{1.0F,2.0F,3.0F,4.0F};
   const DepthTensorView depth_tensor{2,2,2,DepthTensorElementType::kFloat32,

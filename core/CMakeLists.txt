@@ -22,6 +22,7 @@ add_library(arkernel STATIC
     src/spatial_snapshot.cpp
     src/surfel_map.cpp
     src/tensor_preprocessor.cpp
+    src/temporal_depth_filter.cpp
     src/tracking_quality.cpp
     src/visual_frontend.cpp
     src/vio_estimator.cpp

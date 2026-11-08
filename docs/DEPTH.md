@@ -34,7 +34,11 @@ Apps must not treat a sparse ray miss as proof that free space is observed.
 
 Depth `0` means unknown, never measured free space. Defaults cap output to 4 million pixels, each projected bounding radius to 64 pixels, and examined raster pixels to 4 million. Radius clipping or work-budget exhaustion sets `truncated`; consumers must then treat the image as incomplete. The convenient Android call returns a `FloatArray`. `renderSurfelDepthInto` instead writes synchronously from the output buffer's current position into a writable direct native-order `FloatBuffer` without allocating or copying a complete JNI result array; position is not advanced. The host must provide at least `cameraWidth * cameraHeight` remaining floats and keep the buffer alive and unmodified until return. This enables reuse of renderer staging memory.
 
-The output is suitable as a metric CPU-side input to a future renderer adapter, but no GPU upload, temporal filtering, hole filling, or Filament material integration is claimed yet.
+The output is suitable as a metric CPU-side input to a future renderer adapter, but no GPU upload, hole filling, or Filament material integration is claimed yet.
+
+## Conservative temporal filtering
+
+`TemporalDepthFilter` and Android `TemporalMetricDepthFilter` optionally stabilize camera-aligned metric depth before surfel integration. Previous filtered points are distortion-aware unprojected, transformed from the exact previous `world_from_camera` pose into the current camera, projected with a nearest-depth z-buffer, and blended only where the current frame already has valid depth and agrees within absolute and relative gates. Disagreement keeps the current measurement; history never fills an unobserved current pixel. Timestamps must increase, history is dropped across calibration/size changes or gaps over 500 ms, pixels are capped at 4,194,304, and Android returns explicit blended/rejected/history-used telemetry. This is conservative pose-compensated denoising, not hole filling or proof of free space.
 
 ## Safety and current limits
 

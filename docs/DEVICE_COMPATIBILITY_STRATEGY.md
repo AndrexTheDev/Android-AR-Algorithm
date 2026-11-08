@@ -320,7 +320,7 @@ Use a signed, versioned compatibility policy with these rules:
 - signatures, expiry, rollback protection and audit history are mandatory;
 - staged rollout/canary cohorts detect regressions;
 - a kill switch can disable one delegate, camera mode or optimization without disabling CPU capture/tracking;
-- calibration profiles are separately signed and bound to exact capability signatures. The implemented `CalibrationProfileVerifier` accepts only bounded canonical profiles with a trusted P-256/SHA-256 signature, validity interval, monotonic revision floor, exact capability hash, camera/physical-camera identity, stream size, crop, stabilization and distortion-correction modes. Intrinsics, distortion, camera/IMU transform, offset uncertainty and measurement evidence are inside the signed payload. Issuer class and metric claim remain distinct: user-measured or manufacturer identity cannot encode an independent-lab centimetre claim.
+- calibration profiles are separately signed and bound to exact capability signatures. The implemented `CalibrationProfileVerifier` accepts only bounded canonical profiles with a trusted P-256/SHA-256 signature, validity interval, monotonic revision floor, exact capability hash, camera/physical-camera identity, stream size, crop, stabilization and distortion-correction modes. `CalibrationTrustPolicy` adds bounded key validity windows, explicit revocation, policy revision rollback protection and per-profile revision floors while retaining conservative offline operation. Intrinsics, distortion, camera/IMU transform, offset uncertainty and measurement evidence are inside the signed payload. Issuer class and metric claim remain distinct: user-measured or manufacturer identity cannot encode an independent-lab centimetre claim.
 
 Remote configuration must never be a mandatory network dependency for basic standalone operation.
 
@@ -431,8 +431,8 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 ### P3 — calibration reach
 
 1. [Implemented foundation] Add guided rotation verification, bounded observable time-offset search, and robust multi-window ppm drift estimation with conservative uncertainty; continue with laboratory covariance validation.
-2. [Implemented measurement foundation] Keep runtime gravity/translation consistency separate from caller-supplied physical known-distance evidence; continue with a complete target-detection and guided user-calibration flow.
-3. [Implemented profile-verification foundation] Support signed calibration profiles with uncertainty, expiry, anti-rollback revision and exact firmware/camera/mode binding; continue with trusted-key rotation/revocation storage and the target-capture UI.
+2. [Implemented measurement foundation] Keep runtime gravity/translation consistency separate from physical known-distance evidence. `CalibrationTargetCaptureProbe` now requires bounded high-quality target observations across multiple view and distance bins before emitting aggregate evidence; target detection/pose estimation and the guided UI remain adapter/application work.
+3. [Implemented profile-verification foundation] Support signed calibration profiles with uncertainty, expiry, exact firmware/camera/mode binding, trusted-key validity/revocation, policy/profile anti-rollback floors and offline operation; continue with durable trust-policy storage and update transport.
 4. Add bounded per-session refinement that can lower but never self-award validation status.
 5. Validate optional CameraX capture adapter against direct Camera2 precision mode.
 

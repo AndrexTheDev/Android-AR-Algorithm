@@ -158,8 +158,47 @@ class SignedCalibrationProfile(
         payloadBytes.contentHashCode()) * 31 + signatureBytes.contentHashCode())
 }
 
+data class TrustedCalibrationKey(
+    val keyId: String,
+    val publicKey: PublicKey,
+    val validFromEpochMillis: Long,
+    val validUntilEpochMillis: Long,
+    val revokedAtEpochMillis: Long? = null,
+) {
+    init {
+        require(keyId.matches(Regex("[A-Za-z0-9._:-]{1,128}")))
+        require(validFromEpochMillis >= 0 && validUntilEpochMillis > validFromEpochMillis)
+        require(revokedAtEpochMillis == null || revokedAtEpochMillis >= validFromEpochMillis)
+    }
+}
+
+/** Host-installed offline trust policy. Its revision must itself be rollback-protected by the host. */
+class CalibrationTrustPolicy(
+    val revision: Long,
+    trustedKeys: List<TrustedCalibrationKey>,
+    minimumProfileRevisions: Map<String, Long> = emptyMap(),
+) {
+    private val keysById = trustedKeys.associateBy { it.keyId }
+    private val revisionFloors = minimumProfileRevisions.toMap()
+
+    init {
+        require(revision > 0)
+        require(trustedKeys.size <= 32 && keysById.size == trustedKeys.size)
+        require(revisionFloors.size <= 256)
+        require(revisionFloors.all { (id, floor) ->
+            id.matches(Regex("[A-Za-z0-9._:-]{1,128}")) && floor > 0
+        })
+    }
+
+    internal fun key(keyId: String): TrustedCalibrationKey? = keysById[keyId]
+    internal fun minimumRevision(profileId: String): Long = revisionFloors[profileId] ?: 0L
+}
+
 enum class CalibrationVerificationReason {
     UNKNOWN_SIGNING_KEY,
+    SIGNING_KEY_NOT_YET_VALID,
+    SIGNING_KEY_EXPIRED,
+    SIGNING_KEY_REVOKED,
     UNSUPPORTED_KEY_TYPE,
     SIGNATURE_INVALID,
     PAYLOAD_INVALID,
@@ -179,20 +218,37 @@ data class CalibrationVerificationResult(
 }
 
 /** Verifies authenticity and exact runtime binding; it never upgrades the claim in the payload. */
-class CalibrationProfileVerifier(trustedKeys: Map<String, PublicKey>) {
-    private val keys = trustedKeys.toMap()
-
+class CalibrationProfileVerifier(
+    private val trustPolicy: CalibrationTrustPolicy,
+    minimumAcceptedPolicyRevision: Long = 0,
+) {
     init {
-        require(keys.size <= 32)
-        require(keys.keys.all { it.matches(Regex("[A-Za-z0-9._:-]{1,128}")) })
+        require(minimumAcceptedPolicyRevision >= 0)
+        require(trustPolicy.revision >= minimumAcceptedPolicyRevision) {
+            "Calibration trust policy rollback rejected"
+        }
     }
+
+    constructor(trustedKeys: Map<String, PublicKey>) : this(CalibrationTrustPolicy(
+        revision = 1,
+        trustedKeys = trustedKeys.map { (id, key) ->
+            TrustedCalibrationKey(id, key, 0L, Long.MAX_VALUE)
+        },
+    ))
 
     fun verify(signed: SignedCalibrationProfile, signature: DeviceCapabilitySignature,
         stream: CalibrationStreamBinding, nowEpochMillis: Long,
         minimumAcceptedRevision: Long = 0): CalibrationVerificationResult {
         require(minimumAcceptedRevision >= 0)
-        val key = keys[signed.keyId] ?: return rejected(
+        val trustedKey = trustPolicy.key(signed.keyId) ?: return rejected(
             CalibrationVerificationReason.UNKNOWN_SIGNING_KEY)
+        if (nowEpochMillis < trustedKey.validFromEpochMillis)
+            return rejected(CalibrationVerificationReason.SIGNING_KEY_NOT_YET_VALID)
+        if (trustedKey.revokedAtEpochMillis?.let { nowEpochMillis >= it } == true)
+            return rejected(CalibrationVerificationReason.SIGNING_KEY_REVOKED)
+        if (nowEpochMillis >= trustedKey.validUntilEpochMillis)
+            return rejected(CalibrationVerificationReason.SIGNING_KEY_EXPIRED)
+        val key = trustedKey.publicKey
         if (key !is ECPublicKey || !key.algorithm.equals("EC", ignoreCase = true) ||
             key.params.order.bitLength() != 256)
             return rejected(CalibrationVerificationReason.UNSUPPORTED_KEY_TYPE)
@@ -209,7 +265,9 @@ class CalibrationProfileVerifier(trustedKeys: Map<String, PublicKey>) {
             reasons += CalibrationVerificationReason.PROFILE_NOT_YET_VALID
         if (nowEpochMillis >= profile.expiresAtEpochMillis)
             reasons += CalibrationVerificationReason.PROFILE_EXPIRED
-        if (profile.revision < minimumAcceptedRevision)
+        val requiredRevision = maxOf(minimumAcceptedRevision,
+            trustPolicy.minimumRevision(profile.profileId))
+        if (profile.revision < requiredRevision)
             reasons += CalibrationVerificationReason.PROFILE_REVISION_ROLLBACK
         if (profile.capabilitySignatureSha256 != signature.stableIdSha256)
             reasons += CalibrationVerificationReason.CAPABILITY_SIGNATURE_MISMATCH

@@ -67,6 +67,32 @@ class SignedCalibrationProfileTest {
         assertEquals(listOf(CalibrationVerificationReason.UNKNOWN_SIGNING_KEY), unknown.reasons)
     }
 
+    @Test
+    fun enforcesKeyRotationRevocationAndPolicyRevisionFloor() {
+        val keyPair = KeyPairGenerator.getInstance("EC").apply {
+            initialize(ECGenParameterSpec("secp256r1"))
+        }.generateKeyPair()
+        val device = deviceSignature()
+        val profile = profile(device.stableIdSha256, stream())
+        val payload = CalibrationProfileCodec.encode(profile)
+        val signatureBytes = Signature.getInstance("SHA256withECDSA").run {
+            initSign(keyPair.private); update(payload); sign()
+        }
+        val signed = SignedCalibrationProfile("rotating-key",
+            CalibrationSignatureAlgorithm.ECDSA_P256_SHA256, payload, signatureBytes)
+        val policy = CalibrationTrustPolicy(7, listOf(TrustedCalibrationKey(
+            "rotating-key", keyPair.public, 1_200, 1_900, revokedAtEpochMillis = 1_700)),
+            minimumProfileRevisions = mapOf("lab-profile-1" to 2L))
+        val verifier = CalibrationProfileVerifier(policy)
+
+        assertEquals(listOf(CalibrationVerificationReason.SIGNING_KEY_NOT_YET_VALID),
+            verifier.verify(signed, device, stream(), 1_100).reasons)
+        assertTrue(CalibrationVerificationReason.PROFILE_REVISION_ROLLBACK in
+            verifier.verify(signed, device, stream(), 1_500).reasons)
+        assertEquals(listOf(CalibrationVerificationReason.SIGNING_KEY_REVOKED),
+            verifier.verify(signed, device, stream(), 1_750).reasons)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun userMeasuredProfileCannotClaimLabValidation() {
         profile(deviceSignature().stableIdSha256, stream()).copy(

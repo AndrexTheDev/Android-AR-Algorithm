@@ -64,6 +64,34 @@ class ObjectDetectionDecodersTest {
         assertEquals(40.0, detections.single().bottom, 1e-6)
     }
 
+    @Test
+    fun separatedDistributionFocalHeadsUseDeclaredLevelOrder() {
+        val levels = listOf(DistributionFocalTensorLevel(
+            classScores = floats(0.9f, 0.1f),
+            classSpec = RawDetectionTensorSpec(1, 2),
+            boxDistributions = floats(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
+            distributionSpec = RawDetectionTensorSpec(1, 8)))
+        val detections = ArKernelSeparatedDistributionFocalDetectionDecoder.decode(levels,
+            SeparatedDistributionFocalDetectionOptions(
+                featureStrides = intArrayOf(8), classCount = 2, regressionMax = 1,
+                classActivation = DetectionScoreActivation.PROBABILITY,
+                modelInputWidth = 8, modelInputHeight = 8, scoreThreshold = 0.5),
+            imageWidth = 16, imageHeight = 16)
+
+        assertEquals(1, detections.size)
+        assertEquals(1L, detections.single().classId)
+        assertEquals(0.9, detections.single().confidence, 1e-6)
+        assertEquals(16.0, detections.single().right, 1e-6)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun separatedDistributionFocalRejectsMissingLevel() {
+        ArKernelSeparatedDistributionFocalDetectionDecoder.decode(emptyList(),
+            SeparatedDistributionFocalDetectionOptions(
+                featureStrides = intArrayOf(8), classCount = 1, regressionMax = 1,
+                modelInputWidth = 8, modelInputHeight = 8), 8, 8)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun distributionFocalRowsMustExactlyMatchConfiguredLevels() {
         ArKernelDistributionFocalDetectionDecoder.decode(

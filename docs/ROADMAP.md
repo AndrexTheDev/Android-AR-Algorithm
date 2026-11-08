@@ -74,7 +74,7 @@
 - [x] ungültigkeitsbewusstes, begrenztes Depth-Tensor-Postprocessing für quantisierte/direct/inverse Modellausgaben zu kameragroßer metrischer Tiefe plus Konfidenz;
 - [x] verifizierte, pufferwiederverwendende metrische Depth-, row-basierte Detection- und kombinierte Multi-Head-Backends um schmale runtime-unabhängige Tensor-Schnittstellen;
 - [x] begrenzte runtime-neutrale Decoder/Backends für SSD/EfficientDet-`Detection_PostProcess`, YOLOX-artige Objectness×Klassenscores und RT-DETR-artige normalisierte Boxen mit Probability/Sigmoid/Softmax; konkrete LiteRT-/ONNX-/ncnn-/MNN-Adapter und Delegate-Profile bleiben offen;
-- [x] spezialisierte begrenzte Multi-Level-DFL-Decodierung für zusammengeführte NanoDet-/PicoDet-artige Zeilen mit exakten Stride-, Zeilen-, Klassen- und `reg_max`-Verträgen; Adapter für getrennte Head-Tensoren bleiben offen;
+- [x] spezialisierte begrenzte Multi-Level-DFL-Decodierung für zusammengeführte sowie getrennte NanoDet-/PicoDet-artige Klassen-/Regressions-Heads mit exakten Outputreihenfolge-, Stride-, Zeilen-, Klassen- und `reg_max`-Verträgen;
 - [x] begrenztes deterministisches klassenbewusstes IoU-Fallback-Tracking für Detektionen ohne Modell-Track-ID; modellgelerntes Re-ID, Segmentierung und gemessene Geräteprofile bleiben offen;
 - [x] begrenzte semantische 3D-Objektfusion, Unknown-Klasse und kalibrierte Boden-/Wandprojektion; konkrete Inferenzadapter bleiben offen;
 - [x] validiertes Modellmanifest für Hash, Lizenz, Labels, Quantisierung, metrische Tiefe und Geräteprofile; Paketierung muss Modellbytes/Notices weiterhin verifizieren.

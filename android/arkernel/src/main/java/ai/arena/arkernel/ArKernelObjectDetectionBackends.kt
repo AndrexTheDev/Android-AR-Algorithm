@@ -145,6 +145,97 @@ class DistributionFocalDetectionTensorBackend private constructor(
     }
 }
 
+/** Verified multi-output backend for separate class/regression DFL heads. */
+class SeparatedDistributionFocalDetectionTensorBackend private constructor(
+    override val manifest: ModelManifest,
+    private val runtime: MultiOutputTensorRuntime,
+    private val classSpecs: List<RawDetectionTensorSpec>,
+    private val distributionSpecs: List<RawDetectionTensorSpec>,
+    private val options: SeparatedDistributionFocalDetectionOptions,
+    private val dynamicClassIds: Set<Long>,
+    private val projectionSurfaces: Map<Long, SemanticProjectionSurface>,
+    private val swapRedBlue: Boolean,
+) : OnDeviceInferenceBackend {
+    private val closed = AtomicBoolean(false)
+    private val input = allocateModelInput(manifest)
+    private val orderedSpecs = interleaveDflSpecs(classSpecs, distributionSpecs,
+        options.strides.size)
+    private val outputBytes = orderedSpecs.map(::rawTensorBytes)
+    private val outputs = outputBytes.map { bytes ->
+        ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
+    }
+
+    init {
+        validateDetectionManifest(manifest, dynamicClassIds, projectionSurfaces)
+        require(classSpecs.size == options.strides.size &&
+            distributionSpecs.size == options.strides.size)
+        require(outputBytes.sumOf { it.toLong() } <= MAX_TOTAL_OUTPUT_BYTES)
+    }
+
+    @Synchronized
+    override fun infer(frame: PerceptionFrame): OnDeviceInferenceOutput {
+        check(!closed.get()) { "Separated DFL detection backend is closed" }
+        val preprocessed = ArKernelTensorPreprocessor.preprocessInto(frame, manifest, input,
+            swapRedBlue)
+        val runtimeInput = preprocessed.bytes.duplicate().order(ByteOrder.nativeOrder()).apply {
+            position(0)
+        }
+        val runtimeOutputs = outputs.indices.map { index ->
+            outputs[index].duplicate().order(ByteOrder.nativeOrder()).apply {
+                clear(); limit(outputBytes[index])
+            }
+        }
+        val written = runtime.execute(runtimeInput, runtimeOutputs)
+        require(written.size == outputs.size && written.indices.all {
+            written[it] == outputBytes[it]
+        }) { "Tensor runtime returned incomplete or unexpected separated DFL outputs" }
+        val readable = outputs.indices.map { index ->
+            outputs[index].duplicate().order(ByteOrder.nativeOrder()).apply {
+                position(0); limit(outputBytes[index])
+            }
+        }
+        val levels = classSpecs.indices.map { index ->
+            DistributionFocalTensorLevel(readable[index * 2], classSpecs[index],
+                readable[index * 2 + 1], distributionSpecs[index])
+        }
+        val detections = decorate(
+            ArKernelSeparatedDistributionFocalDetectionDecoder.decodeForFrame(levels,
+                options, frame, manifest), dynamicClassIds, projectionSurfaces)
+        return OnDeviceInferenceOutput(frame.timestampNs, frame.worldFromCamera,
+            detections = detections)
+    }
+
+    @Synchronized
+    override fun close() {
+        if (closed.compareAndSet(false, true)) runtime.close()
+    }
+
+    companion object {
+        fun createVerified(
+            manifest: ModelManifest,
+            modelBytes: ByteBuffer,
+            runtimeFactory: (ByteBuffer) -> MultiOutputTensorRuntime,
+            classSpecs: List<RawDetectionTensorSpec>,
+            distributionSpecs: List<RawDetectionTensorSpec>,
+            options: SeparatedDistributionFocalDetectionOptions,
+            dynamicClassIds: Set<Long> = emptySet(),
+            projectionSurfaces: Map<Long, SemanticProjectionSurface> = emptyMap(),
+            swapRedBlue: Boolean = false,
+        ): SeparatedDistributionFocalDetectionTensorBackend {
+            require(manifest.verifyModelBytes(modelBytes)) { "Model byte size or SHA-256 mismatch" }
+            val runtime = runtimeFactory(modelBytes.duplicate())
+            return try {
+                SeparatedDistributionFocalDetectionTensorBackend(manifest, runtime,
+                    classSpecs.toList(), distributionSpecs.toList(), options,
+                    dynamicClassIds.toSet(), projectionSurfaces.toMap(), swapRedBlue)
+            } catch (error: Exception) {
+                closeAfterFailure(runtime, error)
+                throw error
+            }
+        }
+    }
+}
+
 /** Verified four-head SSD/EfficientDet Detection_PostProcess backend. */
 class SsdDetectionTensorBackend private constructor(
     override val manifest: ModelManifest,
@@ -253,6 +344,14 @@ private fun rawTensorBytes(spec: RawDetectionTensorSpec): Int {
     val bytes = Math.multiplyExact(elements, spec.encoding.bytesPerElement.toLong())
     require(bytes in 1..MAX_BACKEND_TENSOR_BYTES.toLong())
     return bytes.toInt()
+}
+
+private fun interleaveDflSpecs(classSpecs: List<RawDetectionTensorSpec>,
+    distributionSpecs: List<RawDetectionTensorSpec>, expectedLevels: Int): List<RawDetectionTensorSpec> {
+    require(classSpecs.size == expectedLevels && distributionSpecs.size == expectedLevels)
+    return classSpecs.indices.flatMap { index ->
+        listOf(classSpecs[index], distributionSpecs[index])
+    }
 }
 
 private fun validateDetectionManifest(manifest: ModelManifest, dynamicClassIds: Set<Long>,

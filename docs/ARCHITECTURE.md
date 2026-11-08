@@ -111,7 +111,9 @@ Geometrisch akzeptierte Frontend-Tracks werden über ihre stabilen IDs und das k
 
 ## Place Recognition und Loop-Kandidaten
 
-`PlaceRecognitionDatabase` bildet die begrenzte Retrieval-Stufe vor jeder geometrischen Loop-Verifikation. Ein orientierter 256-Bit-BRIEF-Deskriptor erzeugt mehrere gehashte Teilwörter, damit einzelne verrauschte Bits nicht das gesamte visuelle Wort ändern. Sparse Term-Frequency und eine aus der aktuellen begrenzten Datenbank berechnete Inverse-Document-Frequency gewichten seltene Wörter stärker. Zeitlich nahe Keyframes werden ausgeschlossen; Mindestanzahl gemeinsamer Wörter, Cosine-Similarity und ein Kandidatenbudget begrenzen die Ausgabe. Bei Kapazität wird deterministisch der älteste Keyframe entfernt. Ein Retrieval-Treffer ist ausschließlich ein Vorschlag: Erst metrische 2D–3D/3D–3D-Geometrie, RANSAC und Residualgates dürfen daraus einen Loop- oder Pose-Graph-Faktor machen.
+`PlaceRecognitionDatabase` bildet die begrenzte Retrieval-Stufe vor jeder geometrischen Loop-Verifikation. Ein orientierter 256-Bit-BRIEF-Deskriptor erzeugt mehrere gehashte Teilwörter, damit einzelne verrauschte Bits nicht das gesamte visuelle Wort ändern. Sparse Term-Frequency und eine aus der aktuellen begrenzten Datenbank berechnete Inverse-Document-Frequency gewichten seltene Wörter stärker. Zeitlich nahe Keyframes werden ausgeschlossen; Mindestanzahl gemeinsamer Wörter, Cosine-Similarity und ein Kandidatenbudget begrenzen die Ausgabe. Bei Kapazität wird deterministisch der älteste Keyframe entfernt.
+
+`verifyLoopClosure` ist die getrennte metrische Sicherheitsstufe. Sie validiert eindeutige Landmark-/Deskriptorbeziehungen, bildet Mutual-Best- und Ratio-gefilterte 3D–3D-Korrespondenzen und verwendet den gemeinsamen robusten RANSAC-Starrkörperschätzer. Mindest-Inlierzahl, Inlier-Anteil, metrische RMSE, nicht-kollineare Stichproben und eine konfigurierbare Abweichung von der VIO-Relativepose müssen bestanden werden. Das Ergebnis enthält stabile Ablehnungsgründe und darf nur bei `valid=true` an einen künftigen robusten Pose Graph weitergereicht werden.
 
 ## Relokalisierung
 

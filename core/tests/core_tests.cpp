@@ -19,6 +19,7 @@
 #include "arkernel/homography_ransac.h"
 #include "arkernel/image_descriptor.h"
 #include "arkernel/imu_preintegrator.h"
+#include "arkernel/loop_closure.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
 #include "arkernel/relocalization.h"
@@ -1051,6 +1052,62 @@ int main() {
   for(int i=0;i<8;++i)degenerate_relocalization.push_back(
     {{static_cast<double>(i),0,0},{static_cast<double>(i)+1,0,0}});
   CHECK(!estimateRelocalization(degenerate_relocalization).valid);
+
+  // Appearance candidates become loops only after metric geometry and pose-prior gates.
+  LoopKeyframe loop_reference;loop_reference.id=41;loop_reference.timestamp_ns=1000000000LL;
+  LoopKeyframe loop_current;loop_current.id=84;loop_current.timestamp_ns=8000000000LL;
+  const Pose loop_transform{Quaternion::fromRotationVector({0.08,-0.04,0.12}),{0.3,-0.2,0.1}};
+  loop_current.world_from_keyframe.rotation=loop_transform.rotation.inverse();
+  loop_current.world_from_keyframe.translation=
+      loop_current.world_from_keyframe.rotation.rotate(loop_transform.translation*-1.0);
+  for(std::size_t i=0;i<saved_points.size();++i){
+    const auto reference_id=static_cast<std::uint32_t>(100+i);
+    const auto current_id=static_cast<std::uint32_t>(200+i);
+    loop_reference.landmarks.push_back({reference_id,saved_points[i]});
+    loop_current.landmarks.push_back({current_id,
+      loop_transform.rotation.rotate(saved_points[i])+loop_transform.translation});
+    BinaryFeatureDescriptor reference_descriptor;reference_descriptor.feature_id=reference_id;
+    for(std::size_t byte=0;byte<reference_descriptor.bytes.size();++byte)
+      reference_descriptor.bytes[byte]=static_cast<std::uint8_t>(i*41+byte*17+3);
+    auto current_descriptor=reference_descriptor;current_descriptor.feature_id=current_id;
+    loop_reference.descriptors.push_back(reference_descriptor);
+    loop_current.descriptors.push_back(current_descriptor);
+  }
+  for(std::uint32_t i=0;i<2;++i){
+    const std::uint32_t reference_id=108+i,current_id=208+i;
+    loop_reference.landmarks.push_back({reference_id,{2.0+i,2.0-i,1.5}});
+    loop_current.landmarks.push_back({current_id,{-5.0+i,4.0,3.0-i}});
+    BinaryFeatureDescriptor descriptor;descriptor.feature_id=reference_id;
+    for(std::size_t byte=0;byte<descriptor.bytes.size();++byte)
+      descriptor.bytes[byte]=static_cast<std::uint8_t>(191+i*29+byte*7);
+    auto current_descriptor=descriptor;current_descriptor.feature_id=current_id;
+    loop_reference.descriptors.push_back(descriptor);loop_current.descriptors.push_back(current_descriptor);
+  }
+  const auto verified_loop=verifyLoopClosure(loop_reference,loop_current);
+  CHECK(verified_loop.valid&&verified_loop.rejection_reason==LoopClosureRejectionReason::kNone);
+  CHECK(verified_loop.descriptor_match_count==saved_points.size()+2&&
+        verified_loop.inlier_count==saved_points.size()&&verified_loop.inlier_ratio==0.8&&
+        verified_loop.rmse_m<1e-8);
+  CHECK((verified_loop.current_from_reference.translation-loop_transform.translation).norm()<1e-8);
+  auto near_loop=loop_current;near_loop.timestamp_ns=loop_reference.timestamp_ns+1000;
+  CHECK(verifyLoopClosure(loop_reference,near_loop).rejection_reason==
+        LoopClosureRejectionReason::kTemporallyNear);
+  auto inconsistent_loop=loop_current;inconsistent_loop.world_from_keyframe={};
+  LoopClosureConfig strict_loop_config;strict_loop_config.max_translation_disagreement_m=0.1;
+  strict_loop_config.max_rotation_disagreement_degrees=5.0;
+  CHECK(verifyLoopClosure(loop_reference,inconsistent_loop,strict_loop_config).rejection_reason==
+        LoopClosureRejectionReason::kPoseDisagreement);
+  auto insufficient_loop=loop_current;insufficient_loop.descriptors.resize(5);
+  CHECK(verifyLoopClosure(loop_reference,insufficient_loop).rejection_reason==
+        LoopClosureRejectionReason::kInsufficientMatches);
+  auto invalid_loop=loop_current;invalid_loop.descriptors.front().feature_id=999999;
+  CHECK(verifyLoopClosure(loop_reference,invalid_loop).rejection_reason==
+        LoopClosureRejectionReason::kInvalidInput);
+  auto degenerate_loop=loop_current;
+  for(std::size_t i=0;i<degenerate_loop.landmarks.size();++i)
+    degenerate_loop.landmarks[i].position_keyframe_m={static_cast<double>(i),0,0};
+  CHECK(verifyLoopClosure(loop_reference,degenerate_loop).rejection_reason==
+        LoopClosureRejectionReason::kGeometryRejected);
 
   SpatialSnapshot spatial_snapshot{2400000000LL,sparse_map.snapshot(),anchors.snapshot(),{}};
   const std::array<std::size_t,8> descriptor_landmark_indices{{0,1,8,9,10,11,18,19}};

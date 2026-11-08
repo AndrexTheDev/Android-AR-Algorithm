@@ -147,6 +147,7 @@ class StandaloneArRuntime private constructor(
             config: StandaloneArRuntimeConfig,
             onResult: (ArKernelSessionResult) -> Unit,
             onError: (Throwable) -> Unit = {},
+            compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
         ): StandaloneArRuntime {
             val report = StandaloneArSupportProbe.inspect(context, config)
             require(report.supported) {
@@ -154,7 +155,8 @@ class StandaloneArRuntime private constructor(
             }
             val session = ArKernelSession(context, config.calibration,
                 config.bodyFromCameraRotation, onResult, onError,
-                config.maxQueuedImuSamples, config.bodyFromCameraTranslationMeters)
+                config.maxQueuedImuSamples, config.bodyFromCameraTranslationMeters,
+                compatibilityProbe = compatibilityProbe)
             return StandaloneArRuntime(session, requireNotNull(report.selectedCameraId), report)
         }
     }
@@ -174,6 +176,7 @@ object ArRuntimeSelector {
         onStandaloneError: (Throwable) -> Unit = {},
         optionalExternalFactory: OptionalExternalArRuntimeFactory? = null,
         preferExternal: Boolean = true,
+        activeCompatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
     ): ArRuntimeSelection {
         val diagnostics = mutableListOf<String>()
         if (preferExternal && optionalExternalFactory != null) {
@@ -192,7 +195,7 @@ object ArRuntimeSelector {
                 "No optional ARCore adapter is linked" else "External runtime preference is disabled"
         }
         val standalone = StandaloneArRuntime.create(context, standaloneConfig,
-            onStandaloneResult, onStandaloneError)
+            onStandaloneResult, onStandaloneError, activeCompatibilityProbe)
         diagnostics += standalone.supportReport.warnings
         diagnostics += "Selected standalone Camera2 + SensorManager + ARKernel runtime"
         return ArRuntimeSelection(standalone, true, diagnostics)

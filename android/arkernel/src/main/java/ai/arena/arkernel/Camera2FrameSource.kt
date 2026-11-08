@@ -16,6 +16,7 @@ import android.media.ImageReader
 import java.util.TreeMap
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 
 data class CameraReconstructionFrame(
     val timestampNs: Long,
@@ -61,6 +62,7 @@ class Camera2FrameSource(
     private val onReconstructionFrame: ((CameraReconstructionFrame) -> Unit)? = null,
     private val reconstructionQualityGate:
         ((VisualFrontendSnapshot, CameraFrameQuality) -> Boolean)? = null,
+    private val compatibilityTimingSink: ((CameraTimingSample) -> Unit)? = null,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -134,6 +136,8 @@ class Camera2FrameSource(
                                 result: TotalCaptureResult,
                             ) {
                                 val timestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
+                                emitCompatibilityTiming(CameraTimingSampleKind.CAPTURE_RESULT,
+                                    timestamp)
                                 handleCaptureMetadata(timestamp,
                                     result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
                                     result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
@@ -164,6 +168,7 @@ class Camera2FrameSource(
         val image = source.acquireLatestImage() ?: return
         try {
             if (!running || image.timestamp <= lastTimestampNs) return
+            emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
             val y = image.planes[0]
             check(y.pixelStride == 1) { "Unsupported Camera2 Y-plane pixel stride ${y.pixelStride}" }
             lastTimestampNs = image.timestamp
@@ -200,6 +205,17 @@ class Camera2FrameSource(
             if (running) onError(error)
         } finally {
             image.close()
+        }
+    }
+
+    private fun emitCompatibilityTiming(kind: CameraTimingSampleKind, timestampNs: Long) {
+        val sink = compatibilityTimingSink ?: return
+        val elapsed = SystemClock.elapsedRealtimeNanos()
+        val uptime = Math.multiplyExact(SystemClock.uptimeMillis(), 1_000_000L)
+        try {
+            sink(CameraTimingSample(kind, timestampNs, elapsed, uptime))
+        } catch (error: Throwable) {
+            if (running) onError(error)
         }
     }
 

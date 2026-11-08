@@ -84,7 +84,7 @@
 - GNSS/Barometer-Faktoren und robuste Georeferenzierung;
 - OpenXR- und optionaler ARCore-/Geospatial-Adapter hinter `OptionalExternalArRuntimeFactory`; Standalone bleibt zwingender Default-Fallback;
 - Privacy Threat Model, Fuzzing, SBOM, API-Stabilität;
-- [ ] versionierte verhaltensbasierte Gerätekompatibilität: statische `DeviceCapabilitySignature`, stabile Reason Codes, konservative Stufen und Android-Probe sind implementiert; aktive Kamera-/IMU-Zeitbasis- und Stream-Selbsttests bleiben offen;
+- [ ] versionierte verhaltensbasierte Gerätekompatibilität: statische Signatur/Reason Codes sowie begrenzte aktive Kamera-/CaptureResult-/IMU-Messung für Monotonie, Rate, Jitter, Lücken, Paarung, Überlappung und Realtime/Uptime-Klassifikation sind implementiert; automatischer Testzeitraum, Uptime-Clock-Alignment und geführte Bewegungsobservierbarkeit bleiben offen;
 - [ ] synthetische Camera2-/IMU-Fehlerinjektion, paarweise Hochrisiko-Konfigurationen und signierte disable-only Quirk-Policy mit Offline-Fallback;
 - [ ] nach Capability-Set-Cover ausgewählte reale Geräte statt reiner Modellliste, Mobly-Sensorfusionsrig, thermische 30-Minuten-Läufe sowie Tag/Nacht/Weather-Szenen;
 - [ ] optionales Feld-Diagnosepaket ohne Bilder/Trajektorien als Default; Zentimetervalidierung bleibt an unabhängige Targets und exakte Capability-/Kalibriersignatur gebunden.

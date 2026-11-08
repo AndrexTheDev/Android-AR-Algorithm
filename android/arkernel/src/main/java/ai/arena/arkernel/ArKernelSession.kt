@@ -41,6 +41,7 @@ class ArKernelSession(
     private val onReconstructionFrame: ((ArKernelReconstructionFrame) -> Unit)? = null,
     private val reconstructionQualityGate:
         ((ArKernelSessionResult, CameraFrameQuality) -> Boolean)? = null,
+    private val compatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -62,7 +63,10 @@ class ArKernelSession(
     @Volatile private var running = false
     @Volatile private var closed = false
 
-    private val imu = AndroidImuSource(context, vio, sampleSink = ::enqueueImu)
+    private val imu = AndroidImuSource(context, vio, sampleSink = ::enqueueImu,
+        compatibilityTimingSink = compatibilityProbe?.let { probe ->
+            { sample -> probe.addImuSample(sample); Unit }
+        })
     private val camera = Camera2FrameSource(
         context, calibration, visual,
         rotationPrediction = ::predictRotationAt,
@@ -76,6 +80,9 @@ class ArKernelSession(
                 (reconstructionQualityGate?.invoke(result, quality) ?: true)
             if (!accepted) pendingReconstructionResults.remove(snapshot.timestampNs)
             accepted
+        },
+        compatibilityTimingSink = compatibilityProbe?.let { probe ->
+            { sample -> probe.addCameraSample(sample); Unit }
         },
     )
 
@@ -161,7 +168,7 @@ class ArKernelSession(
             gateObservedDroppedSamples = droppedSamples
             Triple(queue.size, droppedSamples, overflow)
         }
-        val mappingGate = visual.updateMappingGate(
+        val kernelMappingGate = visual.updateMappingGate(
             poseInitialized = snapshot != null,
             poseLimited = stateBeforeFusion?.status == VioStatus.LIMITED ||
                 snapshot?.status == VioStatus.LIMITED,
@@ -169,6 +176,13 @@ class ArKernelSession(
             acceptedTracks = result.acceptedTrackCount,
             imuQueueOverflow = queueStatus.third,
         )
+        val mappingGate = compatibilityProbe?.let { probe ->
+            if (probe.metricAdmissionGranted) kernelMappingGate else MappingGateDecision(
+                MappingGateState.PAUSED,
+                if (probe.isFinished) MappingPauseReason.DEVICE_COMPATIBILITY_REJECTED
+                else MappingPauseReason.DEVICE_COMPATIBILITY_PENDING,
+                false)
+        } ?: kernelMappingGate
         latestMappingGate = mappingGate
         val worldFromCamera = snapshot?.let { state ->
             val cameraOffsetWorld = rotate(state.rotation, bodyFromCameraTranslationMeters)

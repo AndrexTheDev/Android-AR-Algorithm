@@ -404,8 +404,8 @@ Use stratified sampling and oversample rare/high-severity partitions. A large un
 
 1. [Implemented foundation] Use the versioned `DeviceCapabilitySignature` and `DeviceCompatibilityReport` with stable reason codes; the static probe intentionally caps its provisional result at degraded tracking until active tests exist.
 2. Extend Camera2 probing with timestamp source, rolling-shutter skew, active/pre-correction arrays, distortion, focal/focus, stabilization, crop and physical camera identity.
-3. Add a bounded active camera/IMU smoke test and timestamp-domain classifier.
-4. Gate mapping by compatibility tier; persist no profile merely because a session opened.
+3. [Implemented foundation] Feed bounded Camera2 image/result and raw IMU timing hooks into `ActiveDeviceCompatibilityProbe`; it checks monotonicity, rates, gaps, timestamp pairing, overlap and realtime-versus-uptime behavior.
+4. [Implemented foundation] An attached unfinished or failed active probe forces the session mapping gate to `DEVICE_COMPATIBILITY_PENDING` or `DEVICE_COMPATIBILITY_REJECTED`; only a completed calibrated/extrinsics-trusted report can promote to runtime-verified metric mapping.
 5. Export a privacy-reviewed diagnostic bundle for user-run support tests.
 
 ### P1 — safe adaptation

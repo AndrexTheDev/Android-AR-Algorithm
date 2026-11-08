@@ -7,6 +7,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 
 /**
  * Lifecycle owner for Android accelerometer/gyroscope callbacks. It combines
@@ -21,6 +22,7 @@ class AndroidImuSource(
         vio.submitImu(timestamp, acceleration, angularVelocity)
         Unit
     },
+    private val compatibilityTimingSink: ((ImuTimingSample) -> Unit)? = null,
 ) : SensorEventListener, AutoCloseable {
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -66,6 +68,15 @@ class AndroidImuSource(
 
     @Synchronized
     override fun onSensorChanged(event: SensorEvent) {
+        val timingKind = when (event.sensor.type) {
+            Sensor.TYPE_ACCELEROMETER -> ImuTimingSampleKind.ACCELEROMETER
+            Sensor.TYPE_GYROSCOPE -> ImuTimingSampleKind.GYROSCOPE
+            else -> return
+        }
+        compatibilityTimingSink?.let { sink ->
+            runCatching { sink(ImuTimingSample(timingKind, event.timestamp,
+                SystemClock.elapsedRealtimeNanos())) }
+        }
         val value = Vector3(event.values[0].toDouble(), event.values[1].toDouble(),
                             event.values[2].toDouble())
         when (event.sensor.type) {

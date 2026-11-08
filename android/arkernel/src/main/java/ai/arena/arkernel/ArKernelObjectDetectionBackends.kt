@@ -74,6 +74,77 @@ class AnchorFreeDetectionTensorBackend private constructor(
     }
 }
 
+/** Verified single-output backend for NanoDet/PicoDet-style DFL feature heads. */
+class DistributionFocalDetectionTensorBackend private constructor(
+    override val manifest: ModelManifest,
+    private val runtime: SingleInputTensorRuntime,
+    private val outputSpec: RawDetectionTensorSpec,
+    private val options: DistributionFocalDetectionOptions,
+    private val dynamicClassIds: Set<Long>,
+    private val projectionSurfaces: Map<Long, SemanticProjectionSurface>,
+    private val swapRedBlue: Boolean,
+) : OnDeviceInferenceBackend {
+    private val closed = AtomicBoolean(false)
+    private val input = allocateModelInput(manifest)
+    private val outputBytes = rawTensorBytes(outputSpec)
+    private val output = ByteBuffer.allocateDirect(outputBytes).order(ByteOrder.nativeOrder())
+
+    init {
+        validateDetectionManifest(manifest, dynamicClassIds, projectionSurfaces)
+    }
+
+    @Synchronized
+    override fun infer(frame: PerceptionFrame): OnDeviceInferenceOutput {
+        check(!closed.get()) { "DFL detection backend is closed" }
+        val preprocessed = ArKernelTensorPreprocessor.preprocessInto(frame, manifest, input,
+            swapRedBlue)
+        val runtimeInput = preprocessed.bytes.duplicate().order(ByteOrder.nativeOrder()).apply {
+            position(0)
+        }
+        val runtimeOutput = output.duplicate().order(ByteOrder.nativeOrder()).apply {
+            clear(); limit(outputBytes)
+        }
+        val written = runtime.execute(runtimeInput, runtimeOutput)
+        require(written == outputBytes) { "Tensor runtime returned $written bytes; expected $outputBytes" }
+        val tensor = output.duplicate().order(ByteOrder.nativeOrder()).apply {
+            position(0); limit(outputBytes)
+        }
+        val detections = decorate(ArKernelDistributionFocalDetectionDecoder.decodeForFrame(
+            tensor, outputSpec, options, frame, manifest), dynamicClassIds,
+            projectionSurfaces)
+        return OnDeviceInferenceOutput(frame.timestampNs, frame.worldFromCamera,
+            detections = detections)
+    }
+
+    @Synchronized
+    override fun close() {
+        if (closed.compareAndSet(false, true)) runtime.close()
+    }
+
+    companion object {
+        fun createVerified(
+            manifest: ModelManifest,
+            modelBytes: ByteBuffer,
+            runtimeFactory: (ByteBuffer) -> SingleInputTensorRuntime,
+            outputSpec: RawDetectionTensorSpec,
+            options: DistributionFocalDetectionOptions,
+            dynamicClassIds: Set<Long> = emptySet(),
+            projectionSurfaces: Map<Long, SemanticProjectionSurface> = emptyMap(),
+            swapRedBlue: Boolean = false,
+        ): DistributionFocalDetectionTensorBackend {
+            require(manifest.verifyModelBytes(modelBytes)) { "Model byte size or SHA-256 mismatch" }
+            val runtime = runtimeFactory(modelBytes.duplicate())
+            return try {
+                DistributionFocalDetectionTensorBackend(manifest, runtime, outputSpec, options,
+                    dynamicClassIds.toSet(), projectionSurfaces.toMap(), swapRedBlue)
+            } catch (error: Exception) {
+                closeAfterFailure(runtime, error)
+                throw error
+            }
+        }
+    }
+}
+
 /** Verified four-head SSD/EfficientDet Detection_PostProcess backend. */
 class SsdDetectionTensorBackend private constructor(
     override val manifest: ModelManifest,

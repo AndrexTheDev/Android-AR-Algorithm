@@ -46,6 +46,34 @@ class ObjectDetectionDecodersTest {
     }
 
     @Test
+    fun distributionFocalRowsDecodeFeatureGridAndSoftmaxDistances() {
+        // Two class logits followed by left/top/right/bottom distributions with regMax=1.
+        val tensor = floats(2f, -2f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        val detections = ArKernelDistributionFocalDetectionDecoder.decode(tensor,
+            RawDetectionTensorSpec(1, 10), DistributionFocalDetectionOptions(
+                featureStrides = intArrayOf(8), classCount = 2, regressionMax = 1,
+                modelInputWidth = 8, modelInputHeight = 8, scoreThreshold = 0.8),
+            imageWidth = 80, imageHeight = 40)
+
+        assertEquals(1, detections.size)
+        assertEquals(1L, detections.single().classId)
+        assertEquals(0.880797, detections.single().confidence, 1e-5)
+        assertEquals(0.0, detections.single().left, 1e-6)
+        assertEquals(0.0, detections.single().top, 1e-6)
+        assertEquals(80.0, detections.single().right, 1e-6)
+        assertEquals(40.0, detections.single().bottom, 1e-6)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun distributionFocalRowsMustExactlyMatchConfiguredLevels() {
+        ArKernelDistributionFocalDetectionDecoder.decode(
+            floats(2f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
+            RawDetectionTensorSpec(1, 9), DistributionFocalDetectionOptions(
+                featureStrides = intArrayOf(8, 16), classCount = 1, regressionMax = 1,
+                modelInputWidth = 16, modelInputHeight = 16), 16, 16)
+    }
+
+    @Test
     fun ssdSplitOutputsDecodeQuantizedScoresAndYxyxBoxes() {
         val boxes = floats(0.1f, 0.2f, 0.6f, 0.8f, 0.12f, 0.22f, 0.58f, 0.78f)
         val classes = floats(3f, 3f)

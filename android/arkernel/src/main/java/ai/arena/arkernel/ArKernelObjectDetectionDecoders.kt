@@ -62,6 +62,40 @@ data class AnchorFreeDetectionOptions(
     }
 }
 
+class DistributionFocalDetectionOptions(
+    val featureStrides: IntArray,
+    val classCount: Int,
+    val regressionMax: Int,
+    val firstClassColumn: Int = 0,
+    val firstDistributionColumn: Int = firstClassColumn + classCount,
+    val classActivation: DetectionScoreActivation = DetectionScoreActivation.SIGMOID,
+    val modelInputWidth: Int,
+    val modelInputHeight: Int,
+    val classIdOffset: Long = 1,
+    val scoreThreshold: Double = 0.25,
+    val iouThreshold: Double = 0.45,
+    val classAwareNms: Boolean = true,
+    val maxPreNmsCandidates: Int = 4_096,
+    val maxDetections: Int = 256,
+) {
+    val strides: IntArray = featureStrides.copyOf()
+
+    init {
+        require(strides.isNotEmpty() && strides.size <= 8 &&
+            strides.all { it in 1..512 } && strides.toSet().size == strides.size)
+        require(strides.zipWithNext().all { (a, b) -> a < b })
+        require(classCount in 1..1_024 && regressionMax in 1..32)
+        require(classActivation != DetectionScoreActivation.SOFTMAX) {
+            "Independent DFL class heads use probability or sigmoid activation"
+        }
+        require(modelInputWidth in 1..16_384 && modelInputHeight in 1..16_384)
+        require(classIdOffset >= 0 && classIdOffset + classCount <= 0x1_0000_0000L)
+        require(scoreThreshold.isFinite() && scoreThreshold in 0.0..1.0)
+        require(iouThreshold.isFinite() && iouThreshold in 0.0..1.0)
+        require(maxPreNmsCandidates in 1..4_096 && maxDetections in 1..256)
+    }
+}
+
 data class SsdDetectionOptions(
     val boxOrder: SsdBoxOrder = SsdBoxOrder.YXYX,
     val normalizedCoordinates: Boolean = true,
@@ -201,6 +235,103 @@ object ArKernelAnchorFreeDetectionDecoder {
     }
 }
 
+object ArKernelDistributionFocalDetectionDecoder {
+    fun decodeForFrame(
+        tensor: ByteBuffer,
+        spec: RawDetectionTensorSpec,
+        options: DistributionFocalDetectionOptions,
+        frame: PerceptionFrame,
+        manifest: ModelManifest,
+    ): List<SemanticDetection2d> {
+        require(InferenceTask.SEMANTIC_DETECTION in manifest.tasks)
+        val detections = decode(tensor, spec, options, frame.calibration.width,
+            frame.calibration.height)
+        require(detections.all { manifest.labels[it.classId] != null }) {
+            "DFL output contains a class absent from the model manifest"
+        }
+        return detections
+    }
+
+    fun decode(
+        tensor: ByteBuffer,
+        spec: RawDetectionTensorSpec,
+        options: DistributionFocalDetectionOptions,
+        imageWidth: Int,
+        imageHeight: Int,
+    ): List<SemanticDetection2d> {
+        require(imageWidth > 0 && imageHeight > 0)
+        val bins = options.regressionMax + 1
+        val finalClassColumn = options.firstClassColumn + options.classCount - 1
+        val finalDistributionColumn = options.firstDistributionColumn + 4 * bins - 1
+        require(options.firstClassColumn >= 0 && options.firstDistributionColumn >= 0)
+        val classColumns = options.firstClassColumn..finalClassColumn
+        val distributionColumns = options.firstDistributionColumn..finalDistributionColumn
+        require(classColumns.last < distributionColumns.first ||
+            distributionColumns.last < classColumns.first) { "DFL class and regression columns overlap" }
+        require(spec.columns == maxOf(finalClassColumn, finalDistributionColumn) + 1) {
+            "DFL column count does not exactly match the configured output contract"
+        }
+        require(spec.rows.toLong() * (options.classCount + 4L * bins) <=
+            MAX_CLASS_SCORE_VALUES)
+        val levelRows = options.strides.map { stride ->
+            val columns = (options.modelInputWidth + stride - 1) / stride
+            val rows = (options.modelInputHeight + stride - 1) / stride
+            Math.multiplyExact(columns, rows)
+        }
+        require(levelRows.sumOf { it.toLong() } == spec.rows.toLong()) {
+            "DFL rows do not match configured feature-map strides"
+        }
+        val reader = DetectionTensorReader(tensor, spec)
+        val candidates = ArrayList<DetectionCandidate>(minOf(spec.rows,
+            options.maxPreNmsCandidates))
+        var globalRow = 0
+        for (level in options.strides.indices) {
+            val stride = options.strides[level]
+            val featureWidth = (options.modelInputWidth + stride - 1) / stride
+            repeat(levelRows[level]) { levelRow ->
+                val classResult = bestIndependentClass(reader, globalRow,
+                    options.firstClassColumn, options.classCount, options.classActivation)
+                if (classResult.second.isFinite() &&
+                    classResult.second >= options.scoreThreshold) {
+                    val centerX = (levelRow % featureWidth + 0.5) * stride
+                    val centerY = (levelRow / featureWidth + 0.5) * stride
+                    val distances = DoubleArray(4) { side ->
+                        distributionExpectation(reader, globalRow,
+                            options.firstDistributionColumn + side * bins, bins) * stride
+                    }
+                    val box = mapBox(centerX - distances[0], centerY - distances[1],
+                        centerX + distances[2], centerY + distances[3],
+                        DetectionBoxFormat.XYXY, DetectionCoordinateSpace.MODEL_PIXELS,
+                        options.modelInputWidth, options.modelInputHeight, imageWidth,
+                        imageHeight)
+                    if (box != null) candidates += DetectionCandidate(
+                        options.classIdOffset + classResult.first, classResult.second,
+                        box[0], box[1], box[2], box[3], globalRow)
+                }
+                globalRow++
+            }
+        }
+        return finish(candidates, options.iouThreshold, options.classAwareNms,
+            options.maxPreNmsCandidates, options.maxDetections, imageHeight)
+    }
+
+    private fun distributionExpectation(reader: DetectionTensorReader, row: Int,
+        firstColumn: Int, bins: Int): Double {
+        var maximum = Double.NEGATIVE_INFINITY
+        for (bin in 0 until bins) maximum = maxOf(maximum, reader.get(row, firstColumn + bin))
+        if (!maximum.isFinite()) return Double.NaN
+        var weighted = 0.0
+        var sum = 0.0
+        for (bin in 0 until bins) {
+            val probability = exp((reader.get(row, firstColumn + bin) - maximum)
+                .coerceIn(-80.0, 0.0))
+            weighted += bin * probability
+            sum += probability
+        }
+        return if (sum > 0.0) weighted / sum else Double.NaN
+    }
+}
+
 object ArKernelSsdDetectionDecoder {
     fun decodeDetectionCount(tensor: ByteBuffer, spec: RawDetectionTensorSpec): Int {
         require(spec.rows == 1 && spec.columns == 1)
@@ -252,6 +383,18 @@ object ArKernelSsdDetectionDecoder {
         return finish(candidates, options.iouThreshold, options.classAwareNms,
             4_096, options.maxDetections, imageHeight)
     }
+}
+
+private fun bestIndependentClass(reader: DetectionTensorReader, row: Int,
+    firstColumn: Int, classCount: Int,
+    activation: DetectionScoreActivation): Pair<Int, Double> {
+    var bestIndex = 0
+    var bestScore = Double.NEGATIVE_INFINITY
+    for (index in 0 until classCount) {
+        val score = activate(reader.get(row, firstColumn + index), activation)
+        if (score > bestScore) { bestScore = score; bestIndex = index }
+    }
+    return bestIndex to bestScore
 }
 
 private fun activate(value: Double, activation: DetectionScoreActivation): Double = when (activation) {

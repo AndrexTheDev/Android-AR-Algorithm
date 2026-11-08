@@ -10,5 +10,10 @@ if [[ "$status" -ne 0 ]]; then
     tail -n 160 android-instrumented-gradle.log
     echo '```'
   } >> "$GITHUB_STEP_SUMMARY"
+  detail=$(tail -n 80 android-instrumented-gradle.log)
+  detail=${detail//'%'/'%25'}
+  detail=${detail//$'\r'/'%0D'}
+  detail=${detail//$'\n'/'%0A'}
+  echo "::error title=Android instrumentation Gradle failure::$detail"
 fi
 exit "$status"

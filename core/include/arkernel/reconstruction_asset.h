@@ -20,6 +20,9 @@ struct ReconstructionQuality {
   double reprojection_rmse_px{0.0};
   double depth_rmse_m{0.0};
   double scale_stddev_ratio{0.0};
+  // Largest validated dimension of the reconstructed asset. Combined with
+  // scale uncertainty, this bounds absolute dimensional error.
+  double assessed_extent_m{0.0};
   double surface_coverage_ratio{0.0};
 };
 
@@ -27,6 +30,7 @@ struct AccuracyPolicy {
   double max_reprojection_rmse_px{1.0};
   double max_depth_rmse_m{0.01};
   double max_scale_stddev_ratio{0.005};
+  double max_absolute_scale_error_m{0.01};
   double min_environment_coverage_ratio{0.70};
   double min_object_coverage_ratio{0.85};
 };

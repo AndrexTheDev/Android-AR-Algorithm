@@ -54,9 +54,10 @@ AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
   AccuracyAssessment result;
   const bool policy_valid = finite(p.max_reprojection_rmse_px) &&
       finite(p.max_depth_rmse_m) && finite(p.max_scale_stddev_ratio) &&
-      finite(p.min_environment_coverage_ratio) && finite(p.min_object_coverage_ratio) &&
-      p.max_reprojection_rmse_px > 0.0 && p.max_depth_rmse_m > 0.0 &&
-      p.max_scale_stddev_ratio > 0.0 && p.min_environment_coverage_ratio >= 0.0 &&
+      finite(p.max_absolute_scale_error_m) && finite(p.min_environment_coverage_ratio) &&
+      finite(p.min_object_coverage_ratio) && p.max_reprojection_rmse_px > 0.0 &&
+      p.max_depth_rmse_m > 0.0 && p.max_scale_stddev_ratio > 0.0 &&
+      p.max_absolute_scale_error_m > 0.0 && p.min_environment_coverage_ratio >= 0.0 &&
       p.min_environment_coverage_ratio <= 1.0 && p.min_object_coverage_ratio >= 0.0 &&
       p.min_object_coverage_ratio <= 1.0;
   if (!policy_valid) { result.failures.push_back("invalid accuracy policy"); return result; }
@@ -72,6 +73,11 @@ AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
   if (!finite(q.scale_stddev_ratio) || q.scale_stddev_ratio < 0.0 ||
       q.scale_stddev_ratio > p.max_scale_stddev_ratio)
     result.failures.push_back("scale uncertainty exceeds policy");
+  if (!finite(q.assessed_extent_m) || q.assessed_extent_m <= 0.0)
+    result.failures.push_back("validated asset extent is missing");
+  else if (finite(q.scale_stddev_ratio) && q.scale_stddev_ratio >= 0.0 &&
+           q.assessed_extent_m * q.scale_stddev_ratio > p.max_absolute_scale_error_m)
+    result.failures.push_back("absolute scale error exceeds one centimeter policy");
   const double required_coverage = mode == ScanMode::kObject
       ? p.min_object_coverage_ratio : p.min_environment_coverage_ratio;
   if (!finite(q.surface_coverage_ratio) || q.surface_coverage_ratio < required_coverage ||

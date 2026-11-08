@@ -22,6 +22,7 @@
 #include "arkernel/optical_flow.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/reconstruction_asset.h"
+#include "arkernel/reconstruction_capture.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
@@ -57,15 +58,56 @@ int main() {
   reconstruction_quality.reprojection_rmse_px=0.6;
   reconstruction_quality.depth_rmse_m=0.008;
   reconstruction_quality.scale_stddev_ratio=0.003;
+  reconstruction_quality.assessed_extent_m=2.0;
   reconstruction_quality.surface_coverage_ratio=0.90;
   auto accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kCentimeterValidated&&accuracy.export_allowed);
+  reconstruction_quality.assessed_extent_m=4.0;
+  accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
+  CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
+  reconstruction_quality.assessed_extent_m=2.0;
   reconstruction_quality.depth_rmse_m=0.02;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
   reconstruction_quality.metric_scale_observed=false;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kUnverified&&!accuracy.export_allowed);
+
+  // Bounded object capture retains only sharp, well-tracked, novel views and
+  // measures directional coverage without retaining image bytes in the core.
+  CaptureQualityConfig capture_config;capture_config.max_keyframes=2;
+  capture_config.min_interval_ns=100;capture_config.min_translation_m=0.05;
+  capture_config.object_azimuth_bins=4;capture_config.object_elevation_bins=2;
+  ReconstructionCapturePlanner object_capture(ScanMode::kObject,capture_config);
+  ReconstructionFrameCandidate candidate;candidate.frame_id=1;candidate.timestamp_ns=1000;
+  candidate.world_from_camera.translation={1,0,0};candidate.tracking_state=TrackingState::kTracking;
+  candidate.tracked_features=100;candidate.sharpness=0.8;candidate.clipped_pixel_ratio=0.01;
+  candidate.translation_sigma_m=0.005;candidate.rotation_sigma_degrees=0.2;
+  candidate.object_foreground_ratio=0.5;candidate.object_center_world_m=Vec3{};
+  candidate.image_reference="frames/1.yuv";
+  auto capture=object_capture.consider(candidate);
+  CHECK(capture.accepted&&capture.object_view_bin.has_value());
+  candidate.frame_id=2;candidate.timestamp_ns=1200;candidate.image_reference="frames/2.yuv";
+  capture=object_capture.consider(candidate);
+  CHECK(!capture.accepted&&capture.rejection==CaptureRejection::kInsufficientMotion);
+  candidate.frame_id=3;candidate.timestamp_ns=1400;candidate.world_from_camera.translation={0,1,0};
+  candidate.image_reference="frames/3.yuv";capture=object_capture.consider(candidate);
+  CHECK(capture.accepted&&object_capture.objectCoverage().covered_bins==2);
+  candidate.frame_id=4;candidate.timestamp_ns=1600;candidate.world_from_camera.translation={-1,0,0};
+  candidate.object_center_world_m=Vec3{0.1,0,0};candidate.image_reference="frames/4.yuv";
+  capture=object_capture.consider(candidate);
+  CHECK(!capture.accepted&&capture.rejection==CaptureRejection::kObjectRoiInvalid);
+  candidate.frame_id=5;candidate.timestamp_ns=1800;candidate.object_center_world_m=Vec3{};
+  candidate.image_reference="frames/5.yuv";capture=object_capture.consider(candidate);
+  CHECK(!capture.accepted&&capture.rejection==CaptureRejection::kCapacityReached);
+  CHECK(object_capture.keyframes().size()==2&&object_capture.objectCoverage().total_bins==8);
+  object_capture.reset();CHECK(object_capture.keyframes().empty()&&object_capture.objectCoverage().covered_bins==0);
+  candidate.frame_id=5;candidate.timestamp_ns=2000;candidate.sharpness=0.1;
+  candidate.image_reference="frames/5.yuv";capture=object_capture.consider(candidate);
+  CHECK(!capture.accepted&&capture.rejection==CaptureRejection::kBlurred);
+  candidate.frame_id=6;candidate.timestamp_ns=1900;candidate.sharpness=0.8;
+  candidate.image_reference="frames/6.yuv";capture=object_capture.consider(candidate);
+  CHECK(!capture.accepted&&capture.rejection==CaptureRejection::kNonMonotonicTimestamp);
 
   // Portable, textured indexed meshes export to glTF, OBJ/MTL and PLY.
   ReconstructionMesh mesh;

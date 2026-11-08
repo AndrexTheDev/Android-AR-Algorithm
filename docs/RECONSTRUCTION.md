@@ -12,7 +12,7 @@ No camera-only Android implementation can truthfully guarantee absolute centimet
 
 The default policy requires calibrated intrinsics and camera/IMU extrinsics, independent metric scale, converged global optimization, reprojection RMSE <= 1 px, metric-depth RMSE <= 0.01 m, scale standard deviation <= 0.5%, and observed coverage >= 70% for environments or 85% for objects. These gates are not metrology certification. Validation must use held-out scale bars, surveyed targets or sensor ground truth. Apps must retain the metrics with each export and must not relabel `approximate` output.
 
-For a 2 m object, 0.5% scale uncertainty alone is 1 cm. Larger rooms need a stricter relative-scale limit for a 1 cm absolute claim. A future evaluator must calculate this bound per measured extent.
+For a 2 m object, 0.5% scale uncertainty alone is 1 cm. `assessed_extent_m * scale_stddev_ratio` is therefore also gated against a 1 cm absolute limit. Larger rooms automatically need a stricter relative-scale result. This is still a conservative uncertainty proxy; the future held-out target evaluator must report dimensional error directly.
 
 ## Two capture modes
 
@@ -25,6 +25,8 @@ Live VIO supplies immediate poses, planes and anchors. Final reconstruction uses
 Object mode owns a bounded object frame and region of interest. Foreground segmentation excludes support surface and background before feature, depth and texture fusion. Capture guidance requires azimuth/elevation rings and top, side and where possible underside coverage. Turntable mode must model object rotation rather than treating it as a static world. Completeness, blur, exposure consistency, triangulation angle and distance are independent gates.
 
 Object mode cannot reuse environment assumptions blindly: an object may move, be textureless, reflective, thin, symmetric or occluded. Each case lowers confidence or blocks a validated result.
+
+`ReconstructionCapturePlanner` now implements the portable selection layer. It rejects non-monotonic timestamps, weak tracking, blur, clipped exposure, too few features, excessive pose uncertainty, repeated viewpoints, invalid ROI, unsafe object distance and capacity overflow. Accepted image bytes stay in a platform archive; the core stores only an opaque reference and reproducibility metadata. Object views populate bounded azimuth/elevation bins around a stable object center, exposing measured directional coverage. This is capture coverage, not proof that every surface reconstructed successfully.
 
 ## Reconstruction stages
 

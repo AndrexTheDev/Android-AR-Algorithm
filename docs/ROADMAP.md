@@ -88,7 +88,9 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add bounded canonical indexed mesh with normals, UVs and base-colour texture reference.
 - [x] Add dependency-free glTF 2.0, OBJ/MTL and PLY exporters.
 - [x] Add offline WebGL 2 viewer for exported textured glTF assets.
-- [ ] Persist full-resolution keyframes, exposure metadata, pose covariance and image provenance.
+- [x] Add bounded portable keyframe quality/novelty selector with pose uncertainty and opaque full-resolution image references.
+- [x] Add object ROI, distance, stable-center and azimuth/elevation coverage planner.
+- [ ] Implement the platform image archive behind those references, including exposure metadata and crash-safe storage.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [ ] Add uncertainty-aware calibrated MVS and tiled sparse TSDF fusion, meshing and simplification.
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.

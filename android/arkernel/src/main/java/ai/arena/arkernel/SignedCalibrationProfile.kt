@@ -177,24 +177,31 @@ class CalibrationTrustPolicy(
     val revision: Long,
     trustedKeys: List<TrustedCalibrationKey>,
     minimumProfileRevisions: Map<String, Long> = emptyMap(),
+    val validFromEpochMillis: Long = 0L,
+    val validUntilEpochMillis: Long = Long.MAX_VALUE,
 ) {
-    private val keysById = trustedKeys.associateBy { it.keyId }
-    private val revisionFloors = minimumProfileRevisions.toMap()
+    val trustedKeys: List<TrustedCalibrationKey> = trustedKeys.toList()
+    val minimumProfileRevisions: Map<String, Long> = minimumProfileRevisions.toMap()
+    private val keysById = this.trustedKeys.associateBy { it.keyId }
 
     init {
         require(revision > 0)
-        require(trustedKeys.size <= 32 && keysById.size == trustedKeys.size)
-        require(revisionFloors.size <= 256)
-        require(revisionFloors.all { (id, floor) ->
+        require(validFromEpochMillis >= 0 && validUntilEpochMillis > validFromEpochMillis)
+        require(this.trustedKeys.size <= 32 && keysById.size == this.trustedKeys.size)
+        require(this.minimumProfileRevisions.size <= 256)
+        require(this.minimumProfileRevisions.all { (id, floor) ->
             id.matches(Regex("[A-Za-z0-9._:-]{1,128}")) && floor > 0
         })
     }
 
     internal fun key(keyId: String): TrustedCalibrationKey? = keysById[keyId]
-    internal fun minimumRevision(profileId: String): Long = revisionFloors[profileId] ?: 0L
+    internal fun minimumRevision(profileId: String): Long =
+        minimumProfileRevisions[profileId] ?: 0L
 }
 
 enum class CalibrationVerificationReason {
+    TRUST_POLICY_NOT_YET_VALID,
+    TRUST_POLICY_EXPIRED,
     UNKNOWN_SIGNING_KEY,
     SIGNING_KEY_NOT_YET_VALID,
     SIGNING_KEY_EXPIRED,
@@ -240,6 +247,10 @@ class CalibrationProfileVerifier(
         stream: CalibrationStreamBinding, nowEpochMillis: Long,
         minimumAcceptedRevision: Long = 0): CalibrationVerificationResult {
         require(minimumAcceptedRevision >= 0)
+        if (nowEpochMillis < trustPolicy.validFromEpochMillis)
+            return rejected(CalibrationVerificationReason.TRUST_POLICY_NOT_YET_VALID)
+        if (nowEpochMillis >= trustPolicy.validUntilEpochMillis)
+            return rejected(CalibrationVerificationReason.TRUST_POLICY_EXPIRED)
         val trustedKey = trustPolicy.key(signed.keyId) ?: return rejected(
             CalibrationVerificationReason.UNKNOWN_SIGNING_KEY)
         if (nowEpochMillis < trustedKey.validFromEpochMillis)

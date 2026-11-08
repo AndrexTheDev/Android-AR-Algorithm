@@ -62,7 +62,7 @@
 
 ## Phase 4 – Semantik
 
-- [x] backend-unabhängiges Android-Inferenz-SPI, begrenzter Single-Flight-Scheduler und optionale latenz-/thermaladaptive Kadenz ohne Queue; konkrete LiteRT-/ONNX-Runtime-Adapter bleiben offen;
+- [x] backend-unabhängiges Android-Inferenz-SPI, begrenzter Single-Flight-Scheduler, latenzadaptive Kadenz und lifecycle-sicherer Android-PowerManager-Thermaladapter ohne Queue; konkrete LiteRT-/ONNX-Runtime-Adapter bleiben offen;
 - [x] dependency-freies, begrenztes Native-Preprocessing für bilineares Resize, Normalisierung sowie FLOAT32-/INT8-/UINT8-NHWC-Ausgabe;
 - [x] ungültigkeitsbewusstes, begrenztes Depth-Tensor-Postprocessing für quantisierte/direct/inverse Modellausgaben zu kameragroßer metrischer Tiefe plus Konfidenz;
 - [x] verifizierte, pufferwiederverwendende metrische Depth-, row-basierte Detection- und kombinierte Multi-Head-Backends um schmale runtime-unabhängige Tensor-Schnittstellen; konkrete LiteRT-/ONNX-Adapter und Delegate-Profile bleiben offen;

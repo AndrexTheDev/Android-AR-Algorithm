@@ -81,6 +81,7 @@ data class RuntimeResourceDecision(
     val semanticInferenceEnabled: Boolean,
     val liveMappingEnabled: Boolean,
     val reasons: List<RuntimeResourceReason>,
+    val calibratedAlternativeTier: RuntimeResourceTier? = null,
 ) {
     init {
         require(maximumCalibratedStreamPixels >= 0)
@@ -91,6 +92,9 @@ data class RuntimeResourceDecision(
         if (tier >= RuntimeResourceTier.CAPTURE_ONLY) {
             require(!denseDepthEnabled && !semanticInferenceEnabled && !liveMappingEnabled)
         }
+        require(calibratedAlternativeTier == null ||
+            (tier == RuntimeResourceTier.CAPTURE_ONLY &&
+                calibratedAlternativeTier < RuntimeResourceTier.CAPTURE_ONLY))
     }
 }
 
@@ -187,31 +191,55 @@ object RuntimeResourcePolicy {
         val cameraPixels = Math.multiplyExact(camera.width, camera.height)
         if (tier < RuntimeResourceTier.CAPTURE_ONLY &&
             cameraPixels > provisional.maximumCalibratedStreamPixels) {
+            val alternativeTier = tier
             reasons += RuntimeResourceReason.STREAM_EXCEEDS_TIER_PIXEL_BUDGET
-            tier = RuntimeResourceTier.CAPTURE_ONLY
+            return decision(RuntimeResourceTier.CAPTURE_ONLY, reasons.distinct(), alternativeTier)
         }
         return decision(tier, reasons.distinct())
+    }
+
+    /**
+     * Re-admits only a separately verified calibrated stream. A capture decision caused by
+     * thermal, memory, or compatibility evidence has no alternative tier and cannot be promoted.
+     */
+    fun admitCalibratedStream(
+        decision: RuntimeResourceDecision,
+        calibratedStreamPixels: Int,
+    ): RuntimeResourceDecision? {
+        require(calibratedStreamPixels > 0)
+        val alternative = decision.calibratedAlternativeTier
+        val candidate = if (alternative == null) decision else decision(alternative,
+            decision.reasons.filterNot {
+                it == RuntimeResourceReason.STREAM_EXCEEDS_TIER_PIXEL_BUDGET
+            })
+        return candidate.takeIf {
+            calibratedStreamPixels <= it.maximumCalibratedStreamPixels
+        }
     }
 
     private fun maxTier(first: RuntimeResourceTier, second: RuntimeResourceTier) =
         if (first.ordinal >= second.ordinal) first else second
 
-    private fun decision(tier: RuntimeResourceTier, reasons: List<RuntimeResourceReason>) = when (tier) {
+    private fun decision(
+        tier: RuntimeResourceTier,
+        reasons: List<RuntimeResourceReason>,
+        calibratedAlternativeTier: RuntimeResourceTier? = null,
+    ) = when (tier) {
         RuntimeResourceTier.PERFORMANCE -> RuntimeResourceDecision(tier, 1920 * 1080, 30,
             4096, 2, denseDepthEnabled = true, semanticInferenceEnabled = true,
-            liveMappingEnabled = true, reasons)
+            liveMappingEnabled = true, reasons, calibratedAlternativeTier)
         RuntimeResourceTier.BALANCED -> RuntimeResourceDecision(tier, 1280 * 720, 24,
             3072, 1, denseDepthEnabled = true, semanticInferenceEnabled = true,
-            liveMappingEnabled = true, reasons)
+            liveMappingEnabled = true, reasons, calibratedAlternativeTier)
         RuntimeResourceTier.CONSERVATIVE -> RuntimeResourceDecision(tier, 640 * 480, 15,
             1024, 1, denseDepthEnabled = false, semanticInferenceEnabled = false,
-            liveMappingEnabled = true, reasons)
+            liveMappingEnabled = true, reasons, calibratedAlternativeTier)
         RuntimeResourceTier.CAPTURE_ONLY -> RuntimeResourceDecision(tier, 1920 * 1080, 10,
             0, 1, denseDepthEnabled = false, semanticInferenceEnabled = false,
-            liveMappingEnabled = false, reasons)
+            liveMappingEnabled = false, reasons, calibratedAlternativeTier)
         RuntimeResourceTier.UNSUPPORTED -> RuntimeResourceDecision(tier, 0, 0,
             0, 0, denseDepthEnabled = false, semanticInferenceEnabled = false,
-            liveMappingEnabled = false, reasons)
+            liveMappingEnabled = false, reasons, calibratedAlternativeTier)
     }
 }
 

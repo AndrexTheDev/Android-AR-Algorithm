@@ -27,7 +27,11 @@ class RuntimeResourcePolicyTest {
         val oversized = RuntimeResourcePolicy.evaluate(
             staticReport(1280, 720, memoryMb = 192, lowRam = true), activeReport())
         assertEquals(RuntimeResourceTier.CAPTURE_ONLY, oversized.tier)
+        assertEquals(RuntimeResourceTier.CONSERVATIVE, oversized.calibratedAlternativeTier)
         assertTrue(RuntimeResourceReason.STREAM_EXCEEDS_TIER_PIXEL_BUDGET in oversized.reasons)
+        val readmitted = RuntimeResourcePolicy.admitCalibratedStream(oversized, 640 * 480)
+        assertEquals(RuntimeResourceTier.CONSERVATIVE, requireNotNull(readmitted).tier)
+        assertEquals(null, RuntimeResourcePolicy.admitCalibratedStream(oversized, 1280 * 720))
     }
 
     @Test

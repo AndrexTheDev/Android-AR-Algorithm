@@ -308,6 +308,42 @@ data class ArRuntimeSelection(
 )
 
 object ArRuntimeSelector {
+    /** Creates a fresh owner from one atomic verified profile/resource selection. */
+    fun selectCalibrated(
+        context: Context,
+        selection: CalibratedStreamSelection,
+        previousRuntimeStopped: Boolean,
+        onStandaloneResult: (ArKernelSessionResult) -> Unit,
+        onCameraOnlyFrame: (CameraOnlyCaptureFrame) -> Unit = {},
+        onError: (Throwable) -> Unit = {},
+        activeCompatibilityProbe: ActiveDeviceCompatibilityProbe? = null,
+    ): ArRuntimeSelection {
+        val selected = requireNotNull(selection.selected) {
+            "A verified calibrated stream must be selected before runtime creation"
+        }
+        require(selection.transition != CalibratedStreamTransition.KEEP_CURRENT_SESSION) {
+            "The current calibrated session must be retained rather than recreated"
+        }
+        require(selection.transition != CalibratedStreamTransition.RESTART_REQUIRED ||
+            previousRuntimeStopped) {
+            "The previous runtime must be stopped before changing calibrated streams"
+        }
+        require(selection.transition == CalibratedStreamTransition.START_NEW_SESSION ||
+            selection.transition == CalibratedStreamTransition.RESTART_REQUIRED)
+        return select(
+            context = context,
+            standaloneConfig = selected.standaloneConfig(),
+            onStandaloneResult = onStandaloneResult,
+            onStandaloneError = onError,
+            optionalExternalFactory = null,
+            preferExternal = false,
+            activeCompatibilityProbe = activeCompatibilityProbe,
+            resourceDecision = selected.resourceDecision,
+            onCameraOnlyFrame = onCameraOnlyFrame,
+            calibrationRuntimeMonitor = selected.newRuntimeMonitor(),
+        )
+    }
+
     fun select(
         context: Context,
         standaloneConfig: StandaloneArRuntimeConfig,

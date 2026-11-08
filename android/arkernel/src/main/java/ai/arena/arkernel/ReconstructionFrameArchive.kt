@@ -10,7 +10,7 @@ import java.util.Locale
 import java.util.zip.CRC32
 
 enum class ReconstructionImageEncoding(val wireValue: Int) {
-    GRAY8(1), JPEG(2), PNG(3);
+    GRAY8(1), JPEG(2), PNG(3), I420(4);
     companion object {
         fun fromWire(value: Int): ReconstructionImageEncoding = entries.firstOrNull {
             it.wireValue == value
@@ -129,6 +129,14 @@ internal object ReconstructionFrameCodec {
             val minimum = Math.addExact(Math.multiplyExact(metadata.rowStrideBytes, metadata.height - 1),
                 metadata.width)
             require(bytes.size >= minimum) { "GRAY8 payload is truncated" }
+        } else if (metadata.encoding == ReconstructionImageEncoding.I420) {
+            require(metadata.width % 2 == 0 && metadata.height % 2 == 0) {
+                "I420 dimensions must be even"
+            }
+            val pixels = Math.multiplyExact(metadata.width, metadata.height)
+            require(bytes.size == Math.addExact(pixels, pixels / 2)) {
+                "I420 payload size is inconsistent"
+            }
         }
     }
 

@@ -91,7 +91,9 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add bounded portable keyframe quality/novelty selector with pose uncertainty and opaque full-resolution image references.
 - [x] Add object ROI, distance, stable-center and azimuth/elevation coverage planner.
 - [x] Implement bounded crash-safe Android frame archive with exposure, pose, uncertainty, CRC and opaque references.
-- [ ] Connect Camera2 colour capture and planner decisions to archive writes without blocking camera callbacks.
+- [x] Associate Camera2 YUV colour, exposure/ISO and session pose by exact sensor timestamp.
+- [x] Add stride-safe canonical I420 copy and bounded asynchronous archive writer with explicit backpressure.
+- [ ] Connect portable planner quality decisions through JNI before copying each native visual keyframe.
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [ ] Add uncertainty-aware calibrated MVS and tiled sparse TSDF fusion, meshing and simplification.

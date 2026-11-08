@@ -3,6 +3,7 @@ package ai.arena.arkernel
 import android.content.Context
 import android.os.SystemClock
 import java.util.ArrayDeque
+import java.util.TreeMap
 import kotlin.math.sqrt
 
 data class ArKernelSessionResult(
@@ -15,6 +16,13 @@ data class ArKernelSessionResult(
     val queuedImuSamples: Int,
     val droppedImuSamples: Long,
 )
+
+data class ArKernelReconstructionFrame(
+    val camera: CameraReconstructionFrame,
+    val tracking: ArKernelSessionResult,
+) {
+    init { require(camera.timestampNs == tracking.visual.timestampNs) }
+}
 
 /**
  * Coordinates Camera2, SensorManager, visual tracking and VIO in one monotonic
@@ -30,6 +38,7 @@ class ArKernelSession(
     private val onError: (Throwable) -> Unit = {},
     private val maxQueuedImuSamples: Int = 4096,
     private val bodyFromCameraTranslationMeters: Vector3 = Vector3(0.0, 0.0, 0.0),
+    private val onReconstructionFrame: ((ArKernelReconstructionFrame) -> Unit)? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -47,6 +56,7 @@ class ArKernelSession(
         MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
     private var previousBodyWorldRotation: Rotation? = null
     private var pendingBodyWorldRotation: Pair<Long, Rotation>? = null
+    private val pendingReconstructionResults = TreeMap<Long, ArKernelSessionResult>()
     @Volatile private var running = false
     @Volatile private var closed = false
 
@@ -56,6 +66,8 @@ class ArKernelSession(
         rotationPrediction = ::predictRotationAt,
         onResult = ::handleVisualResult,
         onError = onError,
+        onReconstructionFrame = if (onReconstructionFrame == null) null
+            else ::handleReconstructionCameraFrame,
     )
 
     init { require(maxQueuedImuSamples >= 128) }
@@ -66,6 +78,7 @@ class ArKernelSession(
         synchronized(lock) {
             queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
             previousBodyWorldRotation = null; pendingBodyWorldRotation = null
+            pendingReconstructionResults.clear()
         }
         latestMappingGate = MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
@@ -88,6 +101,7 @@ class ArKernelSession(
         imu.stop()
         synchronized(lock) {
             queue.clear(); previousBodyWorldRotation = null; pendingBodyWorldRotation = null
+            pendingReconstructionResults.clear()
         }
     }
 
@@ -156,9 +170,24 @@ class ArKernelSession(
         }
         val spatialMap = if (mappingGate.integrate && worldFromCamera != null)
             visual.integrateMap(worldFromCamera) else null
-        onResult(ArKernelSessionResult(
+        val sessionResult = ArKernelSessionResult(
             result, snapshot, worldFromCamera, mappingGate, spatialMap, fusionApplied,
-            queueStatus.first, queueStatus.second))
+            queueStatus.first, queueStatus.second)
+        if (result.keyframe && onReconstructionFrame != null) {
+            pendingReconstructionResults[result.timestampNs] = sessionResult
+            while (pendingReconstructionResults.size > MAX_PENDING_RECONSTRUCTION_RESULTS)
+                pendingReconstructionResults.pollFirstEntry()
+        }
+        onResult(sessionResult)
+    }
+
+    private fun handleReconstructionCameraFrame(frame: CameraReconstructionFrame) {
+        if (!running) return
+        val result = pendingReconstructionResults.remove(frame.timestampNs) ?: return
+        while (pendingReconstructionResults.isNotEmpty() &&
+            pendingReconstructionResults.firstKey() < frame.timestampNs)
+            pendingReconstructionResults.pollFirstEntry()
+        onReconstructionFrame?.invoke(ArKernelReconstructionFrame(frame, result))
     }
 
     fun planes(): List<PlaneEstimateSnapshot> {
@@ -371,4 +400,6 @@ class ArKernelSession(
         val norm = sqrt(value.w*value.w+value.x*value.x+value.y*value.y+value.z*value.z)
         return Rotation(value.w/norm, value.x/norm, value.y/norm, value.z/norm)
     }
+
+    private companion object { const val MAX_PENDING_RECONSTRUCTION_RESULTS = 4 }
 }

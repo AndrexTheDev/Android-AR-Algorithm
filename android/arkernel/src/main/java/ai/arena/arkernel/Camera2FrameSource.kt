@@ -10,9 +10,41 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
+import java.util.TreeMap
 import android.os.Handler
 import android.os.HandlerThread
+
+data class CameraReconstructionFrame(
+    val timestampNs: Long,
+    val width: Int,
+    val height: Int,
+    val i420Bytes: ByteArray,
+    val exposureTimeNs: Long,
+    val sensitivityIso: Int,
+)
+
+private data class CameraExposure(val exposureTimeNs: Long, val sensitivityIso: Int)
+private data class PendingCameraReconstructionFrame(
+    val timestampNs: Long, val width: Int, val height: Int, val i420Bytes: ByteArray)
+
+private class CameraCaptureMetadataMatcher(private val capacity: Int = 32) {
+    private val values = TreeMap<Long, CameraExposure>()
+    init { require(capacity in 2..256) }
+    @Synchronized fun put(timestampNs: Long, exposureTimeNs: Long, sensitivityIso: Int) {
+        if (timestampNs <= 0 || exposureTimeNs < 0 || sensitivityIso < 0) return
+        values[timestampNs] = CameraExposure(exposureTimeNs, sensitivityIso)
+        while (values.size > capacity) values.pollFirstEntry()
+    }
+    @Synchronized fun take(timestampNs: Long): CameraExposure? {
+        val match = values.remove(timestampNs)
+        while (values.isNotEmpty() && values.firstKey() < timestampNs) values.pollFirstEntry()
+        return match
+    }
+    @Synchronized fun clear() = values.clear()
+}
 
 /**
  * Lifecycle owner for a calibrated Camera2 YUV stream. The Y plane is consumed
@@ -26,6 +58,7 @@ class Camera2FrameSource(
     private val rotationPrediction: (timestampNs: Long) -> Rotation? = { null },
     private val onResult: (VisualFrontendSnapshot) -> Unit,
     private val onError: (Throwable) -> Unit = {},
+    private val onReconstructionFrame: ((CameraReconstructionFrame) -> Unit)? = null,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -36,6 +69,8 @@ class Camera2FrameSource(
     private var session: CameraCaptureSession? = null
     @Volatile private var running = false
     private var lastTimestampNs = 0L
+    private val captureMetadata = CameraCaptureMetadataMatcher()
+    private val pendingReconstructionFrames = TreeMap<Long, PendingCameraReconstructionFrame>()
 
     @SuppressLint("MissingPermission")
     @Synchronized
@@ -46,6 +81,8 @@ class Camera2FrameSource(
         }
         frontend.reset()
         lastTimestampNs = 0L
+        captureMetadata.clear()
+        pendingReconstructionFrames.clear()
         val cameraThread = HandlerThread("ARKernel-Camera").also { it.start() }
         val cameraHandler = Handler(cameraThread.looper)
         val imageReader = ImageReader.newInstance(
@@ -87,13 +124,38 @@ class Camera2FrameSource(
                         set(CaptureRequest.CONTROL_AF_MODE,
                             CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                     }.build()
-                    captureSession.setRepeatingRequest(request, null, handler)
+                    captureSession.setRepeatingRequest(request,
+                        object : CameraCaptureSession.CaptureCallback() {
+                            override fun onCaptureCompleted(
+                                session: CameraCaptureSession,
+                                request: CaptureRequest,
+                                result: TotalCaptureResult,
+                            ) {
+                                val timestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
+                                handleCaptureMetadata(timestamp,
+                                    result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
+                                    result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
+                            }
+                        }, handler)
                 }
                 override fun onConfigureFailed(captureSession: CameraCaptureSession) {
                     captureSession.close()
                     if (running) onError(IllegalStateException("Camera capture session failed"))
                 }
             }, handler)
+    }
+
+    private fun handleCaptureMetadata(timestampNs: Long, exposureTimeNs: Long, sensitivityIso: Int) {
+        captureMetadata.put(timestampNs, exposureTimeNs, sensitivityIso)
+        val pending = pendingReconstructionFrames.remove(timestampNs) ?: return
+        val exposure = captureMetadata.take(timestampNs) ?: return
+        try {
+            if (running) onReconstructionFrame?.invoke(CameraReconstructionFrame(timestampNs,
+                pending.width, pending.height, pending.i420Bytes,
+                exposure.exposureTimeNs, exposure.sensitivityIso))
+        } catch (error: Throwable) {
+            if (running) onError(error)
+        }
     }
 
     private fun consumeLatest(source: ImageReader) {
@@ -103,8 +165,32 @@ class Camera2FrameSource(
             val y = image.planes[0]
             check(y.pixelStride == 1) { "Unsupported Camera2 Y-plane pixel stride ${y.pixelStride}" }
             lastTimestampNs = image.timestamp
-            onResult(frontend.processGray(
-                y.buffer, image.timestamp, y.rowStride, rotationPrediction(image.timestamp)))
+            val snapshot = frontend.processGray(
+                y.buffer, image.timestamp, y.rowStride, rotationPrediction(image.timestamp))
+            onResult(snapshot)
+            val reconstructionCallback = onReconstructionFrame
+            if (snapshot.keyframe && reconstructionCallback != null) {
+                val exposure = captureMetadata.take(image.timestamp)
+                val planes = image.planes
+                check(planes.size == 3) { "YUV_420_888 image must expose three planes" }
+                val i420 = ReconstructionI420Packer.pack(image.width, image.height,
+                    ReconstructionYuvPlane(planes[0].buffer, planes[0].rowStride,
+                        planes[0].pixelStride),
+                    ReconstructionYuvPlane(planes[1].buffer, planes[1].rowStride,
+                        planes[1].pixelStride),
+                    ReconstructionYuvPlane(planes[2].buffer, planes[2].rowStride,
+                        planes[2].pixelStride))
+                if (exposure != null) reconstructionCallback(CameraReconstructionFrame(
+                    image.timestamp, image.width, image.height, i420,
+                    exposure.exposureTimeNs, exposure.sensitivityIso))
+                else {
+                    pendingReconstructionFrames[image.timestamp] = PendingCameraReconstructionFrame(
+                        image.timestamp, image.width, image.height, i420)
+                    // Captured image data is already owned, but memory remains strictly bounded.
+                    while (pendingReconstructionFrames.size > MAX_PENDING_RECONSTRUCTION_FRAMES)
+                        pendingReconstructionFrames.pollFirstEntry()
+                }
+            }
         } catch (error: Throwable) {
             if (running) onError(error)
         } finally {
@@ -121,8 +207,12 @@ class Camera2FrameSource(
         handler = null
         thread?.quitSafely(); thread = null
         lastTimestampNs = 0L
+        captureMetadata.clear()
+        pendingReconstructionFrames.clear()
         frontend.reset()
     }
 
     override fun close() = stop()
+
+    private companion object { const val MAX_PENDING_RECONSTRUCTION_FRAMES = 2 }
 }

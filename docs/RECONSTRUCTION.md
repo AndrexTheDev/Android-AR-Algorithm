@@ -40,11 +40,12 @@ The Camera2 bridge now associates exposure time and ISO by exact `SENSOR_TIMESTA
 2. **Capture**: retain full-resolution YUV/RGB keyframes, exposure metadata, exact pose and uncertainty. Never texture from inference-resized frames.
 3. **Quality selection**: reject blur, clipping, low texture, repeated poses and excessive covariance; retain useful baseline and view angle.
 4. **Global geometry**: bounded appearance place recognition proposes temporally separated weighted keyframe candidates. Metric loop verification requires descriptor uniqueness, robust non-degenerate 3D–3D geometry, inlier/ratio/RMSE gates and bounded disagreement from the VIO relative pose. A bounded transactional SE(3) pose graph distributes accepted loop corrections across uncertainty-weighted odometry while fixing the world gauge. Bounded joint bundle adjustment then refines poses and multi-view landmarks against robust distortion-aware reprojection while retaining metric pose priors. VIO and appearance similarity are priors, not final geometry.
-5. **Dense depth**: calibrated multi-view stereo; fuse sensor or learned depth only with uncertainty. Learned monocular depth cannot establish absolute scale alone.
-6. **Fusion and meshing**: sparse tiled TSDF, confidence weighting, Marching Cubes or dual contour extraction, component filtering and edge-aware simplification. Current `SurfelMap` is a live precursor, not the final mesh.
-7. **Texture**: visibility tests, view scoring, exposure compensation, UV atlas, seam optimization and atlas baking. Retain source-frame provenance.
-8. **Validate**: held-out targets, residuals, scale uncertainty, loop consistency, completeness and held-out view rendering.
-9. **Export**: write metres and quality metadata; preserve the non-decimated original.
+5. **Optimized archive view**: globally optimized keyframe poses are atomically published as a versioned CRC-protected `ARKPOS01` manifest. Immutable frame envelopes remain the audit/fallback source; dense consumers resolve entries only by matching frame ID and timestamp. Generation rollback, duplicate identities, missing frames and partial manifests are rejected, while frame eviction or deletion invalidates the manifest.
+6. **Dense depth**: calibrated multi-view stereo; fuse sensor or learned depth only with uncertainty. Learned monocular depth cannot establish absolute scale alone.
+7. **Fusion and meshing**: sparse tiled TSDF, confidence weighting, Marching Cubes or dual contour extraction, component filtering and edge-aware simplification. Current `SurfelMap` is a live precursor, not the final mesh.
+8. **Texture**: visibility tests, view scoring, exposure compensation, UV atlas, seam optimization and atlas baking. Retain source-frame provenance.
+9. **Validate**: held-out targets, residuals, scale uncertainty, loop consistency, completeness and held-out view rendering.
+10. **Export**: write metres and quality metadata; preserve the non-decimated original.
 
 ## Formats
 

@@ -46,7 +46,8 @@
 - [x] metrische geometrische Loop-Verifikation mit Mutual-Best-/Ratio-Matches, 3D–3D-RANSAC, Inlier-/RMSE-/Degenerations- und VIO-Prior-Gates;
 - [x] begrenzter transaktionaler SE(3)-Pose-Graph mit festem Gauge, Unsicherheitsgewichtung, robusten Loop-Faktoren, matrixfreiem PCG und Line Search;
 - [x] begrenztes transaktionales globales Bundle Adjustment für Keyframe-Posen und mehransichtige metrische Landmarks mit robusten Reprojektionsfaktoren und Pose-Graph-Priors;
-- Map merge und Archiv-Pose-Propagation;
+- [x] atomare generationierte Archiv-Pose-Propagation über CRC-geschütztes Manifest mit exakter Frame-ID-/Timestamp-Bindung und Invalidierung bei Frame-Verlust;
+- Map merge;
 - [x] deterministische Multi-Plane-API mit robustem RANSAC, orthogonaler Least-Squares-Inlier-Verfeinerung und stabilen Plane-IDs;
 - [x] gravitationsbezogene geometrische Klassifikation als Boden, Decke, Wand oder Schräge;
 - [x] konservative Raumlayout-Zusammenfassung mit Boden-/Deckenhöhe, plausibler Raumhöhe und beobachteter Wandfläche;

@@ -60,6 +60,99 @@ data class ArchivedReconstructionFrame(
     val imageBytes: ByteArray,
 )
 
+data class OptimizedReconstructionPose(
+    val frameId: Long,
+    val timestampNs: Long,
+    val worldFromCamera: DoubleArray,
+    val translationSigmaMeters: Double,
+    val rotationSigmaDegrees: Double,
+) {
+    init {
+        require(frameId > 0 && timestampNs > 0) { "Optimized pose identity is invalid" }
+        require(worldFromCamera.size == 7 && worldFromCamera.all { it.isFinite() }) {
+            "Optimized pose must contain seven finite values"
+        }
+        require(kotlin.math.sqrt(worldFromCamera.take(4).sumOf { it * it }) > 1e-9) {
+            "Optimized pose quaternion is invalid"
+        }
+        require(translationSigmaMeters.isFinite() && translationSigmaMeters >= 0.0 &&
+            rotationSigmaDegrees.isFinite() && rotationSigmaDegrees >= 0.0) {
+            "Optimized pose uncertainty is invalid"
+        }
+    }
+}
+
+data class ReconstructionPoseManifest(
+    val generation: Long,
+    val poses: List<OptimizedReconstructionPose>,
+) {
+    init {
+        require(generation > 0 && poses.isNotEmpty()) { "Pose manifest is empty or unversioned" }
+        require(poses.size <= ReconstructionPoseManifestCodec.MAX_POSES) { "Pose manifest is too large" }
+        require(poses.map { it.frameId }.toSet().size == poses.size &&
+            poses.map { it.timestampNs }.toSet().size == poses.size) { "Pose manifest identities are not unique" }
+    }
+}
+
+internal object ReconstructionPoseManifestCodec {
+    private val MAGIC = byteArrayOf(0x41, 0x52, 0x4b, 0x50, 0x4f, 0x53, 0x30, 0x31) // ARKPOS01
+    private const val VERSION: Byte = 1
+    private const val HEADER_BYTES = 8 + 1 + 3 + 8 + 4 + 4
+    private const val ENTRY_BYTES = 8 + 8 + 7 * 8 + 8 + 8
+    const val MAX_POSES = 2_000
+    const val MAX_BYTES = HEADER_BYTES + MAX_POSES * ENTRY_BYTES
+
+    fun encode(manifest: ReconstructionPoseManifest): ByteArray {
+        val poses = manifest.poses.sortedBy { it.frameId }
+        val output = ByteBuffer.allocate(Math.addExact(HEADER_BYTES,
+            Math.multiplyExact(poses.size, ENTRY_BYTES))).order(ByteOrder.BIG_ENDIAN)
+        output.put(MAGIC).put(VERSION).put(0).put(0).put(0)
+            .putLong(manifest.generation).putInt(poses.size)
+        val checksumOffset = output.position()
+        output.putInt(0)
+        poses.forEach { pose ->
+            output.putLong(pose.frameId).putLong(pose.timestampNs)
+            pose.worldFromCamera.forEach { output.putDouble(it) }
+            output.putDouble(pose.translationSigmaMeters).putDouble(pose.rotationSigmaDegrees)
+        }
+        val bytes = output.array()
+        ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+            .putInt(checksumOffset, crc(bytes, checksumOffset))
+        return bytes
+    }
+
+    fun decode(bytes: ByteArray): ReconstructionPoseManifest {
+        require(bytes.size in (HEADER_BYTES + ENTRY_BYTES)..MAX_BYTES) { "Pose manifest size is invalid" }
+        val input = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+        val magic = ByteArray(MAGIC.size).also { input.get(it) }
+        require(magic.contentEquals(MAGIC) && input.get() == VERSION) { "Pose manifest header is invalid" }
+        require(input.get().toInt() == 0 && input.get().toInt() == 0 && input.get().toInt() == 0) {
+            "Pose manifest reserved bits are non-zero"
+        }
+        val generation = input.long
+        val count = input.int
+        val checksumOffset = input.position()
+        val expectedChecksum = input.int
+        require(count in 1..MAX_POSES && bytes.size == HEADER_BYTES + count * ENTRY_BYTES) {
+            "Pose manifest count is inconsistent"
+        }
+        require(expectedChecksum == crc(bytes, checksumOffset)) { "Pose manifest checksum is invalid" }
+        val poses = List(count) {
+            OptimizedReconstructionPose(input.long, input.long, DoubleArray(7) { input.double },
+                input.double, input.double)
+        }
+        return ReconstructionPoseManifest(generation, poses)
+    }
+
+    private fun crc(bytes: ByteArray, checksumOffset: Int): Int {
+        val checksum = CRC32()
+        checksum.update(bytes, 0, checksumOffset)
+        checksum.update(byteArrayOf(0, 0, 0, 0))
+        checksum.update(bytes, checksumOffset + 4, bytes.size - checksumOffset - 4)
+        return checksum.value.toInt()
+    }
+}
+
 /** Strict dependency-free envelope codec; separated from Android I/O for JVM testing. */
 internal object ReconstructionFrameCodec {
     private val MAGIC = byteArrayOf(0x41, 0x52, 0x4b, 0x46, 0x52, 0x4d, 0x30, 0x31) // ARKFRM01
@@ -209,12 +302,66 @@ class ReconstructionFrameArchive(
     }
 
     @Synchronized
+    fun publishOptimizedPoses(manifest: ReconstructionPoseManifest) {
+        require(manifest.poses.size <= maxFrames) { "Pose manifest exceeds archive frame budget" }
+        manifest.poses.forEach { pose ->
+            require(File(directory, fileName(pose.timestampNs, pose.frameId)).isFile) {
+                "Optimized pose has no matching archived frame"
+            }
+        }
+        val previous = loadPoseManifest()
+        require(previous == null || manifest.generation > previous.generation) {
+            "Pose manifest generation must increase"
+        }
+        val bytes = ReconstructionPoseManifestCodec.encode(manifest)
+        val atomic = AtomicFile(manifestFile())
+        val output = atomic.startWrite()
+        try {
+            output.write(bytes)
+            atomic.finishWrite(output)
+        } catch (error: Throwable) {
+            atomic.failWrite(output)
+            throw error
+        }
+    }
+
+    @Synchronized
+    fun loadPoseManifest(): ReconstructionPoseManifest? {
+        val atomic = AtomicFile(manifestFile())
+        val input = try { atomic.openRead() } catch (_: FileNotFoundException) { return null }
+        val length = atomic.baseFile.length()
+        require(length in 1..ReconstructionPoseManifestCodec.MAX_BYTES.toLong()) {
+            input.close(); "Pose manifest has an invalid size"
+        }
+        val manifest = ReconstructionPoseManifestCodec.decode(input.use { it.readBytes() })
+        manifest.poses.forEach { pose ->
+            require(File(directory, fileName(pose.timestampNs, pose.frameId)).isFile) {
+                "Pose manifest references a missing frame"
+            }
+        }
+        return manifest
+    }
+
+    @Synchronized
+    fun loadWithOptimizedPose(reference: String): ArchivedReconstructionFrame? {
+        val frame = load(reference) ?: return null
+        val optimized = loadPoseManifest()?.poses?.firstOrNull {
+            it.frameId == frame.metadata.frameId && it.timestampNs == frame.metadata.timestampNs
+        } ?: return frame
+        return frame.copy(metadata = frame.metadata.copy(
+            worldFromCamera = optimized.worldFromCamera.copyOf(),
+            translationSigmaMeters = optimized.translationSigmaMeters,
+            rotationSigmaDegrees = optimized.rotationSigmaDegrees,
+        ))
+    }
+
+    @Synchronized
     fun delete(reference: String): Boolean {
         val name = reference.removePrefix(referencePrefix)
         require(reference.startsWith(referencePrefix) && FILE_PATTERN.matches(name)) {
             "Frame reference does not belong to this archive"
         }
-        return File(directory, name).delete()
+        return File(directory, name).delete().also { if (it) invalidatePoseManifest() }
     }
 
     @Synchronized
@@ -228,6 +375,7 @@ class ReconstructionFrameArchive(
     private fun evictFor(incomingBytes: Long) {
         val files = frameFiles().toMutableList()
         var bytes = files.sumOf { it.length() }
+        if (files.size >= maxFrames || bytes > maxTotalBytes - incomingBytes) invalidatePoseManifest()
         while (files.size >= maxFrames || bytes > maxTotalBytes - incomingBytes) {
             val victim = (if (files.isEmpty()) null else files.removeAt(0))
                 ?: error("Archive budget cannot be satisfied")
@@ -235,6 +383,13 @@ class ReconstructionFrameArchive(
             check(victim.delete()) { "Could not evict old reconstruction frame" }
             bytes -= length
         }
+    }
+
+    private fun manifestFile(): File = File(directory, POSE_MANIFEST_FILE)
+
+    private fun invalidatePoseManifest() {
+        val file = manifestFile()
+        if (file.exists()) check(file.delete()) { "Could not invalidate optimized pose manifest" }
     }
 
     private fun frameFiles(): List<File> = directory.listFiles { file ->
@@ -246,6 +401,7 @@ class ReconstructionFrameArchive(
 
     private companion object {
         const val MAX_HEADER_BYTES = 256
+        const val POSE_MANIFEST_FILE = "optimized-poses.arkp"
         val SESSION_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val FILE_PATTERN = Regex("[0-9]{19}-[0-9]{19}\\.arkf")
     }

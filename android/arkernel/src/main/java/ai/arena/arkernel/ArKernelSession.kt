@@ -45,6 +45,7 @@ class ArKernelSession(
     private val guidedRotationProbe: GuidedRotationObservabilityProbe? = null,
     private val guidedTimeOffsetProbe: GuidedTimeOffsetObservabilityProbe? = null,
     private val guidedMetricProbe: GuidedMetricConsistencyProbe? = null,
+    private val calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -68,6 +69,7 @@ class ArKernelSession(
     @Volatile private var running = false
     @Volatile private var closed = false
     @Volatile private var cameraClockDiscontinuity = false
+    @Volatile private var calibrationChanged = false
 
     private val imu = AndroidImuSource(context, vio, sampleSink = ::enqueueImu,
         compatibilityTimingSink = compatibilityProbe?.let { probe ->
@@ -91,6 +93,8 @@ class ArKernelSession(
             { sample -> probe.addCameraSample(sample); Unit }
         },
         onTimestampNormalizationFailure = ::handleCameraClockFailure,
+        calibrationRuntimeMonitor = calibrationRuntimeMonitor,
+        onCalibrationRuntimeFailure = ::handleCalibrationFailure,
     )
 
     init { require(maxQueuedImuSamples >= 128) }
@@ -108,6 +112,7 @@ class ArKernelSession(
         latestMappingGate = MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
         cameraClockDiscontinuity = false
+        calibrationChanged = false
         running = true
         try {
             imu.start()
@@ -122,6 +127,7 @@ class ArKernelSession(
         if (!running) return
         running = false
         cameraClockDiscontinuity = false
+        calibrationChanged = false
         latestMappingGate = MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.POSE_UNINITIALIZED, false)
         camera.stop()
@@ -178,6 +184,13 @@ class ArKernelSession(
         if (running) onError(IllegalStateException("Camera clock invalidated: $reason"))
     }
 
+    private fun handleCalibrationFailure(reason: CameraCalibrationRuntimeFailure) {
+        calibrationChanged = true
+        latestMappingGate = MappingGateDecision(MappingGateState.PAUSED,
+            MappingPauseReason.CALIBRATION_CHANGED, false)
+        if (running) onError(IllegalStateException("Camera calibration binding invalidated: $reason"))
+    }
+
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
         val (rotationPrediction, previousVisualTimestamp) = synchronized(lock) {
@@ -226,6 +239,8 @@ class ArKernelSession(
         } ?: kernelMappingGate
         val mappingGate = if (cameraClockDiscontinuity) MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.CAMERA_CLOCK_DISCONTINUITY, false)
+        else if (calibrationChanged) MappingGateDecision(
+            MappingGateState.PAUSED, MappingPauseReason.CALIBRATION_CHANGED, false)
         else compatibilityGate
         latestMappingGate = mappingGate
         val worldFromCamera = snapshot?.let { state ->

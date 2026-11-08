@@ -160,7 +160,7 @@ Admission is not permanent. Monitor:
 - inference p95, failures, memory pressure and thermal state;
 - reconstruction uncertainty and dimensional evidence.
 
-Use hysteresis to avoid oscillation. Pause mapping before changing camera mode or calibration. A quality downgrade must invalidate claims derived from the stronger tier, not merely change a UI badge.
+Use hysteresis to avoid oscillation. Pause mapping before changing camera mode or calibration. A quality downgrade must invalidate claims derived from the stronger tier, not merely change a UI badge. The implemented `CameraCalibrationRuntimeMonitor` now compares every capture result with the signed stream binding: crop, video/OIS modes, distortion correction, and optionally focal length/focus distance with explicit tolerances. `Camera2FrameSource` requests the bound mode and terminally stops frames on missing or changed required metadata; `ArKernelSession` immediately exposes `PAUSED/CALIBRATION_CHANGED`. It never hot-swaps calibration inside an active map.
 
 ## Operational tiers
 

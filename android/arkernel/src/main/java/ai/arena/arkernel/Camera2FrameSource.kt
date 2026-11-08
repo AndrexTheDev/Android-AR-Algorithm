@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
+import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -14,6 +15,7 @@ import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
 import java.util.TreeMap
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -65,6 +67,9 @@ class Camera2FrameSource(
     private val compatibilityTimingSink: ((CameraTimingSample) -> Unit)? = null,
     private val onTimestampNormalizationFailure:
         ((CameraTimestampFailureReason) -> Unit)? = null,
+    private val calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+    private val onCalibrationRuntimeFailure:
+        ((CameraCalibrationRuntimeFailure) -> Unit)? = null,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -76,6 +81,7 @@ class Camera2FrameSource(
     @Volatile private var running = false
     private var lastTimestampNs = 0L
     private var timestampFailureReported = false
+    private var calibrationFailureReported = false
     private var affineSampleCounter = 0L
     private var affineClockAligner: ArKernelClockAligner? = null
     private val affineDriftPolicy = CameraClockDriftPolicy()
@@ -93,6 +99,8 @@ class Camera2FrameSource(
         frontend.reset()
         lastTimestampNs = 0L
         timestampFailureReported = false
+        calibrationFailureReported = false
+        calibrationRuntimeMonitor?.reset()
         affineSampleCounter = 0
         affineClockAligner?.close()
         affineClockAligner = ArKernelClockAligner()
@@ -106,7 +114,16 @@ class Camera2FrameSource(
         imageReader.setOnImageAvailableListener({ source -> consumeLatest(source) }, cameraHandler)
         thread = cameraThread; handler = cameraHandler; reader = imageReader; running = true
         try {
-            manager.openCamera(cameraId ?: selectBackCamera(), object : CameraDevice.StateCallback() {
+            val binding = calibrationRuntimeMonitor?.binding
+            val selectedCameraId = binding?.cameraId ?: cameraId ?: selectBackCamera()
+            require(cameraId == null || cameraId == selectedCameraId) {
+                "Requested camera ID does not match calibration binding"
+            }
+            val physicalCameraId = binding?.physicalCameraId
+            require(physicalCameraId == null || physicalCameraId == selectedCameraId) {
+                "Direct Camera2 source cannot silently switch to a different physical camera"
+            }
+            manager.openCamera(selectedCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     if (!running) { camera.close(); return }
                     device = camera
@@ -137,8 +154,27 @@ class Camera2FrameSource(
                     session = captureSession
                     val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                         addTarget(imageReader.surface)
-                        set(CaptureRequest.CONTROL_AF_MODE,
+                        val binding = calibrationRuntimeMonitor?.binding
+                        if (binding == null) set(CaptureRequest.CONTROL_AF_MODE,
                             CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                        else {
+                            set(CaptureRequest.SCALER_CROP_REGION, Rect(binding.cropLeft,
+                                binding.cropTop, binding.cropLeft + binding.cropWidth,
+                                binding.cropTop + binding.cropHeight))
+                            set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                                binding.videoStabilizationMode)
+                            set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                                binding.opticalStabilizationMode)
+                            if (binding.expectedFocusDistanceDiopters != null) {
+                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                                set(CaptureRequest.LENS_FOCUS_DISTANCE,
+                                    binding.expectedFocusDistanceDiopters.toFloat())
+                            } else set(CaptureRequest.CONTROL_AF_MODE,
+                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                            if (Build.VERSION.SDK_INT >= 28 && binding.distortionCorrectionMode >= 0)
+                                set(CaptureRequest.DISTORTION_CORRECTION_MODE,
+                                    binding.distortionCorrectionMode)
+                        }
                     }.build()
                     captureSession.setRepeatingRequest(request,
                         object : CameraCaptureSession.CaptureCallback() {
@@ -147,6 +183,7 @@ class Camera2FrameSource(
                                 request: CaptureRequest,
                                 result: TotalCaptureResult,
                             ) {
+                                if (!monitorCalibration(result)) return
                                 val rawTimestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
                                 emitCompatibilityTiming(CameraTimingSampleKind.CAPTURE_RESULT,
                                     rawTimestamp)
@@ -163,6 +200,24 @@ class Camera2FrameSource(
                     if (running) onError(IllegalStateException("Camera capture session failed"))
                 }
             }, handler)
+    }
+
+    private fun monitorCalibration(result: TotalCaptureResult): Boolean {
+        val monitor = calibrationRuntimeMonitor ?: return true
+        if (calibrationFailureReported) return false
+        val crop = result.get(CaptureResult.SCALER_CROP_REGION)
+        val failure = monitor.observe(CameraCalibrationCaptureState(
+            crop?.left, crop?.top, crop?.width(), crop?.height(),
+            result.get(CaptureResult.CONTROL_VIDEO_STABILIZATION_MODE),
+            result.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE),
+            if (Build.VERSION.SDK_INT >= 28)
+                result.get(CaptureResult.DISTORTION_CORRECTION_MODE) else null,
+            result.get(CaptureResult.LENS_FOCAL_LENGTH)?.toDouble(),
+            result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.toDouble()))
+        if (failure == null) return true
+        calibrationFailureReported = true
+        onCalibrationRuntimeFailure?.invoke(failure)
+        return false
     }
 
     private fun handleCaptureMetadata(timestampNs: Long, exposureTimeNs: Long, sensitivityIso: Int) {
@@ -182,7 +237,7 @@ class Camera2FrameSource(
     private fun consumeLatest(source: ImageReader) {
         val image = source.acquireLatestImage() ?: return
         try {
-            if (!running || timestampFailureReported) return
+            if (!running || timestampFailureReported || calibrationFailureReported) return
             val timing = emitCompatibilityTiming(CameraTimingSampleKind.IMAGE, image.timestamp)
             affineSampleCounter++
             if (affineSampleCounter % AFFINE_SAMPLE_INTERVAL == 0L) {
@@ -280,6 +335,8 @@ class Camera2FrameSource(
         thread?.quitSafely(); thread = null
         lastTimestampNs = 0L
         timestampFailureReported = false
+        calibrationFailureReported = false
+        calibrationRuntimeMonitor?.reset()
         affineSampleCounter = 0
         affineClockAligner?.close()
         affineClockAligner = null

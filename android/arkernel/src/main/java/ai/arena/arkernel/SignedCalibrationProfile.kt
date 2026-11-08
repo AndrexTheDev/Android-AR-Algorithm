@@ -10,7 +10,7 @@ import java.security.Signature
 import java.security.interfaces.ECPublicKey
 
 private const val CALIBRATION_PROFILE_MAGIC = 0x41524B43 // ARKC
-private const val CALIBRATION_PROFILE_VERSION = 1
+private const val CALIBRATION_PROFILE_VERSION = 2
 private const val MAX_CALIBRATION_PROFILE_BYTES = 16 * 1024
 private const val MAX_CALIBRATION_SIGNATURE_BYTES = 512
 
@@ -38,6 +38,10 @@ data class CalibrationStreamBinding(
     val videoStabilizationMode: Int,
     val opticalStabilizationMode: Int,
     val distortionCorrectionMode: Int,
+    val expectedFocalLengthMm: Double? = null,
+    val focalLengthToleranceMm: Double = 0.02,
+    val expectedFocusDistanceDiopters: Double? = null,
+    val focusDistanceToleranceDiopters: Double = 0.05,
 ) {
     init {
         require(cameraId.isNotBlank() && cameraId.length <= 256)
@@ -45,6 +49,13 @@ data class CalibrationStreamBinding(
             (physicalCameraId.isNotBlank() && physicalCameraId.length <= 256))
         require(width > 0 && height > 0)
         require(cropLeft >= 0 && cropTop >= 0 && cropWidth > 0 && cropHeight > 0)
+        require(expectedFocalLengthMm == null ||
+            (expectedFocalLengthMm.isFinite() && expectedFocalLengthMm > 0.0))
+        require(focalLengthToleranceMm.isFinite() && focalLengthToleranceMm in 0.0..10.0)
+        require(expectedFocusDistanceDiopters == null ||
+            (expectedFocusDistanceDiopters.isFinite() && expectedFocusDistanceDiopters >= 0.0))
+        require(focusDistanceToleranceDiopters.isFinite() &&
+            focusDistanceToleranceDiopters in 0.0..100.0)
     }
 }
 
@@ -365,12 +376,30 @@ internal object CalibrationProfileCodec {
         output.writeInt(stream.videoStabilizationMode)
         output.writeInt(stream.opticalStabilizationMode)
         output.writeInt(stream.distortionCorrectionMode)
+        output.writeBoolean(stream.expectedFocalLengthMm != null)
+        stream.expectedFocalLengthMm?.let(output::writeDouble)
+        output.writeDouble(stream.focalLengthToleranceMm)
+        output.writeBoolean(stream.expectedFocusDistanceDiopters != null)
+        stream.expectedFocusDistanceDiopters?.let(output::writeDouble)
+        output.writeDouble(stream.focusDistanceToleranceDiopters)
     }
 
-    private fun readStream(input: DataInputStream) = CalibrationStreamBinding(
-        input.readUTF(), if (input.readBoolean()) input.readUTF() else null,
-        input.readInt(), input.readInt(), input.readInt(), input.readInt(),
-        input.readInt(), input.readInt(), input.readInt(), input.readInt(), input.readInt())
+    private fun readStream(input: DataInputStream): CalibrationStreamBinding {
+        val cameraId = input.readUTF()
+        val physicalId = if (input.readBoolean()) input.readUTF() else null
+        val width = input.readInt(); val height = input.readInt()
+        val cropLeft = input.readInt(); val cropTop = input.readInt()
+        val cropWidth = input.readInt(); val cropHeight = input.readInt()
+        val videoMode = input.readInt(); val opticalMode = input.readInt()
+        val distortionMode = input.readInt()
+        val focalLength = if (input.readBoolean()) input.readDouble() else null
+        val focalTolerance = input.readDouble()
+        val focusDistance = if (input.readBoolean()) input.readDouble() else null
+        val focusTolerance = input.readDouble()
+        return CalibrationStreamBinding(cameraId, physicalId, width, height,
+            cropLeft, cropTop, cropWidth, cropHeight, videoMode, opticalMode,
+            distortionMode, focalLength, focalTolerance, focusDistance, focusTolerance)
+    }
 
     private inline fun <reified T : Enum<T>> enumValue(ordinal: Int): T =
         enumValues<T>().getOrNull(ordinal) ?: throw IllegalArgumentException("Invalid enum ordinal")

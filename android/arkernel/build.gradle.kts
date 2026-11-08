@@ -7,6 +7,10 @@ android {
     namespace = "ai.arena.arkernel"
     compileSdk = 35
     ndkVersion = "27.2.12479018"
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

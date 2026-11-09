@@ -44,6 +44,9 @@ struct TextureAtlasLayoutResult {
   ReconstructionMesh mesh;
   std::vector<TextureAtlasPatch> patches;
   std::vector<std::size_t> source_triangle_patch;
+  // Output triangle index for every assigned source triangle; unassigned
+  // entries use size_t max. This avoids relying on implicit output ordering.
+  std::vector<std::size_t> source_triangle_output_triangle;
   int atlas_width{0};
   int atlas_height{0};
   int padding_px{0};

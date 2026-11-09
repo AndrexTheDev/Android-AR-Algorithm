@@ -92,6 +92,7 @@ TextureBakingResult bakeTextureAtlasWithCorrections(
       layout.atlas_width <= 0 || layout.atlas_height <= 0 ||
       layout.padding_px < 0 || layout.padding_px > 256 ||
       labels.size() != layout.source_triangle_patch.size() ||
+      labels.size() != layout.source_triangle_output_triangle.size() ||
       assigned_labels != layout.assigned_triangles ||
       layout.mesh.triangle_indices.size() / 3 != layout.assigned_triangles ||
       layout.patches.empty() || views.empty()) {
@@ -146,13 +147,24 @@ TextureBakingResult bakeTextureAtlasWithCorrections(
     }
   }
 
+  const std::size_t no_patch=std::numeric_limits<std::size_t>::max();
+  std::vector<bool> output_seen(layout.assigned_triangles,false);
+  for(std::size_t triangle=0;triangle<labels.size();++triangle) {
+    const auto output=layout.source_triangle_output_triangle[triangle];
+    if(labels[triangle].assigned) {
+      if(output>=layout.assigned_triangles||output_seen[output]) {
+        result.error="texture triangle output mapping is invalid";return result;
+      }
+      output_seen[output]=true;
+    } else if(output!=no_patch) {
+      result.error="texture triangle output mapping is invalid";return result;
+    }
+  }
   result.input_valid=true;result.width=layout.atlas_width;result.height=layout.atlas_height;
   result.rgba8.assign(atlas_pixels*4,0);
   std::vector<std::uint32_t> owner(atlas_pixels,0);
   std::vector<std::uint16_t> distance(atlas_pixels,0);
-  std::size_t output_triangle=0;
   bool stop=false;
-  const std::size_t no_patch=std::numeric_limits<std::size_t>::max();
   for(std::size_t source_triangle=0;source_triangle<labels.size()&&!stop;++source_triangle) {
     if(!labels[source_triangle].assigned)continue;
     const std::size_t patch_id=layout.source_triangle_patch[source_triangle];
@@ -161,6 +173,8 @@ TextureBakingResult bakeTextureAtlasWithCorrections(
     }
     const auto& patch=layout.patches[patch_id];
     const auto& image=images[image_by_frame.at(patch.frame_id)];
+    const std::size_t output_triangle=
+        layout.source_triangle_output_triangle[source_triangle];
     std::array<double,3> ax{},ay{},sx{},sy{};
     for(std::size_t corner=0;corner<3;++corner) {
       const std::uint32_t vertex=layout.mesh.triangle_indices[output_triangle*3+corner];
@@ -169,7 +183,6 @@ TextureBakingResult bakeTextureAtlasWithCorrections(
       sx[corner]=labels[source_triangle].normalized_uv[corner].x*(image.width-1);
       sy[corner]=labels[source_triangle].normalized_uv[corner].y*(image.height-1);
     }
-    ++output_triangle;
     const double denominator=(ay[1]-ay[2])*(ax[0]-ax[2])+
                              (ax[2]-ax[1])*(ay[0]-ay[2]);
     if(!std::isfinite(denominator)||std::abs(denominator)<1e-12)continue;

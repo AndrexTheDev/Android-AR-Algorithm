@@ -42,6 +42,7 @@
 #include "arkernel/texture_atlas.h"
 #include "arkernel/texture_baking.h"
 #include "arkernel/texture_photometry.h"
+#include "arkernel/texture_seam_blending.h"
 #include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
@@ -776,6 +777,7 @@ int main() {
       texture_mesh,texture_selection.views,texture_selection.triangles,atlas_config);
   CHECK(atlas_layout.input_valid&&!atlas_layout.truncated&&atlas_layout.error.empty()&&
         atlas_layout.patches.size()==1&&atlas_layout.assigned_triangles==2&&
+        atlas_layout.source_triangle_output_triangle==std::vector<std::size_t>({0,1})&&
         atlas_layout.omitted_unassigned_triangles==0&&
         atlas_layout.mesh.positions_m.size()==4&&atlas_layout.duplicated_vertices==0&&
         atlas_layout.mesh.base_color_texture.uri.empty()&&
@@ -927,6 +929,37 @@ int main() {
       invalid_corrections);
   CHECK(!rejected_correction.input_valid&&
         rejected_correction.error=="invalid texture color correction");
+
+  // Local seam blending changes only bounded RGB pixels inside the two owning
+  // patch rectangles and preserves the baked alpha channel.
+  const auto uneven_texture=bakeTextureAtlas(photometry_layout,
+      manual_texture_selection.views,photometry_labels,exposure_images);
+  const auto blended_texture=blendTextureAtlasSeams(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture);
+  CHECK(blended_texture.input_valid&&!blended_texture.truncated&&
+        blended_texture.error.empty()&&blended_texture.unique_edges==5&&
+        blended_texture.seam_edges==1&&blended_texture.pixel_tests>0&&
+        blended_texture.pixel_updates>0&&
+        blended_texture.rgba8!=uneven_texture.rgba8&&
+        std::any_of(blended_texture.rgba8.begin(),blended_texture.rgba8.end(),
+                    [](std::uint8_t value){return value>100&&value<200;}));
+  for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
+    CHECK(blended_texture.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  TextureSeamBlendingConfig limited_seam_config;
+  limited_seam_config.max_pixel_tests=1;
+  const auto limited_seam_blending=blendTextureAtlasSeams(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture,limited_seam_config);
+  CHECK(limited_seam_blending.input_valid&&limited_seam_blending.truncated&&
+        limited_seam_blending.pixel_tests==1&&
+        limited_seam_blending.error=="texture seam pixel-test budget exceeded");
+  auto invalid_seam_config=TextureSeamBlendingConfig{};
+  invalid_seam_config.blend_radius_px=0;
+  bool rejected_seam_config=false;
+  try{blendTextureAtlasSeams(texture_mesh,photometry_layout,photometry_labels,
+                             uneven_texture,invalid_seam_config);}
+  catch(const std::invalid_argument&){rejected_seam_config=true;}
+  CHECK(rejected_seam_config);
+
   auto clipped_images=exposure_images;
   std::fill(exposure_b.begin(),exposure_b.end(),255);
   const auto unconstrained_photometry=estimateTexturePhotometry(texture_mesh,

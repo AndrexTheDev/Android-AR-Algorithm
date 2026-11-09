@@ -100,6 +100,7 @@ TextureAtlasLayoutResult layoutTextureAtlas(
   result.input_valid = true;
   const std::size_t no_patch = std::numeric_limits<std::size_t>::max();
   result.source_triangle_patch.assign(triangle_count, no_patch);
+  result.source_triangle_output_triangle.assign(triangle_count, no_patch);
   DisjointSet components(triangle_count);
   std::vector<Vec3> face_normals(triangle_count);
   std::vector<bool> face_normal_valid(triangle_count, false);
@@ -340,6 +341,8 @@ TextureAtlasLayoutResult layoutTextureAtlas(
     const auto& data = patch_data[patch];
     const auto& rectangle = packed[patch];
     const auto& view = views[data.view_index];
+    result.source_triangle_output_triangle[triangle] =
+        result.mesh.triangle_indices.size() / 3;
     for (std::size_t corner = 0; corner < 3; ++corner) {
       const std::uint32_t source = mesh.triangle_indices[triangle * 3 + corner];
       const double source_x = labels[triangle].normalized_uv[corner].x *

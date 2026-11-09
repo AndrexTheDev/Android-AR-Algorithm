@@ -41,6 +41,7 @@
 #include "arkernel/temporal_depth_filter.h"
 #include "arkernel/texture_atlas.h"
 #include "arkernel/texture_baking.h"
+#include "arkernel/texture_photometry.h"
 #include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
@@ -885,6 +886,65 @@ int main() {
                        texture_selection.triangles,{red_texture_view},invalid_baking_config);}
   catch(const std::invalid_argument&){rejected_baking_config=true;}
   CHECK(rejected_baking_config);
+
+  // Robust seam correspondences estimate bounded per-view RGB gains. The
+  // lowest-index view anchors each connected component; unsupported views are
+  // left at identity instead of receiving guessed exposure corrections.
+  auto photometry_labels=manual_texture_selection.triangles;
+  const std::array<Vec2f,4> photometry_uv{{{0.25F,0.25F},{0.75F,0.25F},
+                                           {0.75F,0.75F},{0.25F,0.75F}}};
+  for(std::size_t triangle=0;triangle<photometry_labels.size();++triangle)
+    for(std::size_t corner=0;corner<3;++corner)
+      photometry_labels[triangle].normalized_uv[corner]=
+        photometry_uv[texture_mesh.triangle_indices[triangle*3+corner]];
+  std::vector<std::uint8_t> exposure_a(100*100*3,100);
+  std::vector<std::uint8_t> exposure_b(100*100*3,200);
+  const std::vector<TextureSourceImageView> exposure_images{
+    {10,100,100,300,TexturePixelFormat::kRgb8,exposure_a.data(),exposure_a.size()},
+    {20,100,100,300,TexturePixelFormat::kRgb8,exposure_b.data(),exposure_b.size()}};
+  const auto photometry=estimateTexturePhotometry(texture_mesh,
+      manual_texture_selection.views,photometry_labels,exposure_images);
+  CHECK(photometry.input_valid&&!photometry.truncated&&photometry.error.empty()&&
+        photometry.unique_edges==5&&photometry.seam_edges==1&&
+        photometry.equations==1&&photometry.sample_tests==9&&
+        photometry.connected_components==1&&photometry.constrained_views==2&&
+        photometry.corrections.size()==2&&photometry.corrections[0].constrained&&
+        photometry.corrections[0].rgb_gain[0]==1.0&&
+        std::abs(photometry.corrections[1].rgb_gain[0]-0.5)<1e-12);
+  const auto photometry_layout=layoutTextureAtlas(texture_mesh,
+      manual_texture_selection.views,photometry_labels,atlas_config);
+  const auto corrected_texture=bakeTextureAtlasWithCorrections(photometry_layout,
+      manual_texture_selection.views,photometry_labels,exposure_images,
+      photometry.corrections);
+  CHECK(corrected_texture.input_valid&&!corrected_texture.truncated&&
+        corrected_texture.rasterized_pixels>0&&
+        std::none_of(corrected_texture.rgba8.begin(),corrected_texture.rgba8.end(),
+          [](std::uint8_t value){return value==200;}));
+  auto invalid_corrections=photometry.corrections;
+  invalid_corrections[1].frame_id=999;
+  const auto rejected_correction=bakeTextureAtlasWithCorrections(photometry_layout,
+      manual_texture_selection.views,photometry_labels,exposure_images,
+      invalid_corrections);
+  CHECK(!rejected_correction.input_valid&&
+        rejected_correction.error=="invalid texture color correction");
+  auto clipped_images=exposure_images;
+  std::fill(exposure_b.begin(),exposure_b.end(),255);
+  const auto unconstrained_photometry=estimateTexturePhotometry(texture_mesh,
+      manual_texture_selection.views,photometry_labels,clipped_images);
+  CHECK(unconstrained_photometry.input_valid&&
+        unconstrained_photometry.equations==0&&
+        unconstrained_photometry.constrained_views==0&&
+        !unconstrained_photometry.corrections[0].constrained&&
+        unconstrained_photometry.corrections[1].rgb_gain[0]==1.0);
+  std::fill(exposure_b.begin(),exposure_b.end(),200);
+  auto limited_photometry_config=TexturePhotometryConfig{};
+  limited_photometry_config.max_sample_tests=1;
+  const auto limited_photometry=estimateTexturePhotometry(texture_mesh,
+      manual_texture_selection.views,photometry_labels,exposure_images,
+      limited_photometry_config);
+  CHECK(limited_photometry.input_valid&&limited_photometry.truncated&&
+        limited_photometry.sample_tests==1&&
+        limited_photometry.error=="texture photometry sample budget exceeded");
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

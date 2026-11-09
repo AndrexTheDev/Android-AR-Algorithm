@@ -37,6 +37,7 @@ add_library(arkernel STATIC
     src/temporal_depth_filter.cpp
     src/texture_atlas.cpp
     src/texture_baking.cpp
+    src/texture_photometry.cpp
     src/texture_view_selection.cpp
     src/tracking_quality.cpp
     src/tsdf_meshing.cpp

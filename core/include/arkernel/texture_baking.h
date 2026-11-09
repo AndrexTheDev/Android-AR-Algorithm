@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -28,6 +29,14 @@ struct TextureBakingConfig {
   std::size_t max_padding_pixels{16777216};
 };
 
+struct TextureViewColorCorrection {
+  std::size_t view_index{0};
+  std::uint64_t frame_id{0};
+  std::array<double,3> rgb_gain{{1.0,1.0,1.0}};
+  std::size_t supporting_equations{0};
+  bool constrained{false};
+};
+
 struct TextureBakingResult {
   // Straight-alpha RGBA8, top-left row origin, tightly packed.
   std::vector<std::uint8_t> rgba8;
@@ -50,6 +59,16 @@ TextureBakingResult bakeTextureAtlas(
     const std::vector<TextureViewReference>& views,
     const std::vector<TriangleTextureView>& labels,
     const std::vector<TextureSourceImageView>& images,
+    TextureBakingConfig config = {});
+
+// Applies validated per-view linear RGB gains while rasterizing. Corrections
+// must contain exactly one provenance-matched record per view; alpha is kept.
+TextureBakingResult bakeTextureAtlasWithCorrections(
+    const TextureAtlasLayoutResult& layout,
+    const std::vector<TextureViewReference>& views,
+    const std::vector<TriangleTextureView>& labels,
+    const std::vector<TextureSourceImageView>& images,
+    const std::vector<TextureViewColorCorrection>& corrections,
     TextureBakingConfig config = {});
 
 }  // namespace arkernel

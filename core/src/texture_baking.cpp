@@ -72,11 +72,12 @@ std::array<std::uint8_t,4> sample(const TextureSourceImageView& image,
 
 }  // namespace
 
-TextureBakingResult bakeTextureAtlas(
+TextureBakingResult bakeTextureAtlasWithCorrections(
     const TextureAtlasLayoutResult& layout,
     const std::vector<TextureViewReference>& views,
     const std::vector<TriangleTextureView>& labels,
     const std::vector<TextureSourceImageView>& images,
+    const std::vector<TextureViewColorCorrection>& corrections,
     TextureBakingConfig config) {
   if (config.max_source_images == 0 || config.max_source_images > 4096 ||
       config.max_atlas_pixels == 0 || config.max_atlas_pixels > 268435456 ||
@@ -107,6 +108,17 @@ TextureBakingResult bakeTextureAtlas(
   if (images.empty() || images.size() > config.max_source_images) {
     result.error = "invalid texture source image count";
     return result;
+  }
+  if(corrections.size()!=views.size()) {
+    result.error="invalid texture color corrections";return result;
+  }
+  for(std::size_t i=0;i<corrections.size();++i) {
+    const auto& correction=corrections[i];
+    if(correction.view_index!=i||correction.frame_id!=views[i].frame_id||
+       std::any_of(correction.rgb_gain.begin(),correction.rgb_gain.end(),
+                   [](double gain){return !std::isfinite(gain)||gain<=0.0||gain>8.0;})) {
+      result.error="invalid texture color correction";return result;
+    }
   }
   std::unordered_map<std::uint64_t,std::size_t> image_by_frame;
   image_by_frame.reserve(images.size());
@@ -180,8 +192,12 @@ TextureBakingResult bakeTextureAtlas(
       const std::size_t pixel=static_cast<std::size_t>(y)*layout.atlas_width+x;
       if(owner[pixel]!=0)++result.overlap_pixels;else ++result.rasterized_pixels;
       owner[pixel]=static_cast<std::uint32_t>(patch_id+1);
-      const auto color=sample(image,w0*sx[0]+w1*sx[1]+w2*sx[2],
-                                    w0*sy[0]+w1*sy[1]+w2*sy[2]);
+      auto color=sample(image,w0*sx[0]+w1*sx[1]+w2*sx[2],
+                              w0*sy[0]+w1*sy[1]+w2*sy[2]);
+      const auto& correction=corrections[patch.view_index];
+      for(std::size_t channel=0;channel<3;++channel)
+        color[channel]=clampByte(static_cast<int>(std::llround(
+            color[channel]*correction.rgb_gain[channel])));
       for(int channel=0;channel<4;++channel)result.rgba8[pixel*4+channel]=color[channel];
     }
   }
@@ -215,6 +231,19 @@ TextureBakingResult bakeTextureAtlas(
     }
   }
   return result;
+}
+
+TextureBakingResult bakeTextureAtlas(
+    const TextureAtlasLayoutResult& layout,
+    const std::vector<TextureViewReference>& views,
+    const std::vector<TriangleTextureView>& labels,
+    const std::vector<TextureSourceImageView>& images,
+    TextureBakingConfig config) {
+  std::vector<TextureViewColorCorrection> identity(views.size());
+  for(std::size_t i=0;i<views.size();++i) {
+    identity[i].view_index=i;identity[i].frame_id=views[i].frame_id;
+  }
+  return bakeTextureAtlasWithCorrections(layout,views,labels,images,identity,config);
 }
 
 }  // namespace arkernel

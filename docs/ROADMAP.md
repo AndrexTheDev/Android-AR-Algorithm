@@ -112,12 +112,13 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
-- [ ] Add dense reconstruction refinement and fusion: bounded inverse-depth refinement, uncertainty, matching/consistency, sparse TSDF fusion, meshing, filtering, conservative clustering, Android orchestration, view selection, coherent labels, UV layout and canonical RGBA/I420 pixel baking are implemented; photometric seam leveling, measured quadric-error LOD and persisted reconstruction sessions remain.
+- [ ] Add dense reconstruction refinement and fusion: bounded inverse-depth refinement, uncertainty, matching/consistency, sparse TSDF fusion, meshing, filtering, conservative clustering, Android orchestration, view selection, coherent labels, UV layout, relative per-view RGB normalization and canonical RGBA/I420 pixel baking are implemented; local seam blending, measured quadric-error LOD and persisted reconstruction sessions remain.
 - [x] Add deterministic bounded visibility-aware per-triangle multi-view selection with calibrated projection and optional uncertainty-aware depth checks.
 - [x] Add bounded deterministic coherent patch labeling over visibility-approved alternatives while preserving sharp/non-manifold boundaries.
 - [x] Add bounded UV-island extraction, patch provenance, seam-aware vertex duplication and deterministic single-page atlas layout.
 - [x] Add bounded Gray/RGB/RGBA/canonical-I420 atlas rasterization and patch-local padding dilation with raw RGBA8 output.
-- [ ] Add JPEG/PNG platform decoding/encoding, exposure compensation and seam optimization.
+- [x] Add bounded robust cross-view seam sampling and deterministic per-view linear RGB exposure normalization.
+- [ ] Add JPEG/PNG platform decoding/encoding and local seam optimization/blending.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.

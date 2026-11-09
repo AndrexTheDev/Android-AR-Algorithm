@@ -15,6 +15,12 @@ struct MultiViewStereoFrame {
   Pose world_from_camera{};
 };
 
+enum class MultiViewStereoMatchingCost {
+  kZncc,
+  kCensus,
+  kHybrid,
+};
+
 struct MultiViewStereoConfig {
   double min_depth_m{0.15};
   double max_depth_m{10.0};
@@ -29,6 +35,12 @@ struct MultiViewStereoConfig {
   std::size_t max_output_pixels{4'194'304};
   double min_baseline_m{0.03};
   double max_baseline_m{3.0};
+  MultiViewStereoMatchingCost matching_cost{MultiViewStereoMatchingCost::kHybrid};
+  double census_weight{0.35};
+  double census_intensity_tolerance{1.0};
+  std::size_t min_census_bits{6};
+  // Retained for source compatibility; this is the minimum normalized score
+  // for the selected ZNCC, Census, or hybrid matching cost.
   double min_zncc{0.65};
   double min_winner_margin{0.02};
 };

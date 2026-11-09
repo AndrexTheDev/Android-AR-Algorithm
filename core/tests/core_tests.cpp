@@ -330,7 +330,46 @@ int main() {
         mvs_depth.confidence[mvs_center]>0.5F&&mvs_depth.uncertainty_m[mvs_center]>0);
   CHECK(std::isfinite(coarse_mvs_depth.uncertainty_m[mvs_center])&&
         mvs_depth.uncertainty_m[mvs_center]<coarse_mvs_depth.uncertainty_m[mvs_center]);
+
+  // Census ordering remains usable under a strong monotonic response change
+  // that a deliberately strict linear-correlation gate rejects.
+  auto gamma_response=[](std::uint8_t value){const double normalized=value/255.0;
+    const double squared=normalized*normalized;
+    return static_cast<std::uint8_t>(std::lround(255.0*squared*squared*normalized));};
+  std::vector<std::uint8_t> mvs_left_gamma(mvs_left.size()),mvs_right_gamma(mvs_right.size());
+  std::transform(mvs_left.begin(),mvs_left.end(),mvs_left_gamma.begin(),gamma_response);
+  std::transform(mvs_right.begin(),mvs_right.end(),mvs_right_gamma.begin(),gamma_response);
+  const GrayImageView mvs_left_gamma_view{mvs_width,mvs_height,mvs_width,
+    mvs_left_gamma.data(),mvs_left_gamma.size()};
+  const GrayImageView mvs_right_gamma_view{mvs_width,mvs_height,mvs_width,
+    mvs_right_gamma.data(),mvs_right_gamma.size()};
+  const std::vector<MultiViewStereoFrame> mvs_gamma_sources{
+    {mvs_left_gamma_view,&mvs_camera,{{},{0.1,0,0}}},
+    {mvs_right_gamma_view,&mvs_camera,{{},{-0.1,0,0}}}};
+  auto census_mvs_config=mvs_config;
+  census_mvs_config.matching_cost=MultiViewStereoMatchingCost::kCensus;
+  census_mvs_config.census_intensity_tolerance=0.0;census_mvs_config.min_census_bits=6;
+  census_mvs_config.min_zncc=0.90;
+  const auto census_mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_gamma_sources,
+    census_mvs_config);
+  const std::size_t census_probe=31*mvs_width+35;
+  CHECK(census_mvs_depth.valid&&census_mvs_depth.valid_pixels>40&&
+        std::isfinite(census_mvs_depth.depth_m[census_probe])&&
+        std::abs(census_mvs_depth.depth_m[census_probe]-2.0F)<0.12F);
+  auto strict_zncc_mvs_config=census_mvs_config;
+  strict_zncc_mvs_config.matching_cost=MultiViewStereoMatchingCost::kZncc;
+  strict_zncc_mvs_config.min_zncc=0.90;
+  const auto strict_zncc_mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_gamma_sources,
+    strict_zncc_mvs_config);
+  CHECK(strict_zncc_mvs_depth.valid&&
+        !std::isfinite(strict_zncc_mvs_depth.depth_m[census_probe]));
+
   CHECK(!estimateMultiViewDepth(mvs_reference_frame,{mvs_sources.front()},mvs_config).valid);
+  auto invalid_census=mvs_config;invalid_census.min_census_bits=25;
+  bool rejected_census=false;
+  try{estimateMultiViewDepth(mvs_reference_frame,mvs_sources,invalid_census);}
+  catch(const std::invalid_argument&){rejected_census=true;}
+  CHECK(rejected_census);
   auto invalid_refinement=mvs_config;invalid_refinement.refinement_hypotheses=2;
   bool rejected_refinement=false;
   try{estimateMultiViewDepth(mvs_reference_frame,mvs_sources,invalid_refinement);}

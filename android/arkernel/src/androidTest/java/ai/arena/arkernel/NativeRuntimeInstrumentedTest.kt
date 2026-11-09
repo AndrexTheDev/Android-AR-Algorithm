@@ -71,5 +71,4 @@ class NativeRuntimeInstrumentedTest {
     private fun heldOut(id: String, reconstructed: Double, reference: Double,
         kind: DimensionalReferenceKind) = HeldOutDimensionObservation(id,
         Vector3(0.0, 0.0, 0.0), Vector3(reconstructed, 0.0, 0.0), reference, 0.001, kind)
-    }
 }

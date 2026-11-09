@@ -477,6 +477,54 @@ int main() {
   catch(const std::invalid_argument&){rejected_component_config=true;}
   CHECK(rejected_component_config);
 
+  // Conservative clustering reduces smooth interiors while preserving the
+  // filtered plane's boundary, UV alignment, texture reference and error bound.
+  MeshSimplificationConfig simplification_config;
+  simplification_config.cluster_cell_size_m=0.15;
+  simplification_config.max_position_error_m=0.12;
+  simplification_config.max_uv_error=0.1;
+  const auto simplified_mesh=simplifyMeshConservative(filtered_mesh.mesh,
+                                                       simplification_config);
+  CHECK(simplified_mesh.input_valid&&!simplified_mesh.truncated&&
+        simplified_mesh.error.empty()&&
+        simplified_mesh.output_vertices<simplified_mesh.input_vertices&&
+        simplified_mesh.output_triangles<=simplified_mesh.input_triangles&&
+        simplified_mesh.locked_vertices>0&&simplified_mesh.boundary_edges>0&&
+        simplified_mesh.max_observed_displacement_m<=0.120001&&
+        simplified_mesh.mesh.texcoords.size()==simplified_mesh.mesh.positions_m.size()&&
+        simplified_mesh.mesh.base_color_texture.uri=="component-atlas.png"&&
+        validateMesh(simplified_mesh.mesh).valid);
+  const auto repeated_simplified_mesh=simplifyMeshConservative(
+    filtered_mesh.mesh,simplification_config);
+  CHECK(repeated_simplified_mesh.mesh.triangle_indices==
+          simplified_mesh.mesh.triangle_indices&&
+        repeated_simplified_mesh.mesh.positions_m.size()==
+          simplified_mesh.mesh.positions_m.size());
+  auto strict_error_config=simplification_config;
+  strict_error_config.max_position_error_m=0.01;
+  const auto strict_error_mesh=simplifyMeshConservative(filtered_mesh.mesh,
+                                                         strict_error_config);
+  CHECK(strict_error_mesh.input_valid&&strict_error_mesh.rejected_merges>0&&
+        strict_error_mesh.max_observed_displacement_m<=0.010001);
+  ReconstructionMesh crease_mesh;
+  crease_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{0,0,1}};
+  crease_mesh.triangle_indices={0,1,2,1,0,3};
+  auto crease_config=simplification_config;crease_config.preserve_boundaries=false;
+  const auto crease_result=simplifyMeshConservative(crease_mesh,crease_config);
+  CHECK(crease_result.input_valid&&crease_result.sharp_edges==1&&
+        crease_result.locked_vertices==2&&validateMesh(crease_result.mesh).valid);
+  auto cluster_limited_config=simplification_config;cluster_limited_config.max_clusters=1;
+  const auto cluster_limited_mesh=simplifyMeshConservative(filtered_mesh.mesh,
+                                                            cluster_limited_config);
+  CHECK(cluster_limited_mesh.input_valid&&cluster_limited_mesh.truncated&&
+        cluster_limited_mesh.error=="mesh cluster budget exceeded");
+  auto invalid_simplification_config=simplification_config;
+  invalid_simplification_config.sharp_edge_angle_degrees=180.0;
+  bool rejected_simplification_config=false;
+  try{simplifyMeshConservative(filtered_mesh.mesh,invalid_simplification_config);}
+  catch(const std::invalid_argument&){rejected_simplification_config=true;}
+  CHECK(rejected_simplification_config);
+
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;
   auto mvs_texture=[](double x,double y){return static_cast<std::uint8_t>(std::max(0.0,

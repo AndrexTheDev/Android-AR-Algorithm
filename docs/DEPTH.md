@@ -50,7 +50,9 @@ This narrow-band representation is intentionally not an occupancy map: unknown s
 
 `filterMeshComponents` then builds bounded edge-based triangle connectivity. Point-only contact does not merge otherwise separate surfaces. Components can be retained by minimum triangle count, minimum metric area, or deterministic largest-only selection; removed vertices are compacted while positions, normals, UVs and texture references remain aligned. Degenerate triangles are rejected, and retained boundary, manifold and non-manifold edge counts remain observable. Input vertex, triangle and unique-edge budgets prevent unbounded adjacency construction.
 
-Edge-aware simplification, persistence and texture provenance remain separate pending stages. Neither extraction nor component filtering claims watertightness or repairs unobserved geometry.
+`simplifyMeshConservative` provides the bounded portable reduction fallback. It detects boundary, sharp-dihedral, non-manifold and point-contact-ambiguous vertices and keeps protected vertices exact. Remaining smooth interior vertices may cluster only inside the same edge-connected component and only while the cluster diameter stays inside a metric position budget; source-normal and UV deviation gates reject incompatible merges. Degenerate and duplicate triangles are removed, all attributes are compacted, and normals are recomputed from retained geometry. Input vertex/triangle, unique-edge and cluster budgets are explicit.
+
+This deterministic clustering is deliberately more conservative and less efficient than a full quadric-error edge-collapse implementation such as a reviewed `meshoptimizer` integration. It does not guarantee a requested triangle ratio, manifold output, watertightness or repair of unobserved geometry. Persistence and texture-view provenance remain separate pending stages.
 
 ## Conservative temporal filtering
 

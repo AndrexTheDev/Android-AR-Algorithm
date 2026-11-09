@@ -11,6 +11,7 @@ import java.nio.ByteOrder
 import java.util.Locale
 import java.util.zip.CRC32
 
+private const val DURABLE_UNVERIFIED_QUALITY = "unverified"
 private const val MAX_STATE_BYTES = 8 * 1024 * 1024
 private const val MIN_STATE_BYTES = 128
 private const val MAX_SESSION_ID_BYTES = 64
@@ -70,6 +71,9 @@ data class ReconstructionSessionStateRecord(
             utf8Length(sourceMesh.error) <= MAX_ERROR_BYTES &&
             utf8Length(textureError) <= MAX_ERROR_BYTES)
         require(utf8Length(qualityGrade) in 1..MAX_QUALITY_GRADE_BYTES)
+        require(qualityGrade == DURABLE_UNVERIFIED_QUALITY) {
+            "Durable state cannot assert an assessed quality grade without held-out evidence"
+        }
         require(poseManifestGeneration == null || poseManifestGeneration > 0)
         require(frames.size <= MAX_FRAMES && fusionUpdates.size <= MAX_FUSION_UPDATES)
         require(textureTelemetry.values.size == ReconstructionTexturePipelineTelemetry.FIELD_COUNT)

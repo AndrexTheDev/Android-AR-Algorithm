@@ -66,6 +66,7 @@ class ReconstructionSessionStateCodecTest {
         assertFails { ReconstructionSessionStateCodec.decode(corrupted) }
         assertFails { stateRecord().copy(asset = null) }
         assertFails { stateRecord().copy(error = "x".repeat(5_000)) }
+        assertFails { stateRecord().copy(qualityGrade = "assessed") }
     }
 
     private fun stateRecord() = ReconstructionSessionStateRecord(

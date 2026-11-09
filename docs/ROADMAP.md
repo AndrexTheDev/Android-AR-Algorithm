@@ -130,7 +130,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add CRC-framed, budgeted, frame-provenance-bound visibility-depth companions under the existing opaque archive reference.
 - [x] Expose the filtered metric source mesh directly from Android fusion as bounded native-order buffers and feed it to the texture graph without GLB reparsing.
 - [x] Add one bounded session-level transaction from archived colour/depth frames through direct complete fused source mesh, calibrated texture construction, embedded GLB and atomic publication, preserving exact provenance, uncertainty, stage telemetry and explicit `unverified` quality.
-- [x] Add a bounded durable multi-session reconstruction state archive with versioned CRC envelopes, monotonic generations, opaque references, exact terminal provenance/telemetry and deterministic session/generation/byte-budget eviction; no images or trajectories are stored by default.
+- [x] Add a bounded durable multi-session reconstruction state archive with versioned CRC envelopes, monotonic generations, opaque references, exact terminal provenance/telemetry and deterministic session/generation/byte-budget eviction; no image/depth pixels or dense trajectories are stored.
 - [ ] Add optional global seam optimization and measured quadric-error LOD.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.

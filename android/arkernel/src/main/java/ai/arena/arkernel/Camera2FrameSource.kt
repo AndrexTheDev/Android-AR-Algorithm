@@ -304,7 +304,8 @@ class Camera2FrameSource(
             if (Build.VERSION.SDK_INT >= 28)
                 result.get(CaptureResult.DISTORTION_CORRECTION_MODE) else null,
             result.get(CaptureResult.LENS_FOCAL_LENGTH)?.toDouble(),
-            result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.toDouble()))
+            result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.toDouble(),
+            result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)))
         if (failure == null) return true
         reportCalibrationFailure(failure)
         return false

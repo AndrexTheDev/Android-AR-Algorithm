@@ -6,9 +6,10 @@ import org.junit.Test
 
 class CameraCalibrationRuntimeMonitorTest {
     @Test
-    fun acceptsExactModeWithinOpticalTolerances() {
+    fun acceptsExactModeWithinOpticalAndRollingShutterTolerances() {
         val monitor = CameraCalibrationRuntimeMonitor(binding())
-        assertNull(monitor.observe(state(focal = 4.01, focus = 0.99)))
+        assertNull(monitor.observe(state(focal = 4.01, focus = 0.99,
+            rollingShutterSkewNs = 10_500_000L)))
         assertNull(monitor.failure)
     }
 
@@ -33,15 +34,34 @@ class CameraCalibrationRuntimeMonitorTest {
         val focus = CameraCalibrationRuntimeMonitor(binding())
         assertEquals(CameraCalibrationRuntimeFailure.FOCUS_DISTANCE_CHANGED,
             focus.observe(state(focus = 1.2)))
+        val nonFinite = CameraCalibrationRuntimeMonitor(binding())
+        assertEquals(CameraCalibrationRuntimeFailure.FOCAL_LENGTH_CHANGED,
+            nonFinite.observe(state(focal = Double.NaN)))
+    }
+
+    @Test
+    fun rollingShutterSkewMismatchIsTerminal() {
+        val missing = CameraCalibrationRuntimeMonitor(binding())
+        assertEquals(CameraCalibrationRuntimeFailure.ROLLING_SHUTTER_SKEW_MISSING,
+            missing.observe(state(rollingShutterSkewNs = null)))
+        val changed = CameraCalibrationRuntimeMonitor(binding())
+        assertEquals(CameraCalibrationRuntimeFailure.ROLLING_SHUTTER_SKEW_CHANGED,
+            changed.observe(state(rollingShutterSkewNs = 12_000_000L)))
+        assertEquals(CameraCalibrationRuntimeFailure.ROLLING_SHUTTER_SKEW_CHANGED,
+            changed.observe(state(rollingShutterSkewNs = 10_000_000L)))
     }
 
     private fun binding() = CalibrationStreamBinding("0", null, 640, 480,
         0, 0, 4000, 3000, videoStabilizationMode = 0,
         opticalStabilizationMode = 0, distortionCorrectionMode = 0,
         expectedFocalLengthMm = 4.0, focalLengthToleranceMm = 0.02,
-        expectedFocusDistanceDiopters = 1.0, focusDistanceToleranceDiopters = 0.05)
+        expectedFocusDistanceDiopters = 1.0, focusDistanceToleranceDiopters = 0.05,
+        expectedRollingShutterSkewNs = 10_000_000L,
+        rollingShutterSkewToleranceNs = 1_000_000L)
 
     private fun state(cropLeft: Int = 0, videoMode: Int = 0,
-        focal: Double? = 4.0, focus: Double? = 1.0) = CameraCalibrationCaptureState(
-        cropLeft, 0, 4000, 3000, videoMode, 0, 0, focal, focus)
+        focal: Double? = 4.0, focus: Double? = 1.0,
+        rollingShutterSkewNs: Long? = 10_000_000L) = CameraCalibrationCaptureState(
+        cropLeft, 0, 4000, 3000, videoMode, 0, 0, focal, focus,
+        rollingShutterSkewNs)
 }

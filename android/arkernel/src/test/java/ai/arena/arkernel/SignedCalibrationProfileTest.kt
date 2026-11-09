@@ -1,5 +1,8 @@
 package ai.arena.arkernel
 
+import java.io.ByteArrayInputStream
+import java.io.DataInputStream
+import java.nio.ByteBuffer
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
@@ -42,6 +45,16 @@ class SignedCalibrationProfileTest {
         val rollback = verifier.verify(signed, signature, stream, 1_500,
             minimumAcceptedRevision = 2)
         assertTrue(CalibrationVerificationReason.PROFILE_REVISION_ROLLBACK in rollback.reasons)
+    }
+
+    @Test
+    fun decodesVersion2ProfileWithoutInventingRollingShutterEvidence() {
+        val original = profile(deviceSignature().stableIdSha256, stream())
+        val decoded = CalibrationProfileCodec.decode(asLegacyVersion2(
+            CalibrationProfileCodec.encode(original)))
+        assertEquals(original.copy(stream = original.stream.copy(
+            expectedRollingShutterSkewNs = null,
+            rollingShutterSkewToleranceNs = 0L)), decoded)
     }
 
     @Test
@@ -99,6 +112,29 @@ class SignedCalibrationProfileTest {
             issuerClass = CalibrationProfileIssuerClass.USER_MEASURED)
     }
 
+    private fun asLegacyVersion2(version3: ByteArray): ByteArray {
+        val bytes = ByteArrayInputStream(version3)
+        val input = DataInputStream(bytes)
+        input.readInt(); input.readInt(); input.readUTF(); input.readLong()
+        input.readInt(); input.readInt(); input.readUTF()
+        input.readUTF()
+        if (input.readBoolean()) input.readUTF()
+        repeat(9) { input.readInt() }
+        if (input.readBoolean()) input.readDouble()
+        input.readDouble()
+        if (input.readBoolean()) input.readDouble()
+        input.readDouble()
+        val rollingStart = version3.size - bytes.available()
+        if (input.readBoolean()) input.readLong()
+        input.readLong()
+        val rollingEnd = version3.size - bytes.available()
+        val legacy = ByteArray(version3.size - (rollingEnd - rollingStart))
+        version3.copyInto(legacy, 0, 0, rollingStart)
+        version3.copyInto(legacy, rollingStart, rollingEnd, version3.size)
+        ByteBuffer.wrap(legacy, Int.SIZE_BYTES, Int.SIZE_BYTES).putInt(2)
+        return legacy
+    }
+
     private fun profile(capability: String, stream: CalibrationStreamBinding) =
         CalibrationProfile("lab-profile-1", 1L, CalibrationProfileIssuerClass.INDEPENDENT_LAB,
             CalibrationMetricClaim.CENTIMETER_VALIDATED, capability, stream,
@@ -112,7 +148,9 @@ class SignedCalibrationProfileTest {
             createdAtEpochMillis = 1_000, expiresAtEpochMillis = 2_000)
 
     private fun stream() = CalibrationStreamBinding("0", "0", 640, 480,
-        0, 0, 4000, 3000, 0, 0, 0)
+        0, 0, 4000, 3000, 0, 0, 0,
+        expectedRollingShutterSkewNs = 10_000_000L,
+        rollingShutterSkewToleranceNs = 1_000_000L)
 
     private fun deviceSignature() = DeviceCapabilitySignature(apiLevel = 35,
         supportedAbis = listOf("arm64-v8a"), lowRamDevice = false, memoryClassMb = 256,

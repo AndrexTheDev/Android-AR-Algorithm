@@ -12,6 +12,7 @@ class TemporalDepthInferenceBackend(
     options: TemporalDepthFilterOptions = TemporalDepthFilterOptions(),
 ) : OnDeviceInferenceBackend {
     override val manifest: ModelManifest = delegate.manifest
+    override val executionIdentity: InferenceExecutionIdentity? = delegate.executionIdentity
     private val filter = TemporalMetricDepthFilter(options)
     private var closed = false
     @Volatile var lastFilterResult: TemporalDepthFilterResult? = null

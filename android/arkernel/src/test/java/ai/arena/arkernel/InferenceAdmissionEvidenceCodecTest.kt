@@ -81,6 +81,22 @@ class InferenceAdmissionEvidenceCodecTest {
     }
 
     @Test
+    fun acceptedReportCannotBePersistedUnderDifferentExecutionIdentity() {
+        val wrongBackend = ExecutionIdentifiedInferenceBackend(FakeBackend(manifest()),
+            InferenceExecutionIdentity("adapter", "wrong", driverIdentity()))
+        val accepted = VerifiedInferenceBackendAdmissionResult(wrongBackend, true,
+            InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED,
+            report(accepted = true))
+        try {
+            PersistedInferenceAdmissionEvidence.fromAccepted(identity(), signature(),
+                "b".repeat(64), "d".repeat(64), InferenceSemanticConformanceOptions(),
+                "adapter", "1.2.3", driverIdentity(), "software", 0,
+                accepted, 1_000, 1_000)
+            fail("Expected execution identity mismatch rejection")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test
     fun previousEvidenceVersionIsRejectedInsteadOfReusedWithoutDriverIdentity() {
         val bytes = InferenceAdmissionEvidenceCodec.encode(evidence(identity()))
         val payloadSize = ByteBuffer.wrap(bytes, 0, Int.SIZE_BYTES).int
@@ -109,7 +125,8 @@ class InferenceAdmissionEvidenceCodecTest {
             driverIdentity(), "software-7", 9, acceptedResult(), 1_000, 1_000)
 
     private fun acceptedResult() = VerifiedInferenceBackendAdmissionResult(
-        FakeBackend(manifest()), true,
+        ExecutionIdentifiedInferenceBackend(FakeBackend(manifest()),
+            InferenceExecutionIdentity("adapter", "1.2.3", driverIdentity())), true,
         InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED,
         report(accepted = true))
 

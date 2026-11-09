@@ -219,6 +219,8 @@ data class OnDeviceInferenceOutput(
 
 interface OnDeviceInferenceBackend : AutoCloseable {
     val manifest: ModelManifest
+    /** Required for evidence-backed delegate admission; generic CPU/core wrappers may leave it null. */
+    val executionIdentity: InferenceExecutionIdentity? get() = null
     /** Called serially by BoundedInferenceScheduler, never concurrently. */
     fun infer(frame: PerceptionFrame): OnDeviceInferenceOutput
     override fun close() = Unit

@@ -146,6 +146,10 @@ data class PersistedInferenceAdmissionEvidence internal constructor(
                 InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED)
             val report = requireNotNull(result.conformanceReport)
             require(report.delegateAccepted)
+            require(result.backend.executionIdentity == InferenceExecutionIdentity(
+                adapterId, adapterVersion, driverIdentity)) {
+                "Accepted delegate did not report the execution identity being persisted"
+            }
             require(validityMillis in 1..MAX_INFERENCE_EVIDENCE_VALIDITY_MILLIS)
             return PersistedInferenceAdmissionEvidence(identity.manifest.stableSha256(),
                 signature.stableIdSha256, calibrationProfileSha256, goldenSuiteSha256,

@@ -4,6 +4,27 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.security.MessageDigest
 
+data class InferenceExecutionIdentity(
+    val adapterId: String,
+    val adapterVersion: String,
+    val driverIdentity: InferenceDriverIdentity,
+) {
+    init {
+        require(adapterId.matches(Regex("[A-Za-z0-9._:+-]{1,128}")))
+        require(adapterVersion.matches(Regex("[A-Za-z0-9._:+-]{1,128}")))
+    }
+}
+
+/** Owning adapter for attaching measured runtime identity to a concrete backend. */
+class ExecutionIdentifiedInferenceBackend(
+    private val delegate: OnDeviceInferenceBackend,
+    override val executionIdentity: InferenceExecutionIdentity,
+) : OnDeviceInferenceBackend {
+    override val manifest: ModelManifest = delegate.manifest
+    override fun infer(frame: PerceptionFrame): OnDeviceInferenceOutput = delegate.infer(frame)
+    override fun close() = delegate.close()
+}
+
 enum class InferenceDriverApi {
     CPU,
     NNAPI,

@@ -10,6 +10,7 @@ fun interface VerifiedInferenceBackendFactory {
 enum class InferenceBackendAdmissionStatus {
     CPU_ONLY,
     DELEGATE_CREATION_FAILED,
+    DELEGATE_EXECUTION_IDENTITY_REJECTED,
     DELEGATE_CONFORMANCE_REJECTED,
     DELEGATE_CONFORMANCE_ACCEPTED,
     DELEGATE_CACHED_EVIDENCE_ACCEPTED,
@@ -111,6 +112,14 @@ object VerifiedInferenceBackendAdmission {
                 if (error is Error) throw error
                 return VerifiedInferenceBackendAdmissionResult(cpu, false,
                     InferenceBackendAdmissionStatus.DELEGATE_CREATION_FAILED, null)
+            }
+            val expectedExecutionIdentity = cacheKey?.let { key -> InferenceExecutionIdentity(
+                key.adapterId, key.adapterVersion, key.driverIdentity) }
+            if (expectedExecutionIdentity != null &&
+                delegate.executionIdentity != expectedExecutionIdentity) {
+                closeQuietly(delegate)
+                return VerifiedInferenceBackendAdmissionResult(cpu, false,
+                    InferenceBackendAdmissionStatus.DELEGATE_EXECUTION_IDENTITY_REJECTED, null)
             }
             val exactEvidence = evidence?.takeIf { cached -> cacheKey != null && cached.matches(
                 identity, cacheKey.signature, cacheKey.calibrationProfileSha256,

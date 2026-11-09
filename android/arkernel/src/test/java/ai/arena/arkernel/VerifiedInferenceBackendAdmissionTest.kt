@@ -11,6 +11,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
+private fun verifiedTestExecutionIdentity(version: String = "1") =
+    InferenceExecutionIdentity("adapter", "1", InferenceDriverIdentity(
+        api = InferenceDriverApi.VULKAN, providerId = "test-vendor",
+        driverVersion = version,
+        acceleratorNameSha256 = InferenceDriverIdentity.hashObservedAcceleratorName("test-gpu"),
+        featureLevel = 13))
+
 class VerifiedInferenceBackendAdmissionTest {
     private val artifactBytes = "one-verified-artifact".toByteArray()
     private val manifest = manifest()
@@ -170,6 +177,31 @@ class VerifiedInferenceBackendAdmissionTest {
     }
 
     @Test
+    fun delegateReportedExecutionIdentityMustMatchEvidenceKey() {
+        val frame = frame(35)
+        val calls = AtomicInteger()
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
+        val wrongIdentity = verifiedTestExecutionIdentity().copy(adapterVersion = "wrong")
+        val delegate = FakeBackend(manifest, { calls.incrementAndGet(); output(frame, 0.9) },
+            wrongIdentity)
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", driverIdentity(),
+            "software", 3, 1_500, InferenceSemanticGoldenCase("unused", frame),
+            listOf(InferenceSemanticGoldenCase("also-unused", frame)))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_EXECUTION_IDENTITY_REJECTED,
+            result.status)
+        assertSame(cpu, result.backend)
+        assertFalse(result.usingDelegate)
+        assertEquals(0, calls.get())
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
+    }
+
+    @Test
     fun cachedEvidenceCannotAdmitDelegateWithMismatchedManifest() {
         val frame = frame(40)
         val cpu = FakeBackend(manifest) { error("must not execute") }
@@ -299,6 +331,8 @@ class VerifiedInferenceBackendAdmissionTest {
     private class FakeBackend(
         override val manifest: ModelManifest,
         private val inference: (PerceptionFrame) -> OnDeviceInferenceOutput,
+        override val executionIdentity: InferenceExecutionIdentity? =
+            verifiedTestExecutionIdentity(),
     ) : OnDeviceInferenceBackend {
         var closeCount = 0
         override fun infer(frame: PerceptionFrame) = inference(frame)

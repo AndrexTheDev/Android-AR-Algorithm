@@ -50,7 +50,9 @@ class InferenceAdmissionEvidenceStoreInstrumentedTest {
     private fun acceptedResult(): VerifiedInferenceBackendAdmissionResult {
         val report = InferenceSemanticConformanceReport(true, 1, 1, 0,
             0.0, 0.0, 0.0, 0.0, 0.0, null, null)
-        return VerifiedInferenceBackendAdmissionResult(FakeBackend(manifest()), true,
+        val backend = ExecutionIdentifiedInferenceBackend(FakeBackend(manifest()),
+            InferenceExecutionIdentity("adapter", "1", driverIdentity()))
+        return VerifiedInferenceBackendAdmissionResult(backend, true,
             InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED, report)
     }
 

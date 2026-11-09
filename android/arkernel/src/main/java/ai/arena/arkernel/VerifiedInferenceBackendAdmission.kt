@@ -10,7 +10,6 @@ fun interface VerifiedInferenceBackendFactory {
 enum class InferenceBackendAdmissionStatus {
     CPU_ONLY,
     DELEGATE_CREATION_FAILED,
-    DELEGATE_IDENTITY_REJECTED,
     DELEGATE_CONFORMANCE_REJECTED,
     DELEGATE_CONFORMANCE_ACCEPTED,
     DELEGATE_CACHED_EVIDENCE_ACCEPTED,
@@ -29,7 +28,8 @@ data class VerifiedInferenceBackendAdmissionResult(
                 status == InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED))
         require((conformanceReport != null) ==
             (status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED ||
-                status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED))
+                status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED ||
+                status == InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED))
         require((cachedEvidence != null) ==
             (status == InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED))
         conformanceReport?.let { require(it.delegateAccepted == usingDelegate) }
@@ -50,7 +50,7 @@ object VerifiedInferenceBackendAdmission {
         cases: List<InferenceSemanticGoldenCase> = emptyList(),
         options: InferenceSemanticConformanceOptions = InferenceSemanticConformanceOptions(),
     ): VerifiedInferenceBackendAdmissionResult = createInternal(manifest, modelBytes,
-        cpuFactory, delegateFactory, cases, options, null, null)
+        cpuFactory, delegateFactory, cases, options, null, null, null)
 
     /** Rechecks artifact/backend identity and uses evidence only when every exact key still matches. */
     fun createAndSelectWithEvidence(
@@ -67,13 +67,14 @@ object VerifiedInferenceBackendAdmission {
         softwareRevision: String,
         policyRevision: Long,
         nowEpochMillis: Long,
+        sentinelCase: InferenceSemanticGoldenCase,
         casesOnCacheMiss: List<InferenceSemanticGoldenCase> = emptyList(),
         options: InferenceSemanticConformanceOptions = InferenceSemanticConformanceOptions(),
     ): VerifiedInferenceBackendAdmissionResult {
         val cacheKey = EvidenceKey(signature, calibrationProfileSha256, goldenSuiteSha256,
             adapterId, adapterVersion, softwareRevision, policyRevision, nowEpochMillis)
         return createInternal(manifest, modelBytes, cpuFactory, delegateFactory,
-            casesOnCacheMiss, options, evidence, cacheKey)
+            casesOnCacheMiss, options, evidence, cacheKey, sentinelCase)
     }
 
     private fun createInternal(
@@ -85,6 +86,7 @@ object VerifiedInferenceBackendAdmission {
         options: InferenceSemanticConformanceOptions,
         evidence: PersistedInferenceAdmissionEvidence?,
         cacheKey: EvidenceKey?,
+        sentinelCase: InferenceSemanticGoldenCase?,
     ): VerifiedInferenceBackendAdmissionResult {
         val identity = VerifiedInferenceIdentity.create(manifest, modelBytes)
         val artifact = modelBytes.slice().asReadOnlyBuffer()
@@ -114,16 +116,16 @@ object VerifiedInferenceBackendAdmission {
                 cacheKey.adapterVersion, cacheKey.softwareRevision,
                 cacheKey.policyRevision, cacheKey.nowEpochMillis) }
             if (exactEvidence != null) {
-                if (delegate.manifest.exactIdentity() != identity.manifest) {
-                    closeQuietly(delegate)
-                    return VerifiedInferenceBackendAdmissionResult(cpu, false,
-                        InferenceBackendAdmissionStatus.DELEGATE_IDENTITY_REJECTED, null)
-                }
                 cpuOwned = false
-                closeQuietly(cpu)
-                return VerifiedInferenceBackendAdmissionResult(delegate, true,
-                    InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
-                    null, exactEvidence)
+                val sentinel = InferenceBackendSemanticConformanceSelector.select(cpu, delegate,
+                    identity, listOf(requireNotNull(sentinelCase)), options)
+                return if (sentinel.usingDelegate)
+                    VerifiedInferenceBackendAdmissionResult(sentinel.backend, true,
+                        InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
+                        sentinel.report, exactEvidence)
+                else VerifiedInferenceBackendAdmissionResult(sentinel.backend, false,
+                    InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED,
+                    sentinel.report)
             }
             cpuOwned = false
             val selection = InferenceBackendSemanticConformanceSelector.select(cpu, delegate,

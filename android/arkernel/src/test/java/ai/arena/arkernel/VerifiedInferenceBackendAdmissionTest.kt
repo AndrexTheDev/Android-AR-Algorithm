@@ -104,24 +104,48 @@ class VerifiedInferenceBackendAdmissionTest {
     }
 
     @Test
-    fun exactCachedEvidenceSkipsGoldenExecutionButRechecksBothBackendIdentities() {
+    fun exactCachedEvidenceRunsOneStartupSentinelAndRechecksBothBackendIdentities() {
+        val frame = frame(25)
         val calls = AtomicInteger()
-        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); error("must not execute") }
-        val delegate = FakeBackend(manifest) { calls.incrementAndGet(); error("must not execute") }
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
+        val delegate = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.905) }
 
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
-            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500)
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500,
+            InferenceSemanticGoldenCase("startup-sentinel", frame))
 
         assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
             result.status)
         assertTrue(result.usingDelegate)
         assertSame(delegate, result.backend)
         assertTrue(result.cachedEvidence != null)
-        assertEquals(0, calls.get())
+        assertEquals(2, calls.get())
+        assertEquals(1, result.conformanceReport?.evaluatedCases)
         assertEquals(1, cpu.closeCount)
         assertEquals(0, delegate.closeCount)
+    }
+
+    @Test
+    fun cachedEvidenceIsRejectedWhenStartupSentinelRegresses() {
+        val frame = frame(27)
+        val cpu = FakeBackend(manifest) { output(frame, 0.9) }
+        val delegate = FakeBackend(manifest) { output(frame, 0.1) }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500,
+            InferenceSemanticGoldenCase("regression-sentinel", frame))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED,
+            result.status)
+        assertSame(cpu, result.backend)
+        assertFalse(result.usingDelegate)
+        assertTrue(result.cachedEvidence == null)
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
     }
 
     @Test
@@ -135,6 +159,7 @@ class VerifiedInferenceBackendAdmissionTest {
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
             "b".repeat(64), "d".repeat(64), "adapter", "different", "software", 3, 1_500,
+            InferenceSemanticGoldenCase("unused-sentinel", frame),
             listOf(InferenceSemanticGoldenCase("cache-miss", frame)))
 
         assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED,
@@ -145,15 +170,17 @@ class VerifiedInferenceBackendAdmissionTest {
 
     @Test
     fun cachedEvidenceCannotAdmitDelegateWithMismatchedManifest() {
+        val frame = frame(40)
         val cpu = FakeBackend(manifest) { error("must not execute") }
         val delegate = FakeBackend(manifest(version = "wrong")) { error("must not execute") }
 
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
-            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500)
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500,
+            InferenceSemanticGoldenCase("identity-sentinel", frame))
 
-        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_IDENTITY_REJECTED, result.status)
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED, result.status)
         assertFalse(result.usingDelegate)
         assertSame(cpu, result.backend)
         assertEquals(0, cpu.closeCount)

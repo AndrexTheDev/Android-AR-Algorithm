@@ -27,6 +27,7 @@ add_library(arkernel STATIC
     src/relocalization.cpp
     src/reconstruction_asset.cpp
     src/reconstruction_capture.cpp
+    src/reconstruction_pipeline.cpp
     src/semantic_map.cpp
     src/sparse_map.cpp
     src/spatial_snapshot.cpp

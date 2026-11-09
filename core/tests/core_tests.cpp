@@ -31,6 +31,7 @@
 #include "arkernel/relocalization.h"
 #include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
+#include "arkernel/reconstruction_pipeline.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
@@ -524,6 +525,71 @@ int main() {
   try{simplifyMeshConservative(filtered_mesh.mesh,invalid_simplification_config);}
   catch(const std::invalid_argument&){rejected_simplification_config=true;}
   CHECK(rejected_simplification_config);
+
+  // The fusion pipeline owns temporal ordering, sticky truncation evidence and
+  // both the filtered source mesh and its independent delivery simplification.
+  ReconstructionPipelineConfig pipeline_config;
+  pipeline_config.fusion=mesh_tsdf_config;
+  pipeline_config.meshing=meshing_config;
+  pipeline_config.component_filter.min_component_triangles=2;
+  pipeline_config.component_filter.min_component_area_m2=0.0;
+  pipeline_config.simplification.cluster_cell_size_m=0.15;
+  pipeline_config.simplification.max_position_error_m=0.12;
+  pipeline_config.max_integrated_frames=2;
+  ReconstructionFusionPipeline reconstruction_pipeline(pipeline_config);
+  const auto pipeline_first=reconstruction_pipeline.integrate(
+      1000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(pipeline_first.accepted&&pipeline_first.accepted_frames==1&&
+        pipeline_first.rejected_frames==0&&!pipeline_first.fusion_truncated);
+  const auto pipeline_repeated=reconstruction_pipeline.integrate(
+      1000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(!pipeline_repeated.accepted&&pipeline_repeated.rejection==
+          ReconstructionIntegrationRejection::kNonMonotonicTimestamp&&
+        pipeline_repeated.accepted_frames==1&&pipeline_repeated.rejected_frames==1);
+  const auto pipeline_second=reconstruction_pipeline.integrate(
+      2000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(pipeline_second.accepted&&pipeline_second.accepted_frames==2);
+  const auto pipeline_over_budget=reconstruction_pipeline.integrate(
+      3000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(!pipeline_over_budget.accepted&&pipeline_over_budget.rejection==
+          ReconstructionIntegrationRejection::kFrameBudgetExceeded);
+  const auto pipeline_mesh=reconstruction_pipeline.build();
+  CHECK(pipeline_mesh.error.empty()&&pipeline_mesh.telemetry.complete&&
+        pipeline_mesh.telemetry.fused_frames==2&&
+        pipeline_mesh.telemetry.source_vertices==pipeline_mesh.source_mesh.positions_m.size()&&
+        pipeline_mesh.telemetry.simplified_vertices==
+          pipeline_mesh.simplified_mesh.positions_m.size()&&
+        !pipeline_mesh.source_mesh.positions_m.empty()&&
+        validateMesh(pipeline_mesh.source_mesh).valid&&
+        validateMesh(pipeline_mesh.simplified_mesh).valid);
+  const auto pipeline_mesh_repeated=reconstruction_pipeline.build();
+  CHECK(pipeline_mesh_repeated.source_mesh.triangle_indices==
+          pipeline_mesh.source_mesh.triangle_indices&&
+        pipeline_mesh_repeated.simplified_mesh.triangle_indices==
+          pipeline_mesh.simplified_mesh.triangle_indices);
+  reconstruction_pipeline.reset();
+  CHECK(reconstruction_pipeline.acceptedFrames()==0&&
+        reconstruction_pipeline.rejectedFrames()==0&&
+        !reconstruction_pipeline.fusionTruncated());
+  auto truncated_pipeline_config=pipeline_config;
+  truncated_pipeline_config.fusion.max_blocks=1;
+  ReconstructionFusionPipeline truncated_pipeline(truncated_pipeline_config);
+  const auto truncated_pipeline_update=truncated_pipeline.integrate(
+      1000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(truncated_pipeline_update.accepted&&truncated_pipeline_update.fusion_truncated&&
+        truncated_pipeline.build().telemetry.fusion_truncated);
+  auto invalid_pipeline_config=pipeline_config;
+  invalid_pipeline_config.max_integrated_frames=0;
+  bool rejected_pipeline_config=false;
+  try{ReconstructionFusionPipeline invalid_pipeline(invalid_pipeline_config);}
+  catch(const std::invalid_argument&){rejected_pipeline_config=true;}
+  CHECK(rejected_pipeline_config);
+  invalid_pipeline_config=pipeline_config;
+  invalid_pipeline_config.simplification.sharp_edge_angle_degrees=180.0;
+  rejected_pipeline_config=false;
+  try{ReconstructionFusionPipeline invalid_pipeline(invalid_pipeline_config);}
+  catch(const std::invalid_argument&){rejected_pipeline_config=true;}
+  CHECK(rejected_pipeline_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

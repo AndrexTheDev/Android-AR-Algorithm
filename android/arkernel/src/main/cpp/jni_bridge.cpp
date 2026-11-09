@@ -2,12 +2,16 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 #include "arkernel/c_api.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/detection_tracker.h"
+#include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
+#include "arkernel/reconstruction_pipeline.h"
 #include "arkernel/temporal_depth_filter.h"
 
 namespace {
@@ -22,6 +26,25 @@ arkernel::ReconstructionCapturePlanner* fromReconstructionPlannerHandle(jlong va
 }
 arkernel::ClockAligner* fromClockAlignerHandle(jlong value) {
   return reinterpret_cast<arkernel::ClockAligner*>(static_cast<intptr_t>(value));
+}
+struct AndroidReconstructionPipeline {
+  explicit AndroidReconstructionPipeline(arkernel::ReconstructionPipelineConfig config,
+                                         std::size_t output_budget)
+      : pipeline(std::move(config)), max_glb_bytes(output_budget) {}
+  arkernel::ReconstructionFusionPipeline pipeline;
+  std::size_t max_glb_bytes;
+};
+AndroidReconstructionPipeline* fromFusionPipelineHandle(jlong value) {
+  return reinterpret_cast<AndroidReconstructionPipeline*>(static_cast<intptr_t>(value));
+}
+bool meshFitsGlbBudget(const arkernel::ReconstructionMesh& mesh, std::size_t budget) {
+  constexpr std::size_t kJsonAllowance = 65536;
+  const std::size_t vertices = mesh.positions_m.size();
+  const std::size_t indices = mesh.triangle_indices.size();
+  if (vertices > (std::numeric_limits<std::size_t>::max() - kJsonAllowance) / 32 ||
+      indices > (std::numeric_limits<std::size_t>::max() - kJsonAllowance - vertices * 32) / 4)
+    return false;
+  return kJsonAllowance + vertices * 32 + indices * 4 <= budget;
 }
 jlong toHandle(const void* value) {
   return static_cast<jlong>(reinterpret_cast<intptr_t>(value));
@@ -905,6 +928,191 @@ Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeUpdate(JNIEnv* env,jobjec
   catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(...){return ARK_RESULT_INTERNAL_ERROR;}
 }
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
+    JNIEnv* env,jobject,jlongArray integer_options,jdoubleArray scalar_options) {
+  if(!integer_options||!scalar_options||env->GetArrayLength(integer_options)<13||
+     env->GetArrayLength(scalar_options)<11)return 0;
+  std::array<jlong,13> integers{};
+  std::array<jdouble,11> scalars{};
+  env->GetLongArrayRegion(integer_options,0,integers.size(),integers.data());
+  env->GetDoubleArrayRegion(scalar_options,0,scalars.size(),scalars.data());
+  if(env->ExceptionCheck())return 0;
+  const auto bounded_size=[](jlong value,std::size_t maximum)->std::optional<std::size_t>{
+    if(value<=0||static_cast<unsigned long long>(value)>
+        static_cast<unsigned long long>(maximum))return std::nullopt;
+    return static_cast<std::size_t>(value);
+  };
+  const auto pixel_stride=bounded_size(integers[0],64);
+  const auto max_blocks=bounded_size(integers[1],1000000);
+  const auto max_frames=bounded_size(integers[2],1000000);
+  const auto max_depth_pixels=bounded_size(integers[3],4194304);
+  const auto max_voxel_visits=bounded_size(integers[4],16777216);
+  const auto max_snapshot_voxels=bounded_size(integers[5],5000000);
+  const auto max_cells=bounded_size(integers[6],5000000);
+  const auto max_vertices=bounded_size(integers[7],5000000);
+  const auto max_triangles=bounded_size(integers[8],5000000);
+  const auto min_component_triangles=bounded_size(integers[9],5000000);
+  const auto max_edges=bounded_size(integers[10],6000000);
+  const auto max_clusters=bounded_size(integers[11],5000000);
+  const auto max_glb_bytes=bounded_size(integers[12],512ULL*1024ULL*1024ULL);
+  if(!pixel_stride||!max_blocks||!max_frames||!max_depth_pixels||!max_voxel_visits||
+     !max_snapshot_voxels||!max_cells||!max_vertices||!max_triangles||
+     !min_component_triangles||!max_edges||!max_clusters||!max_glb_bytes||
+     *max_glb_bytes<1024)return 0;
+  try{
+    arkernel::ReconstructionPipelineConfig config;
+    config.fusion.voxel_size_m=scalars[0];
+    config.fusion.truncation_distance_m=scalars[1];
+    config.fusion.min_depth_m=scalars[2];config.fusion.max_depth_m=scalars[3];
+    config.fusion.min_confidence=scalars[4];
+    config.fusion.default_uncertainty_m=scalars[5];
+    config.fusion.pixel_stride=static_cast<int>(*pixel_stride);
+    config.fusion.max_blocks=*max_blocks;
+    config.fusion.max_depth_pixels_per_update=*max_depth_pixels;
+    config.fusion.max_voxel_visits_per_update=*max_voxel_visits;
+    config.fusion.max_snapshot_voxels=*max_snapshot_voxels;
+    config.max_integrated_frames=*max_frames;
+    config.meshing.max_input_voxels=*max_snapshot_voxels;
+    config.meshing.max_cells=*max_cells;config.meshing.max_vertices=*max_vertices;
+    config.meshing.max_triangles=*max_triangles;
+    config.component_filter.min_component_triangles=*min_component_triangles;
+    config.component_filter.min_component_area_m2=scalars[6];
+    config.component_filter.max_input_vertices=*max_vertices;
+    config.component_filter.max_input_triangles=*max_triangles;
+    config.component_filter.max_unique_edges=*max_edges;
+    config.simplification.cluster_cell_size_m=scalars[7];
+    config.simplification.max_position_error_m=scalars[8];
+    config.simplification.sharp_edge_angle_degrees=scalars[9];
+    config.simplification.max_uv_error=scalars[10];
+    config.simplification.max_input_vertices=*max_vertices;
+    config.simplification.max_input_triangles=*max_triangles;
+    config.simplification.max_unique_edges=*max_edges;
+    config.simplification.max_clusters=*max_clusters;
+    return toHandle(new AndroidReconstructionPipeline(std::move(config),*max_glb_bytes));
+  }catch(...){return 0;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeIntegrate(
+    JNIEnv* env,jobject,jlong handle,jlong timestamp,jobject depth,jint depth_offset,
+    jint depth_remaining,jobject confidence,jint confidence_offset,jint confidence_remaining,
+    jobject uncertainty,jint uncertainty_offset,jint uncertainty_remaining,
+    jint width,jint height,jint depth_stride,jint confidence_stride,jint uncertainty_stride,
+    jdouble fx,jdouble fy,
+    jdouble cx,jdouble cy,jdouble k1,jdouble k2,jdouble p1,jdouble p2,jdouble k3,
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble tx,jdouble ty,jdouble tz,
+    jlongArray metadata) {
+  auto* owner=fromFusionPipelineHandle(handle);
+  auto* depth_data=depth?static_cast<float*>(env->GetDirectBufferAddress(depth)):nullptr;
+  auto* confidence_data=confidence?
+      static_cast<float*>(env->GetDirectBufferAddress(confidence)):nullptr;
+  auto* uncertainty_data=uncertainty?
+      static_cast<float*>(env->GetDirectBufferAddress(uncertainty)):nullptr;
+  if(!owner||!depth_data||!metadata||env->GetArrayLength(metadata)<14||width<=0||height<=0||
+     depth_offset<0||depth_remaining<0||confidence_offset<0||confidence_remaining<0||
+     uncertainty_offset<0||uncertainty_remaining<0)return ARK_RESULT_INVALID_ARGUMENT;
+  const jlong depth_capacity=env->GetDirectBufferCapacity(depth);
+  const jlong confidence_capacity=confidence?env->GetDirectBufferCapacity(confidence):0;
+  const jlong uncertainty_capacity=uncertainty?env->GetDirectBufferCapacity(uncertainty):0;
+  if(depth_capacity<0||static_cast<jlong>(depth_offset)+depth_remaining>depth_capacity||
+     (confidence&&(!confidence_data||confidence_capacity<0||
+      static_cast<jlong>(confidence_offset)+confidence_remaining>confidence_capacity))||
+     (uncertainty&&(!uncertainty_data||uncertainty_capacity<0||
+      static_cast<jlong>(uncertainty_offset)+uncertainty_remaining>uncertainty_capacity)))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    arkernel::TsdfDepthImageView view;view.width=width;view.height=height;
+    view.depth_row_stride_elements=depth_stride;view.depth_z_m=depth_data+depth_offset;
+    view.depth_element_count=static_cast<std::size_t>(depth_remaining);
+    view.confidence=confidence_data?confidence_data+confidence_offset:nullptr;
+    view.confidence_row_stride_elements=confidence_stride;
+    view.confidence_element_count=static_cast<std::size_t>(confidence_remaining);
+    view.uncertainty_m=uncertainty_data?uncertainty_data+uncertainty_offset:nullptr;
+    view.uncertainty_row_stride_elements=uncertainty_stride;
+    view.uncertainty_element_count=static_cast<std::size_t>(uncertainty_remaining);
+    const arkernel::PinholeRadTanCamera camera({width,height,fx,fy,cx,cy},{k1,k2,p1,p2,k3});
+    arkernel::Pose pose;pose.rotation={rw,rx,ry,rz};pose.translation={tx,ty,tz};
+    const auto result=owner->pipeline.integrate(timestamp,view,camera,pose);
+    const jlong values[14]={result.accepted?1:0,static_cast<jlong>(result.rejection),
+      static_cast<jlong>(result.accepted_frames),static_cast<jlong>(result.rejected_frames),
+      static_cast<jlong>(result.cumulative_integrated_pixels),
+      static_cast<jlong>(result.cumulative_voxel_updates),
+      static_cast<jlong>(result.update.visited_pixels),
+      static_cast<jlong>(result.update.integrated_pixels),
+      static_cast<jlong>(result.update.rejected_pixels),
+      static_cast<jlong>(result.update.voxel_visits),
+      static_cast<jlong>(result.update.voxel_updates),
+      static_cast<jlong>(result.update.allocated_blocks),
+      static_cast<jlong>(result.update.capacity_rejections),
+      result.fusion_truncated?1:0};
+    env->SetLongArrayRegion(metadata,0,14,values);
+    return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
+    JNIEnv* env,jobject,jlong handle,jlongArray metadata,jdoubleArray scalar_values) {
+  auto* owner=fromFusionPipelineHandle(handle);
+  if(!owner||!metadata||!scalar_values||env->GetArrayLength(metadata)<19||
+     env->GetArrayLength(scalar_values)<1)return nullptr;
+  try{
+    const auto result=owner->pipeline.build();
+    if(!result.error.empty()||!meshFitsGlbBudget(result.source_mesh,owner->max_glb_bytes)||
+       !meshFitsGlbBudget(result.simplified_mesh,owner->max_glb_bytes))return nullptr;
+    const auto& t=result.telemetry;
+    const jlong values[19]={t.complete?1:0,t.fusion_truncated?1:0,
+      t.meshing_truncated?1:0,t.filtering_truncated?1:0,t.simplification_truncated?1:0,
+      static_cast<jlong>(t.fused_frames),static_cast<jlong>(t.fused_blocks),
+      static_cast<jlong>(t.fused_voxels),static_cast<jlong>(t.meshing_input_voxels),
+      static_cast<jlong>(t.meshing_examined_cells),static_cast<jlong>(t.meshing_complete_cells),
+      static_cast<jlong>(t.meshing_surface_cells),
+      static_cast<jlong>(t.meshing_skipped_incomplete_cells),
+      static_cast<jlong>(t.source_components),static_cast<jlong>(t.retained_components),
+      static_cast<jlong>(t.source_vertices),static_cast<jlong>(t.source_triangles),
+      static_cast<jlong>(t.simplified_vertices),static_cast<jlong>(t.simplified_triangles)};
+    const jdouble displacement=t.max_simplification_displacement_m;
+    env->SetLongArrayRegion(metadata,0,19,values);
+    env->SetDoubleArrayRegion(scalar_values,0,1,&displacement);
+    jclass byte_array_class=env->FindClass("[B");
+    if(!byte_array_class||env->ExceptionCheck())return nullptr;
+    jobjectArray output=env->NewObjectArray(2,byte_array_class,nullptr);
+    env->DeleteLocalRef(byte_array_class);
+    if(!output)return nullptr;
+    const auto append_mesh=[&](const arkernel::ReconstructionMesh& mesh,jsize index){
+      const auto glb=arkernel::exportGlb(mesh);
+      if(glb.size()>owner->max_glb_bytes||
+         glb.size()>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return false;
+      jbyteArray bytes=env->NewByteArray(static_cast<jsize>(glb.size()));
+      if(!bytes)return false;
+      env->SetByteArrayRegion(bytes,0,static_cast<jsize>(glb.size()),
+                              reinterpret_cast<const jbyte*>(glb.data()));
+      env->SetObjectArrayElement(output,index,bytes);
+      env->DeleteLocalRef(bytes);
+      return !env->ExceptionCheck();
+    };
+    // Export/copy one mesh at a time so two large native GLB vectors never
+    // coexist in addition to the two bounded Java byte arrays.
+    if(!append_mesh(result.source_mesh,0)||!append_mesh(result.simplified_mesh,1)){
+      env->DeleteLocalRef(output);return nullptr;
+    }
+    return output;
+  }catch(...){return nullptr;}
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeReset(
+    JNIEnv*,jobject,jlong handle) {
+  auto* owner=fromFusionPipelineHandle(handle);if(owner)owner->pipeline.reset();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeDestroy(
+    JNIEnv*,jobject,jlong handle) {delete fromFusionPipelineHandle(handle);}
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeCreate(JNIEnv*,jobject,

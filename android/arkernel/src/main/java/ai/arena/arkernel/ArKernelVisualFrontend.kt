@@ -103,6 +103,9 @@ data class MetricDepthBuffer(
     val confidence: FloatBuffer? = null,
     val confidenceRowStrideElements: Int = if (confidence == null) 0 else rowStrideElements,
     val timestampNs: Long,
+    val uncertaintyMeters: FloatBuffer? = null,
+    val uncertaintyRowStrideElements: Int =
+        if (uncertaintyMeters == null) 0 else rowStrideElements,
 )
 data class DepthSamplingOptions(
     val pixelStride: Int = 4,

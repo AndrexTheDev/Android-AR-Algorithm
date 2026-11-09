@@ -61,7 +61,7 @@
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 
-- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; block-sparser Narrow-Band-TSDF, Marching Tetrahedra, Komponentenfilter und konservative fehlerbegrenzte Vereinfachung sind implementiert; Android-Orchestrierung und hochwertiger Quadric-Error-/LOD-Pfad bleiben offen;
+- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; block-sparser Narrow-Band-TSDF, Marching Tetrahedra, Komponentenfilter, konservative Vereinfachung und begrenzte Android-Fusions-/GLB-Orchestrierung sind implementiert; hochwertiger Quadric-Error-/LOD-Pfad bleibt offen;
 - optional Depth Anything V2 Small quantisiert als Prior;
 - [x] konservative pose-kompensierte temporale metrische Tiefenfilterung ohne Hole-Filling einschließlich eines Backend-Decorators vor Scheduler/Session;
 - [x] begrenzte dynamische Box-Maskierung sowie generisches Class-Index-Segmentmasken-Postprocessing für direkte FLOAT32-/INT8-/UINT8-Ausgaben; modellspezifisches Logit-/Instanzmasken-Decoding, Skalenfusion und Mesh-LOD bleiben offen;
@@ -112,7 +112,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
-- [ ] Add dense reconstruction refinement and fusion: bounded multi-level coarse-to-fine inverse-depth refinement, refined sampling uncertainty, selectable ZNCC/Census/hybrid matching, cached forward-backward consistency, sparse TSDF fusion, Marching Tetrahedra, component filtering and conservative feature-aware clustering are implemented; measured quadric-error simplification/LOD and Android orchestration remain.
+- [ ] Add dense reconstruction refinement and fusion: bounded multi-level inverse-depth refinement, uncertainty, selectable matching, cached forward-backward consistency, sparse TSDF fusion, meshing, component filtering, conservative clustering and Android direct-buffer orchestration are implemented; measured quadric-error simplification/LOD, texture baking and persisted reconstruction sessions remain.
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.

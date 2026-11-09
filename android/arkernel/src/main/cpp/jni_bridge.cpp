@@ -1107,6 +1107,66 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
   }catch(...){return nullptr;}
 }
 
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuildSourceMesh(
+    JNIEnv* env,jobject,jlong handle,jlongArray metadata,jint max_result_bytes) {
+  auto* owner=fromFusionPipelineHandle(handle);
+  if(!owner||!metadata||env->GetArrayLength(metadata)<7||max_result_bytes<=0||
+     max_result_bytes>512*1024*1024)return nullptr;
+  try {
+    const auto result=owner->pipeline.build();
+    const auto& t=result.telemetry;
+    const bool complete=t.complete&&result.error.empty()&&
+      !result.source_mesh.positions_m.empty()&&!result.source_mesh.triangle_indices.empty();
+    const std::string error=complete?std::string{}:(result.error.empty()?
+      "reconstruction build incomplete":result.error);
+    const jlong values[7]={complete?1:0,t.fusion_truncated?1:0,
+      t.meshing_truncated?1:0,t.filtering_truncated?1:0,
+      t.simplification_truncated?1:0,static_cast<jlong>(t.source_vertices),
+      static_cast<jlong>(t.source_triangles)};
+    env->SetLongArrayRegion(metadata,0,7,values);
+    if(env->ExceptionCheck())return nullptr;
+    const auto& mesh=result.source_mesh;
+    const std::size_t vertices=complete?mesh.positions_m.size():0;
+    const std::size_t normals=complete?mesh.normals.size():0;
+    const std::size_t indices=complete?mesh.triangle_indices.size():0;
+    if(vertices>std::numeric_limits<std::uint32_t>::max()||
+       normals>std::numeric_limits<std::uint32_t>::max()||
+       indices>std::numeric_limits<std::uint32_t>::max()||
+       error.size()>std::numeric_limits<std::uint32_t>::max())return nullptr;
+    constexpr std::size_t kHeaderBytes=6U*4U;
+    std::size_t bytes=kHeaderBytes;
+    const auto add=[&bytes](std::size_t count,std::size_t width){
+      if(count>std::numeric_limits<std::size_t>::max()/width)return false;
+      const std::size_t value=count*width;
+      if(value>std::numeric_limits<std::size_t>::max()-bytes)return false;
+      bytes+=value;return true;};
+    if(!add(error.size(),1U)||!add(vertices,12U)||!add(normals,12U)||!add(indices,4U))
+      return nullptr;
+    if(bytes>static_cast<std::size_t>(max_result_bytes)||
+       bytes>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return nullptr;
+    std::vector<std::uint8_t> out;out.reserve(bytes);
+    const auto u32=[&out](std::uint32_t value){
+      for(int i=0;i<4;++i)out.push_back(static_cast<std::uint8_t>(value>>(i*8)));};
+    const auto f32=[&out,&u32](float value){std::uint32_t bits=0;
+      std::memcpy(&bits,&value,sizeof(bits));u32(bits);};
+    u32(0x4d4b5241U);u32(1U);u32(static_cast<std::uint32_t>(vertices));
+    u32(static_cast<std::uint32_t>(normals));u32(static_cast<std::uint32_t>(indices));
+    u32(static_cast<std::uint32_t>(error.size()));
+    out.insert(out.end(),error.begin(),error.end());
+    if(complete){
+      for(const auto& position:mesh.positions_m){f32(position.x);f32(position.y);f32(position.z);}
+      for(const auto& normal:mesh.normals){f32(normal.x);f32(normal.y);f32(normal.z);}
+      for(const auto index:mesh.triangle_indices)u32(index);
+    }
+    if(out.size()!=bytes)return nullptr;
+    auto output=env->NewByteArray(static_cast<jsize>(out.size()));if(!output)return nullptr;
+    env->SetByteArrayRegion(output,0,static_cast<jsize>(out.size()),
+      reinterpret_cast<const jbyte*>(out.data()));
+    return env->ExceptionCheck()?nullptr:output;
+  }catch(...){return nullptr;}
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeReset(
     JNIEnv*,jobject,jlong handle) {

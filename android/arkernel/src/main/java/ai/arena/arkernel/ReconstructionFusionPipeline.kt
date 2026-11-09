@@ -1,5 +1,6 @@
 package ai.arena.arkernel
 
+import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 data class ReconstructionFusionOptions(
@@ -27,6 +28,7 @@ data class ReconstructionFusionOptions(
     val maxUniqueEdges: Long = 3_000_000,
     val maxClusters: Long = 1_000_000,
     val maxGlbBytesPerMesh: Long = 128L * 1024L * 1024L,
+    val maxRawMeshBytes: Int = 128 * 1024 * 1024,
 )
 
 enum class ReconstructionIntegrationRejection {
@@ -49,6 +51,18 @@ data class ReconstructionFusionUpdate(
     val allocatedBlocks: Long,
     val capacityRejections: Long,
     val fusionTruncated: Boolean,
+)
+
+data class ReconstructionSourceMeshBuildOutput(
+    val mesh: ReconstructionSourceMeshBuffers?,
+    val complete: Boolean,
+    val fusionTruncated: Boolean,
+    val meshingTruncated: Boolean,
+    val filteringTruncated: Boolean,
+    val simplificationTruncated: Boolean,
+    val sourceVertices: Long,
+    val sourceTriangles: Long,
+    val error: String,
 )
 
 data class ReconstructionBuildOutput(
@@ -88,6 +102,9 @@ data class ReconstructionBuildOutput(
 class ReconstructionFusionPipeline(
     options: ReconstructionFusionOptions = ReconstructionFusionOptions(),
 ) : AutoCloseable {
+    private val maxRawMeshBytes = options.maxRawMeshBytes.also {
+        require(it in 1..512 * 1024 * 1024) { "Invalid raw mesh byte budget" }
+    }
     private var nativeHandle = nativeCreate(
         longArrayOf(options.pixelStride.toLong(), options.maxBlocks,
             options.maxIntegratedFrames, options.maxDepthPixelsPerUpdate,
@@ -153,6 +170,54 @@ class ReconstructionFusionPipeline(
             metadata[14], metadata[15], metadata[16], metadata[17], metadata[18], values[0])
     }
 
+    /**
+     * Builds the filtered metric source mesh without a GLB encode/decode round
+     * trip. Any truncated or failed build returns telemetry/error but no mesh.
+     */
+    @Synchronized
+    fun buildSourceMesh(): ReconstructionSourceMeshBuildOutput {
+        check(nativeHandle != 0L) { "Reconstruction fusion pipeline is closed" }
+        val metadata = LongArray(7)
+        val encoded = requireNotNull(nativeBuildSourceMesh(nativeHandle, metadata,
+            maxRawMeshBytes)) { "Native raw reconstruction mesh build failed" }
+        require(encoded.size <= maxRawMeshBytes)
+        val input = ByteBuffer.wrap(encoded).order(ByteOrder.LITTLE_ENDIAN)
+        require(input.remaining() >= RAW_HEADER_BYTES && input.int == RAW_MAGIC &&
+            input.int == RAW_VERSION)
+        val vertices = input.int
+        val normals = input.int
+        val indices = input.int
+        val errorBytes = input.int
+        require(vertices >= 0 && normals >= 0 && indices >= 0 && errorBytes >= 0 &&
+            (normals == 0 || normals == vertices) && indices % 3 == 0)
+        val payloadBytes = Math.addExact(errorBytes.toLong(), Math.addExact(
+            Math.multiplyExact(vertices.toLong(), 12L), Math.addExact(
+                Math.multiplyExact(normals.toLong(), 12L),
+                Math.multiplyExact(indices.toLong(), 4L))))
+        require(payloadBytes == input.remaining().toLong())
+        val errorData = ByteArray(errorBytes); input.get(errorData)
+        val complete = metadata[0] != 0L
+        require(complete == (vertices > 0 && indices > 0))
+        val mesh = if (complete) {
+            val positions = ByteBuffer.allocateDirect(Math.multiplyExact(vertices, 12))
+                .order(ByteOrder.nativeOrder()).asFloatBuffer()
+            repeat(vertices * 3) { positions.put(input.float) }; positions.flip()
+            val normalBuffer = if (normals > 0) ByteBuffer.allocateDirect(
+                Math.multiplyExact(normals, 12)).order(ByteOrder.nativeOrder())
+                .asFloatBuffer().also { buffer ->
+                    repeat(normals * 3) { buffer.put(input.float) }; buffer.flip()
+                } else null
+            val indexBuffer = ByteBuffer.allocateDirect(Math.multiplyExact(indices, 4))
+                .order(ByteOrder.nativeOrder()).asIntBuffer()
+            repeat(indices) { indexBuffer.put(input.int) }; indexBuffer.flip()
+            ReconstructionSourceMeshBuffers(positions, normalBuffer, indexBuffer)
+        } else null
+        require(!input.hasRemaining())
+        return ReconstructionSourceMeshBuildOutput(mesh, complete, metadata[1] != 0L,
+            metadata[2] != 0L, metadata[3] != 0L, metadata[4] != 0L,
+            metadata[5], metadata[6], errorData.toString(Charsets.UTF_8))
+    }
+
     @Synchronized fun reset() {
         check(nativeHandle != 0L) { "Reconstruction fusion pipeline is closed" }
         nativeReset(nativeHandle)
@@ -177,11 +242,16 @@ class ReconstructionFusionPipeline(
         rz: Double, tx: Double, ty: Double, tz: Double, metadata: LongArray): Int
     private external fun nativeBuild(handle: Long, metadata: LongArray,
                                      values: DoubleArray): Array<ByteArray>?
+    private external fun nativeBuildSourceMesh(handle: Long, metadata: LongArray,
+        maxResultBytes: Int): ByteArray?
     private external fun nativeReset(handle: Long)
     private external fun nativeDestroy(handle: Long)
 
     private companion object {
         const val RESULT_OK = 0
+        const val RAW_MAGIC = 0x4d4b5241
+        const val RAW_VERSION = 1
+        const val RAW_HEADER_BYTES = 6 * 4
         init { System.loadLibrary("arkernel_jni") }
     }
 }

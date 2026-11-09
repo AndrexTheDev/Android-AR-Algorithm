@@ -160,7 +160,9 @@ class VerifiedInferenceBackendAdmissionTest {
         val frame = frame(30)
         val calls = AtomicInteger()
         val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
-        val delegate = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.905) }
+        val delegate = FakeBackend(manifest, verifiedTestExecutionIdentity(version = "2")) {
+            calls.incrementAndGet(); output(frame, 0.905)
+        }
 
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },

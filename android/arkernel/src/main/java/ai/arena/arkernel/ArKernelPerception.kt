@@ -17,22 +17,39 @@ enum class TensorQuantization { FLOAT32, FLOAT16, INT8, UINT8 }
 enum class InferencePixelFormat(val channels: Int) { GRAY8(1), RGB888(3), RGBA8888(4) }
 
 data class InferenceDeviceProfile(
-    val devicePattern: String,
-    val backendName: String,
+    val capabilitySignatureSha256: String,
+    val backendId: String,
+    val backendVersion: String,
+    val driverFingerprintSha256: String,
     val averageLatencyMs: Double,
     val p95LatencyMs: Double,
     val peakWorkingMemoryBytes: Long,
     val sampleCount: Int,
 ) {
     init {
-        require(devicePattern.isNotBlank() && backendName.isNotBlank())
-        require(averageLatencyMs > 0.0 && p95LatencyMs >= averageLatencyMs)
+        require(capabilitySignatureSha256.isLowercaseSha256())
+        require(driverFingerprintSha256.isLowercaseSha256())
+        require(backendId.matches(Regex("[A-Za-z0-9._-]{1,128}")))
+        require(backendVersion.isNotBlank() && backendVersion.length <= 128)
+        require(averageLatencyMs.isFinite() && averageLatencyMs > 0.0)
+        require(p95LatencyMs.isFinite() && p95LatencyMs >= averageLatencyMs)
         require(peakWorkingMemoryBytes > 0 && sampleCount >= 10)
     }
+
+    fun matches(
+        capabilitySignatureSha256: String,
+        backendId: String,
+        backendVersion: String,
+        driverFingerprintSha256: String,
+    ): Boolean = this.capabilitySignatureSha256 == capabilitySignatureSha256 &&
+        this.backendId == backendId && this.backendVersion == backendVersion &&
+        this.driverFingerprintSha256 == driverFingerprintSha256
 }
 
+private fun String.isLowercaseSha256(): Boolean = matches(Regex("[0-9a-f]{64}"))
+
 class ModelManifest(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val modelId: String,
     val modelVersion: String,
     val sha256: String,
@@ -59,7 +76,7 @@ class ModelManifest(
     val deviceProfiles: List<InferenceDeviceProfile> = deviceProfiles.toList()
 
     init {
-        require(schemaVersion == 1) { "Unsupported model-manifest schema" }
+        require(schemaVersion == 2) { "Unsupported model-manifest schema" }
         require(modelId.matches(Regex("[A-Za-z0-9._-]{1,128}")))
         require(modelVersion.isNotBlank() && modelVersion.length <= 128)
         require(sha256.matches(Regex("[0-9a-f]{64}"))) { "SHA-256 must be lowercase hexadecimal" }
@@ -84,6 +101,12 @@ class ModelManifest(
         require(modelByteSize in 1L..MAX_MODEL_BYTES)
         require(labels.keys.all { it in 0..0xffff_ffffL })
         require(labels.values.all { it.isNotBlank() && it.length <= 256 })
+        require(deviceProfiles.size <= 64)
+        require(deviceProfiles.distinctBy { profile -> listOf(
+            profile.capabilitySignatureSha256, profile.backendId, profile.backendVersion,
+            profile.driverFingerprintSha256) }.size == deviceProfiles.size) {
+            "Device profiles must have unique exact execution-environment identities"
+        }
         if (InferenceTask.SEMANTIC_DETECTION in tasks) {
             require(labels[0] != null) { "Semantic manifests must define class 0 as Unknown" }
         }
@@ -96,6 +119,19 @@ class ModelManifest(
             }
         }
         require(!(InferenceTask.METRIC_DEPTH in tasks && InferenceTask.RELATIVE_DEPTH in tasks))
+    }
+
+    /** Returns evidence only for one exact measured execution environment; no patterns or fallback. */
+    fun measuredDeviceProfile(
+        capabilitySignatureSha256: String,
+        backendId: String,
+        backendVersion: String,
+        driverFingerprintSha256: String,
+    ): InferenceDeviceProfile? {
+        require(capabilitySignatureSha256.isLowercaseSha256())
+        require(driverFingerprintSha256.isLowercaseSha256())
+        return deviceProfiles.singleOrNull { it.matches(capabilitySignatureSha256,
+            backendId, backendVersion, driverFingerprintSha256) }
     }
 
     /** Hashes remaining bytes without changing the caller's buffer position. */

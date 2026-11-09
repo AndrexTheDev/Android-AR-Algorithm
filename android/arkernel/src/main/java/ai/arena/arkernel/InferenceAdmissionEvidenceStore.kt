@@ -38,7 +38,9 @@ internal fun InferenceManifestIdentity.stableSha256(): String {
             depthUnitToMeters?.let(output::writeDouble)
             output.writeInt(deviceProfiles.size)
             deviceProfiles.forEach {
-                output.writeUTF(it.devicePattern); output.writeUTF(it.backendName)
+                output.writeUTF(it.capabilitySignatureSha256)
+                output.writeUTF(it.backendId); output.writeUTF(it.backendVersion)
+                output.writeUTF(it.driverFingerprintSha256)
                 output.writeDouble(it.averageLatencyMs); output.writeDouble(it.p95LatencyMs)
                 output.writeLong(it.peakWorkingMemoryBytes); output.writeInt(it.sampleCount)
             }

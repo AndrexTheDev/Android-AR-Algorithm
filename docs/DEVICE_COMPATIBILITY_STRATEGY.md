@@ -25,7 +25,7 @@ The existing implementation already has strong bounded buffers, exact configured
 - the native `ClockAligner` estimates affine offset/drift but is not yet part of Android admission and continuous camera/IMU health monitoring;
 - `AndroidImuSource` combines the most recent accelerometer and gyro values at the timestamp of whichever event arrives. This bounded path needs interpolation/resampling to a declared common timestamp rather than silently reusing an asynchronously aged component;
 - `StandaloneSupportReport` is currently supported/not-supported plus warnings, not a versioned tier with stable machine-readable reason codes;
-- `InferenceDeviceProfile.devicePattern` is a free model pattern rather than a measured capability/runtime/driver signature.
+- `InferenceDeviceProfile` now rejects model-name patterns and binds measurements to an exact capability-signature SHA-256, backend ID/version and driver-fingerprint SHA-256; populating those profiles with representative sustained device-farm measurements remains open.
 
 These are P0/P1 engineering targets, not reasons to replace the standalone architecture.
 

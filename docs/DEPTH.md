@@ -1,4 +1,4 @@
-# Depth and bounded surfel fusion
+# Depth, bounded surfel fusion, and sparse TSDF
 
 The core does not require LiDAR and does not assume a particular depth model. Stereo, monocular metric-depth adapters, structured-light/ToF sensors, imported point clouds, or future ARCore depth adapters may submit calibrated camera-space samples through the same contract.
 
@@ -38,6 +38,14 @@ Depth `0` means unknown, never measured free space. Defaults cap output to 4 mil
 
 The output is suitable as a metric CPU-side input to a future renderer adapter, but no GPU upload, hole filling, or Filament material integration is claimed yet.
 
+## Bounded sparse TSDF
+
+`SparseTsdfVolume` is the portable offline-fusion primitive for globally posed, optical-axis metric Z-depth. It stores fixed 8×8×8 voxel blocks in a sparse hash map and allocates blocks only inside the configured truncation band around accepted surfaces. The default 2 cm voxels, 6 cm truncation band and 4,096-block ceiling bound voxel storage to at most 2,097,152 cells before container overhead; the separately materialized snapshot defaults to a lower 1,000,000-voxel ceiling. Input layout, calibrated dimensions, pose, depth, confidence and optional uncertainty are validated; invalid pixels are skipped rather than imputed.
+
+Each accepted pixel is distortion-aware unprojected and sampled at half-voxel intervals only through the narrow band. Signed distance is evaluated at the actual voxel centre in camera Z, then fused with confidence multiplied by an uncertainty penalty. Weight is capped while still allowing bounded adaptation. Defaults separately cap visited depth pixels, ray samples, attempted voxel visits, allocated blocks and snapshot voxels. Capacity or work exhaustion sets `truncated`; it never triggers unbounded allocation. Snapshots are lexicographically sorted for deterministic downstream meshing, and direct point sampling exposes only observed voxels.
+
+This narrow-band representation is intentionally not an occupancy map: unknown space and rays far in front of a surface are not marked free. It currently has a native C++ API but no session/JNI orchestration. Surface extraction, connected-component filtering, simplification, persistence and texture provenance remain separate pending stages.
+
 ## Conservative temporal filtering
 
 `TemporalDepthFilter` and Android `TemporalMetricDepthFilter` optionally stabilize camera-aligned metric depth before surfel integration. Previous filtered points are distortion-aware unprojected, transformed from the exact previous `world_from_camera` pose into the current camera, projected with a nearest-depth z-buffer, and blended only where the current frame already has valid depth and agrees within absolute and relative gates. Disagreement keeps the current measurement; history never fills an unobserved current pixel. Timestamps must increase, history is dropped across calibration/size changes or gaps over 500 ms, pixels are capped at 4,194,304, and Android returns explicit blended/rejected/history-used telemetry. This is conservative pose-compensated denoising, not hole filling or proof of free space. Zero confidence is treated as invalid current depth, so masked dynamic regions cannot be repopulated from history. `TemporalDepthInferenceBackend` can own any metric-depth backend and insert the filter before the standard scheduler callback/session integration while preserving semantic detections and exposing the latest filter telemetry.
@@ -46,4 +54,4 @@ The output is suitable as a metric CPU-side input to a future renderer adapter, 
 
 Android session writes are allowed only while the geometric mapping gate is active. This prevents a depth model from painting geometry into an unstable world pose. The surfel map is transient and intentionally excluded from `ARKMAP01` until mesh schema, storage budgets, relocalized alignment, and privacy policy are finalized.
 
-This is a bounded surface-point representation, not yet a TSDF, watertight mesh, hole-filling system, or rendering occlusion adapter. No bundled monocular model is claimed; model manifests must document metric conversion, license, quantization, confidence calibration, and device performance.
+The live Android mapping path remains a bounded surface-point representation. The separate native sparse TSDF is not yet a watertight mesh, hole-filling system, persisted map, or rendering occlusion adapter. No bundled monocular model is claimed; model manifests must document metric conversion, license, quantization, confidence calibration, and device performance.

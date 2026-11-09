@@ -33,6 +33,7 @@
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
+#include "arkernel/sparse_tsdf.h"
 #include "arkernel/surfel_map.h"
 #include "arkernel/tensor_preprocessor.h"
 #include "arkernel/temporal_depth_filter.h"
@@ -296,6 +297,71 @@ int main() {
     return value.position_world_m.x<0&&value.position_world_m.y<0;}));
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
+
+  // Bounded sparse TSDF integrates only a narrow uncertainty-weighted band.
+  std::vector<float> tsdf_uncertainty(8*8,0.01F);
+  const TsdfDepthImageView tsdf_depth_view{8,8,8,metric_depth.data(),metric_depth.size(),
+    depth_confidence.data(),8,depth_confidence.size(),tsdf_uncertainty.data(),8,
+    tsdf_uncertainty.size()};
+  SparseTsdfConfig tsdf_config;tsdf_config.voxel_size_m=0.1;
+  tsdf_config.truncation_distance_m=0.2;tsdf_config.pixel_stride=2;
+  tsdf_config.max_blocks=128;tsdf_config.max_ray_samples=16;
+  SparseTsdfVolume tsdf_volume(tsdf_config);
+  const auto tsdf_update=tsdf_volume.integrate(tsdf_depth_view,depth_camera,{});
+  CHECK(tsdf_update.input_valid&&!tsdf_update.truncated&&
+        tsdf_update.integrated_pixels>0&&tsdf_update.voxel_updates>0&&
+        tsdf_update.voxel_visits>=tsdf_update.voxel_updates&&
+        tsdf_update.allocated_blocks==tsdf_volume.blockCount()&&tsdf_volume.voxelCount()>0);
+  const auto tsdf_snapshot=tsdf_volume.snapshot();
+  CHECK(tsdf_snapshot.size()==tsdf_volume.voxelCount()&&
+        std::any_of(tsdf_snapshot.begin(),tsdf_snapshot.end(),
+                    [](const auto& voxel){return voxel.signed_distance_m>0.0F;})&&
+        std::any_of(tsdf_snapshot.begin(),tsdf_snapshot.end(),
+                    [](const auto& voxel){return voxel.signed_distance_m<0.0F;}));
+  const auto tsdf_before=tsdf_volume.sample(tsdf_snapshot.front().center_world_m);
+  CHECK(tsdf_before.has_value());
+  std::vector<float> high_tsdf_uncertainty(8*8,0.1F);
+  auto high_uncertainty_tsdf_view=tsdf_depth_view;
+  high_uncertainty_tsdf_view.uncertainty_m=high_tsdf_uncertainty.data();
+  SparseTsdfVolume high_uncertainty_tsdf(tsdf_config);
+  CHECK(high_uncertainty_tsdf.integrate(
+    high_uncertainty_tsdf_view,depth_camera,{}).input_valid);
+  const auto high_uncertainty_sample=
+    high_uncertainty_tsdf.sample(tsdf_snapshot.front().center_world_m);
+  CHECK(high_uncertainty_sample.has_value()&&
+        high_uncertainty_sample->weight<tsdf_before->weight);
+  const auto second_tsdf_update=tsdf_volume.integrate(tsdf_depth_view,depth_camera,{});
+  const auto tsdf_after=tsdf_volume.sample(tsdf_snapshot.front().center_world_m);
+  CHECK(second_tsdf_update.input_valid&&tsdf_after.has_value()&&
+        tsdf_after->weight>tsdf_before->weight);
+  auto capacity_tsdf_config=tsdf_config;capacity_tsdf_config.max_blocks=1;
+  SparseTsdfVolume capacity_tsdf(capacity_tsdf_config);
+  const auto capacity_tsdf_update=capacity_tsdf.integrate(tsdf_depth_view,depth_camera,{});
+  CHECK(capacity_tsdf_update.input_valid&&capacity_tsdf_update.truncated&&
+        capacity_tsdf_update.capacity_rejections>0&&capacity_tsdf.blockCount()==1);
+  auto work_limited_tsdf_config=tsdf_config;
+  work_limited_tsdf_config.max_voxel_visits_per_update=1;
+  SparseTsdfVolume work_limited_tsdf(work_limited_tsdf_config);
+  const auto work_limited_update=
+    work_limited_tsdf.integrate(tsdf_depth_view,depth_camera,{});
+  CHECK(work_limited_update.input_valid&&work_limited_update.truncated&&
+        work_limited_update.voxel_visits==1&&work_limited_update.voxel_updates<=1);
+  auto snapshot_limited_tsdf_config=tsdf_config;
+  snapshot_limited_tsdf_config.max_snapshot_voxels=1;
+  SparseTsdfVolume snapshot_limited_tsdf(snapshot_limited_tsdf_config);
+  CHECK(snapshot_limited_tsdf.integrate(tsdf_depth_view,depth_camera,{}).input_valid);
+  bool rejected_tsdf_snapshot=false;
+  try{snapshot_limited_tsdf.snapshot();}
+  catch(const std::length_error&){rejected_tsdf_snapshot=true;}
+  CHECK(rejected_tsdf_snapshot);
+  auto invalid_tsdf_view=tsdf_depth_view;invalid_tsdf_view.depth_row_stride_elements=7;
+  CHECK(!tsdf_volume.integrate(invalid_tsdf_view,depth_camera,{}).input_valid);
+  auto invalid_tsdf_config=tsdf_config;invalid_tsdf_config.max_ray_samples=3;
+  bool rejected_tsdf_config=false;
+  try{SparseTsdfVolume invalid_tsdf(invalid_tsdf_config);}
+  catch(const std::invalid_argument&){rejected_tsdf_config=true;}
+  CHECK(rejected_tsdf_config);
+  tsdf_volume.reset();CHECK(tsdf_volume.blockCount()==0&&tsdf_volume.voxelCount()==0);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

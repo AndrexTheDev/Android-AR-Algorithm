@@ -29,6 +29,7 @@ add_library(arkernel STATIC
     src/semantic_map.cpp
     src/sparse_map.cpp
     src/spatial_snapshot.cpp
+    src/sparse_tsdf.cpp
     src/surfel_map.cpp
     src/tensor_preprocessor.cpp
     src/temporal_depth_filter.cpp

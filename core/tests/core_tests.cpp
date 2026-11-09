@@ -23,6 +23,7 @@
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/landmark_merge.h"
 #include "arkernel/loop_closure.h"
+#include "arkernel/mesh_processing.h"
 #include "arkernel/multi_view_stereo.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
@@ -420,6 +421,61 @@ int main() {
   try{extractTsdfMesh(mesh_tsdf,invalid_meshing_config);}
   catch(const std::invalid_argument&){rejected_meshing_config=true;}
   CHECK(rejected_meshing_config);
+
+  // Edge-connected component filtering removes a detached one-triangle island
+  // and compacts every indexed attribute without merging point-only contact.
+  auto island_mesh=extracted_mesh.mesh;
+  const auto island_first=static_cast<std::uint32_t>(island_mesh.positions_m.size());
+  island_mesh.positions_m.insert(island_mesh.positions_m.end(),
+    {{10,10,10},{10.1F,10,10},{10,10.1F,10}});
+  island_mesh.normals.insert(island_mesh.normals.end(),{{0,0,-1},{0,0,-1},{0,0,-1}});
+  island_mesh.texcoords.assign(island_mesh.positions_m.size(),{0.5F,0.5F});
+  island_mesh.base_color_texture={"component-atlas.png","image/png"};
+  island_mesh.triangle_indices.insert(island_mesh.triangle_indices.end(),
+    {island_first,island_first+1,island_first+2});
+  MeshComponentFilterConfig component_config;component_config.min_component_triangles=2;
+  component_config.min_component_area_m2=0.0;
+  const auto filtered_mesh=filterMeshComponents(island_mesh,component_config);
+  CHECK(filtered_mesh.input_valid&&!filtered_mesh.truncated&&filtered_mesh.components==2&&
+        filtered_mesh.retained_components==1&&filtered_mesh.removed_triangles==1&&
+        filtered_mesh.removed_vertices==3&&filtered_mesh.boundary_edges>0&&
+        filtered_mesh.manifold_edges>0&&filtered_mesh.non_manifold_edges==0&&
+        validateMesh(filtered_mesh.mesh).valid&&
+        filtered_mesh.mesh.texcoords.size()==filtered_mesh.mesh.positions_m.size()&&
+        filtered_mesh.mesh.base_color_texture.uri=="component-atlas.png");
+  CHECK(std::none_of(filtered_mesh.mesh.positions_m.begin(),filtered_mesh.mesh.positions_m.end(),
+                     [](const auto& position){return position.x>5.0F;}));
+  const auto repeated_filtered_mesh=filterMeshComponents(island_mesh,component_config);
+  CHECK(repeated_filtered_mesh.mesh.triangle_indices==filtered_mesh.mesh.triangle_indices&&
+        repeated_filtered_mesh.mesh.positions_m.size()==filtered_mesh.mesh.positions_m.size());
+  ReconstructionMesh point_touch_mesh;
+  point_touch_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{-1,0,0},{0,-1,0}};
+  point_touch_mesh.triangle_indices={0,1,2,0,3,4};
+  auto point_touch_config=component_config;point_touch_config.min_component_triangles=1;
+  const auto point_touch_result=filterMeshComponents(point_touch_mesh,point_touch_config);
+  CHECK(point_touch_result.input_valid&&point_touch_result.components==2&&
+        point_touch_result.retained_components==2);
+  point_touch_config.keep_largest_only=true;
+  const auto largest_only_mesh=filterMeshComponents(point_touch_mesh,point_touch_config);
+  CHECK(largest_only_mesh.retained_components==1&&
+        largest_only_mesh.mesh.triangle_indices.size()==3&&
+        largest_only_mesh.mesh.positions_m.size()==3);
+  ReconstructionMesh non_manifold_mesh;
+  non_manifold_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{0,-1,0},{0,0,1}};
+  non_manifold_mesh.triangle_indices={0,1,2,1,0,3,0,1,4};
+  point_touch_config.keep_largest_only=false;
+  const auto non_manifold_result=filterMeshComponents(non_manifold_mesh,point_touch_config);
+  CHECK(non_manifold_result.input_valid&&non_manifold_result.components==1&&
+        non_manifold_result.non_manifold_edges==1);
+  auto edge_limited_config=component_config;edge_limited_config.max_unique_edges=1;
+  const auto edge_limited_mesh=filterMeshComponents(island_mesh,edge_limited_config);
+  CHECK(edge_limited_mesh.input_valid&&edge_limited_mesh.truncated&&
+        edge_limited_mesh.error=="mesh edge budget exceeded");
+  auto invalid_component_config=component_config;invalid_component_config.max_input_vertices=0;
+  bool rejected_component_config=false;
+  try{filterMeshComponents(island_mesh,invalid_component_config);}
+  catch(const std::invalid_argument&){rejected_component_config=true;}
+  CHECK(rejected_component_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

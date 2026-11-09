@@ -48,7 +48,9 @@ This narrow-band representation is intentionally not an occupancy map: unknown s
 
 `extractTsdfMesh` provides deterministic bounded Marching Tetrahedra over fully observed eight-corner cells. A fixed globally consistent six-tetrahedron split and canonical grid-edge keys share vertices across cells, including exact endpoint crossings. Triangles are oriented toward increasing TSDF, degenerate area is rejected, and area-weighted vertex normals are produced directly in the canonical metric `ReconstructionMesh`. Minimum voxel weight and independent input-voxel, examined-cell, vertex and triangle budgets prevent weak or unbounded extraction. Missing corners remain holes, and any budget stop sets `truncated`; callers must also retain truncation evidence from every preceding fusion update.
 
-Connected-component filtering, simplification, persistence and texture provenance remain separate pending stages. This extractor does not claim watertightness or repair unobserved geometry.
+`filterMeshComponents` then builds bounded edge-based triangle connectivity. Point-only contact does not merge otherwise separate surfaces. Components can be retained by minimum triangle count, minimum metric area, or deterministic largest-only selection; removed vertices are compacted while positions, normals, UVs and texture references remain aligned. Degenerate triangles are rejected, and retained boundary, manifold and non-manifold edge counts remain observable. Input vertex, triangle and unique-edge budgets prevent unbounded adjacency construction.
+
+Edge-aware simplification, persistence and texture provenance remain separate pending stages. Neither extraction nor component filtering claims watertightness or repairs unobserved geometry.
 
 ## Conservative temporal filtering
 

@@ -16,7 +16,7 @@ data class ReconstructionTexturePipelineTelemetry(
     init { require(values.size == FIELD_COUNT) }
     val assignedTriangles get() = values[2]
     val unassignedTriangles get() = values[3]
-    val rasterizedPixels get() = values[11]
+    val rasterizedPixels get() = values[12]
     val blendedSeams get() = values[15]
     companion object { const val FIELD_COUNT = 17 }
 }

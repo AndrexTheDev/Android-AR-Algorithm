@@ -42,16 +42,21 @@ class ReconstructionFusionSourceMeshInstrumentedTest {
             assertEquals(built.sourceVertices * 3, mesh.positionsMeters.remaining().toLong())
             assertEquals(built.sourceTriangles * 3, mesh.triangleIndices.remaining().toLong())
 
-            val rgba = ByteArray(32 * 32 * 4).also { bytes ->
-                for (pixel in 0 until 32 * 32) {
+            val rgba = ByteArray(64 * 64 * 4).also { bytes ->
+                for (pixel in 0 until 64 * 64) {
                     bytes[pixel * 4] = 70; bytes[pixel * 4 + 1] = 130.toByte()
                     bytes[pixel * 4 + 2] = 190.toByte(); bytes[pixel * 4 + 3] = 255.toByte()
                 }
             }
+            val textureDepth = MetricDepthBuffer(64, 64, 64,
+                direct(FloatArray(64 * 64) { 2f }),
+                direct(FloatArray(64 * 64) { 1f }), 64, 1_000,
+                direct(FloatArray(64 * 64) { 0.005f }), 64)
             val source = LoadedReconstructionTextureSource(1, 1_000, "arkf://fusion-source/1",
-                32, 32, 128, CanonicalTexturePixelFormat.RGBA8, rgba,
-                ReconstructionImageEncoding.PNG, depth(1_000))
-            val candidate = ReconstructionTextureCandidate(source, calibration,
+                64, 64, 256, CanonicalTexturePixelFormat.RGBA8, rgba,
+                ReconstructionImageEncoding.PNG, textureDepth)
+            val textureCalibration = CameraCalibration(64, 64, 40.0, 40.0, 31.5, 31.5)
+            val candidate = ReconstructionTextureCandidate(source, textureCalibration,
                 doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 1.0)
             val textured = ReconstructionTexturePipeline(ReconstructionTexturePipelineOptions(
                 maxVertices = options.maxMeshVertices.toInt(),
@@ -59,7 +64,9 @@ class ReconstructionFusionSourceMeshInstrumentedTest {
                 maxResultBytes = 4 * 1024 * 1024, atlasWidth = 64, atlasHeight = 64,
                 requireVisibilityDepth = true, enablePhotometry = false,
                 enableSeamBlending = false)).build(mesh, listOf(candidate))
-            assertEquals(ReconstructionTexturePipelineStage.COMPLETE, textured.stage)
+            assertTrue("stage=${textured.stage} error=${textured.error} assigned=" +
+                "${textured.telemetry.assignedTriangles}/${built.sourceTriangles}",
+                textured.stage == ReconstructionTexturePipelineStage.COMPLETE)
             assertNotNull(textured.mesh)
             assertTrue(textured.atlasRgba8.isNotEmpty())
         }

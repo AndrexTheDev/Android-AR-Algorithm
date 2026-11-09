@@ -11,6 +11,7 @@ data class ReconstructionTextureSourceRequest(
 
 data class LoadedReconstructionTextureSource(
     val frameId: Long,
+    val timestampNs: Long,
     val reference: String,
     val width: Int,
     val height: Int,
@@ -87,16 +88,16 @@ class ReconstructionTextureSourceLoader(
                     val decoded = ReconstructionTextureSourceDecoder.decodeCompressed(frame,
                         options.decode)
                     decodedSources++
-                    LoadedReconstructionTextureSource(metadata.frameId, request.reference,
+                    LoadedReconstructionTextureSource(metadata.frameId, metadata.timestampNs, request.reference,
                         metadata.width, metadata.height, metadata.width * 4,
                         CanonicalTexturePixelFormat.RGBA8, decoded.rgba8, metadata.encoding)
                 }
                 ReconstructionImageEncoding.GRAY8 ->
-                    LoadedReconstructionTextureSource(metadata.frameId, request.reference,
+                    LoadedReconstructionTextureSource(metadata.frameId, metadata.timestampNs, request.reference,
                         metadata.width, metadata.height, metadata.rowStrideBytes,
                         CanonicalTexturePixelFormat.GRAY8, frame.imageBytes, metadata.encoding)
                 ReconstructionImageEncoding.I420 ->
-                    LoadedReconstructionTextureSource(metadata.frameId, request.reference,
+                    LoadedReconstructionTextureSource(metadata.frameId, metadata.timestampNs, request.reference,
                         metadata.width, metadata.height, metadata.width,
                         CanonicalTexturePixelFormat.I420, frame.imageBytes, metadata.encoding)
             }

@@ -27,17 +27,29 @@ data class ReconstructionSourceMeshBuffers(
     val triangleIndices: IntBuffer,
 )
 
+data class ReconstructionTextureVisibilityDepth(
+    /** Optical-axis Z depth aligned to the candidate camera image. */
+    val image: MetricDepthBuffer,
+)
+
 data class ReconstructionTextureCandidate(
     val source: LoadedReconstructionTextureSource,
     val calibration: CameraCalibration,
     /** Quaternion w,x,y,z followed by translation x,y,z in metres. */
     val worldFromCamera: DoubleArray,
     val qualityScore: Double,
+    val visibilityDepth: ReconstructionTextureVisibilityDepth? = null,
 ) {
     init {
         require(calibration.width == source.width && calibration.height == source.height)
         require(worldFromCamera.size == 7 && worldFromCamera.all { it.isFinite() })
         require(qualityScore.isFinite())
+        visibilityDepth?.image?.let { depth ->
+            require(depth.width == source.width && depth.height == source.height)
+            require(depth.timestampNs == source.timestampNs) {
+                "Visibility depth timestamp must match the archived texture frame"
+            }
+        }
     }
 }
 
@@ -48,6 +60,7 @@ data class ReconstructionTexturePipelineOptions(
     val maxResultBytes: Int = 256 * 1024 * 1024,
     val atlasWidth: Int = 1024,
     val atlasHeight: Int = 1024,
+    val requireVisibilityDepth: Boolean = false,
     val enablePhotometry: Boolean = true,
     val enableSeamBlending: Boolean = true,
 ) {
@@ -73,11 +86,11 @@ data class ReconstructionTexturePipelineResult(
 )
 
 /**
- * Bounded JNI adapter for the complete portable texture graph. This first
- * adapter intentionally has no depth-buffer parameter: native view selection
- * is configured not to treat absent depth as free space. A later depth-aware
- * overload can opt into mandatory visibility depth without changing this wire
- * result. Only COMPLETE results expose mesh or atlas bytes.
+ * Bounded JNI adapter for the complete portable texture graph. Optional
+ * optical-axis depth, confidence and uncertainty remain borrowed direct buffers
+ * only for the synchronized native call. When requireVisibilityDepth is true,
+ * every candidate must provide timestamp- and dimension-matched depth. Only
+ * COMPLETE results expose mesh or atlas bytes.
  */
 class ReconstructionTexturePipeline(
     private val options: ReconstructionTexturePipelineOptions =
@@ -109,6 +122,13 @@ class ReconstructionTexturePipeline(
         val heights = IntArray(candidates.size)
         val strides = IntArray(candidates.size)
         val images = arrayOfNulls<ByteArray>(candidates.size)
+        val depthBuffers = arrayOfNulls<FloatBuffer>(candidates.size)
+        val confidenceBuffers = arrayOfNulls<FloatBuffer>(candidates.size)
+        val uncertaintyBuffers = arrayOfNulls<FloatBuffer>(candidates.size)
+        val depthData = IntArray(candidates.size * DEPTH_VALUES)
+        if (options.requireVisibilityDepth) require(candidates.all { it.visibilityDepth != null }) {
+            "Every texture candidate requires aligned visibility depth"
+        }
         candidates.forEachIndexed { index, candidate ->
             val source = candidate.source
             frameIds[index] = source.frameId
@@ -126,6 +146,38 @@ class ReconstructionTexturePipeline(
             val values = doubleArrayOf(c.fx, c.fy, c.cx, c.cy, c.k1, c.k2, c.p1, c.p2,
                 c.k3, *candidate.worldFromCamera, candidate.qualityScore)
             values.copyInto(cameraData, index * CAMERA_VALUES)
+            candidate.visibilityDepth?.image?.let { depth ->
+                requireDirectNative(depth.depthMeters, "visibility depth")
+                depth.confidence?.let { requireDirectNative(it, "visibility confidence") }
+                depth.uncertaintyMeters?.let { requireDirectNative(it, "visibility uncertainty") }
+                require(depth.rowStrideElements >= depth.width)
+                require(depth.confidence == null || depth.confidenceRowStrideElements >= depth.width)
+                require(depth.uncertaintyMeters == null ||
+                    depth.uncertaintyRowStrideElements >= depth.width)
+                fun requiredElements(stride: Int) = Math.addExact(
+                    Math.multiplyExact((depth.height - 1).toLong(), stride.toLong()),
+                    depth.width.toLong())
+                require(depth.depthMeters.remaining().toLong() >=
+                    requiredElements(depth.rowStrideElements))
+                require(depth.confidence == null || depth.confidence.remaining().toLong() >=
+                    requiredElements(depth.confidenceRowStrideElements))
+                require(depth.uncertaintyMeters == null ||
+                    depth.uncertaintyMeters.remaining().toLong() >=
+                    requiredElements(depth.uncertaintyRowStrideElements))
+                depthBuffers[index] = depth.depthMeters
+                confidenceBuffers[index] = depth.confidence
+                uncertaintyBuffers[index] = depth.uncertaintyMeters
+                val base = index * DEPTH_VALUES
+                depthData[base] = depth.depthMeters.position()
+                depthData[base + 1] = depth.depthMeters.remaining()
+                depthData[base + 2] = depth.rowStrideElements
+                depthData[base + 3] = depth.confidence?.position() ?: 0
+                depthData[base + 4] = depth.confidence?.remaining() ?: 0
+                depthData[base + 5] = depth.confidenceRowStrideElements
+                depthData[base + 6] = depth.uncertaintyMeters?.position() ?: 0
+                depthData[base + 7] = depth.uncertaintyMeters?.remaining() ?: 0
+                depthData[base + 8] = depth.uncertaintyRowStrideElements
+            }
         }
         val encoded = requireNotNull(nativeBuild(
             sourceMesh.positionsMeters, sourceMesh.positionsMeters.position(), positionValues,
@@ -134,8 +186,10 @@ class ReconstructionTexturePipeline(
             sourceMesh.triangleIndices, sourceMesh.triangleIndices.position(),
             sourceMesh.triangleIndices.remaining(), frameIds, references.requireNoNulls(),
             cameraData, formats, widths, heights, strides, images.requireNoNulls(),
+            depthBuffers, confidenceBuffers, uncertaintyBuffers, depthData,
             options.maxVertices, options.maxTriangles, options.maxResultBytes,
-            options.atlasWidth, options.atlasHeight, options.enablePhotometry, options.enableSeamBlending)) {
+            options.atlasWidth, options.atlasHeight, options.requireVisibilityDepth,
+            options.enablePhotometry, options.enableSeamBlending)) {
             "Native texture pipeline rejected the bounded request"
         }
         return decode(encoded)
@@ -202,14 +256,18 @@ class ReconstructionTexturePipeline(
         indices: IntBuffer, indicesOffset: Int, indicesRemaining: Int,
         frameIds: LongArray, references: Array<String>, cameraData: DoubleArray,
         formats: IntArray, widths: IntArray, heights: IntArray, strides: IntArray,
-        images: Array<ByteArray>, maxVertices: Int, maxTriangles: Int, maxResultBytes: Int,
-        atlasWidth: Int, atlasHeight: Int, enablePhotometry: Boolean, enableSeamBlending: Boolean,
+        images: Array<ByteArray>, depthBuffers: Array<FloatBuffer?>,
+        confidenceBuffers: Array<FloatBuffer?>, uncertaintyBuffers: Array<FloatBuffer?>,
+        depthData: IntArray, maxVertices: Int, maxTriangles: Int, maxResultBytes: Int,
+        atlasWidth: Int, atlasHeight: Int, requireVisibilityDepth: Boolean,
+        enablePhotometry: Boolean, enableSeamBlending: Boolean,
     ): ByteArray?
 
     private companion object {
         const val MAGIC = 0x54584B41
         const val VERSION = 1
         const val CAMERA_VALUES = 17
+        const val DEPTH_VALUES = 9
         const val HEADER_BYTES = 11 * 4 + ReconstructionTexturePipelineTelemetry.FIELD_COUNT * 8
         init { System.loadLibrary("arkernel_jni") }
     }

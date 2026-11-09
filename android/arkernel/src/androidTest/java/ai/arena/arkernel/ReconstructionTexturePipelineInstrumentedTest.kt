@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 class ReconstructionTexturePipelineInstrumentedTest {
     @Test
     fun buildsAtlasAndPublishesOneFileGlb() {
-        val source = LoadedReconstructionTextureSource(7, "arkf://texture-pipeline/7", 100, 100,
+        val source = LoadedReconstructionTextureSource(7, 70, "arkf://texture-pipeline/7", 100, 100,
             400, CanonicalTexturePixelFormat.RGBA8, ByteArray(100 * 100 * 4).also { bytes ->
                 for (pixel in 0 until 100 * 100) {
                     bytes[pixel * 4] = 210.toByte(); bytes[pixel * 4 + 1] = 80
@@ -56,6 +56,48 @@ class ReconstructionTexturePipelineInstrumentedTest {
             archive.clear()
         }
     }
+
+    @Test
+    fun requiresAlignedDepthAndFailsClosedForOccludedMesh() {
+        val source = LoadedReconstructionTextureSource(8, 80, "arkf://texture-depth/8", 32, 32,
+            128, CanonicalTexturePixelFormat.RGBA8,
+            ByteArray(32 * 32 * 4).also { bytes ->
+                for (pixel in 0 until 32 * 32) {
+                    bytes[pixel * 4] = 100; bytes[pixel * 4 + 1] = 140.toByte()
+                    bytes[pixel * 4 + 2] = 180.toByte(); bytes[pixel * 4 + 3] = 255.toByte()
+                }
+            }, ReconstructionImageEncoding.PNG)
+        fun candidate(depthMeters: Float): ReconstructionTextureCandidate {
+            val depth = MetricDepthBuffer(32, 32, 32,
+                directFloats(FloatArray(32 * 32) { depthMeters }),
+                directFloats(FloatArray(32 * 32) { 1f }), 32, 80,
+                directFloats(FloatArray(32 * 32) { 0.005f }), 32)
+            return ReconstructionTextureCandidate(source,
+                CameraCalibration(32, 32, 20.0, 20.0, 15.5, 15.5),
+                doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 1.0,
+                ReconstructionTextureVisibilityDepth(depth))
+        }
+        val pipeline = ReconstructionTexturePipeline(ReconstructionTexturePipelineOptions(
+            maxVertices = 16, maxTriangles = 2, maxCandidates = 1,
+            maxResultBytes = 256 * 1024, atlasWidth = 64, atlasHeight = 64,
+            requireVisibilityDepth = true, enablePhotometry = false,
+            enableSeamBlending = false))
+        val visible = pipeline.build(mesh(), listOf(candidate(2f)))
+        assertEquals(ReconstructionTexturePipelineStage.COMPLETE, visible.stage)
+        assertNotNull(visible.mesh)
+        assertTrue(visible.atlasRgba8.isNotEmpty())
+
+        val occluded = pipeline.build(mesh(), listOf(candidate(1f)))
+        assertEquals(ReconstructionTexturePipelineStage.ATLAS_LAYOUT, occluded.stage)
+        assertTrue(occluded.inputValid && !occluded.truncated && occluded.error.isNotEmpty())
+        assertEquals(0, occluded.telemetry.assignedTriangles)
+        assertEquals(null, occluded.mesh)
+        assertTrue(occluded.atlasRgba8.isEmpty())
+    }
+
+    private fun directFloats(values: FloatArray) =
+        ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder())
+            .asFloatBuffer().apply { put(values); flip() }
 
     private fun mesh(): ReconstructionSourceMeshBuffers {
         val positions = ByteBuffer.allocateDirect(12 * 4).order(ByteOrder.nativeOrder())

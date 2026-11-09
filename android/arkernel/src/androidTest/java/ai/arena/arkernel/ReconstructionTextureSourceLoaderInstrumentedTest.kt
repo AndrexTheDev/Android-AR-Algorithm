@@ -33,6 +33,8 @@ class ReconstructionTextureSourceLoaderInstrumentedTest {
                 ReconstructionTextureSourceLoadOptions(maxSources = 2,
                     maxCanonicalBytes = 64)).load(requests)
             assertEquals(2, loaded.sources.size)
+            assertEquals(10L, loaded.sources[0].timestampNs)
+            assertEquals(20L, loaded.sources[1].timestampNs)
             assertEquals(1, loaded.decodedCompressedSources)
             assertEquals(22L, loaded.canonicalBytes)
             assertTrue(loaded.sources[0].bytes.contentEquals(rgba))

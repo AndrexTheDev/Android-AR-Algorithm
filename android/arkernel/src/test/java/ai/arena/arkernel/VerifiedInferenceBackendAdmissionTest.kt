@@ -104,6 +104,63 @@ class VerifiedInferenceBackendAdmissionTest {
     }
 
     @Test
+    fun exactCachedEvidenceSkipsGoldenExecutionButRechecksBothBackendIdentities() {
+        val calls = AtomicInteger()
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); error("must not execute") }
+        val delegate = FakeBackend(manifest) { calls.incrementAndGet(); error("must not execute") }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500)
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
+            result.status)
+        assertTrue(result.usingDelegate)
+        assertSame(delegate, result.backend)
+        assertTrue(result.cachedEvidence != null)
+        assertEquals(0, calls.get())
+        assertEquals(1, cpu.closeCount)
+        assertEquals(0, delegate.closeCount)
+    }
+
+    @Test
+    fun cacheKeyMismatchRunsFullGoldenConformance() {
+        val frame = frame(30)
+        val calls = AtomicInteger()
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
+        val delegate = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.905) }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "different", "software", 3, 1_500,
+            listOf(InferenceSemanticGoldenCase("cache-miss", frame)))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED,
+            result.status)
+        assertEquals(2, calls.get())
+        assertTrue(result.cachedEvidence == null)
+    }
+
+    @Test
+    fun cachedEvidenceCannotAdmitDelegateWithMismatchedManifest() {
+        val cpu = FakeBackend(manifest) { error("must not execute") }
+        val delegate = FakeBackend(manifest(version = "wrong")) { error("must not execute") }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500)
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_IDENTITY_REJECTED, result.status)
+        assertFalse(result.usingDelegate)
+        assertSame(cpu, result.backend)
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
+    }
+
+    @Test
     fun mismatchedCpuFactoryResultClosesCpuWithoutCreatingDelegate() {
         val cpu = FakeBackend(manifest(version = "wrong")) { error("not executed") }
         val delegateCalls = AtomicInteger()
@@ -149,6 +206,23 @@ class VerifiedInferenceBackendAdmissionTest {
             fail("Expected read-only model view")
         } catch (_: ReadOnlyBufferException) { }
     }
+
+    private fun acceptedEvidence(): PersistedInferenceAdmissionEvidence {
+        val identity = VerifiedInferenceIdentity.create(manifest, ByteBuffer.wrap(artifactBytes))
+        val report = InferenceSemanticConformanceReport(true, 1, 1, 0,
+            0.0, 0.0, 0.0, 0.0, 0.0, null, null)
+        val accepted = VerifiedInferenceBackendAdmissionResult(FakeBackend(manifest) {
+            error("unused")
+        }, true, InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED, report)
+        return PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature(),
+            "b".repeat(64), "d".repeat(64), InferenceSemanticConformanceOptions(),
+            "adapter", "1", "software", 3, accepted, 1_000, 1_000)
+    }
+
+    private fun signature() = DeviceCapabilitySignature(apiLevel = 35,
+        supportedAbis = listOf("arm64-v8a"), lowRamDevice = false, memoryClassMb = 512,
+        buildFingerprintSha256 = "a".repeat(64), camera = null,
+        imu = ImuCapabilityFacts(true, true, 5_000, 5_000, 0, 0, 0.001f, 0.001f))
 
     private fun sourceBuffer(): ByteBuffer = ByteBuffer.allocate(artifactBytes.size + 3).apply {
         put(byteArrayOf(7, 8, 9))

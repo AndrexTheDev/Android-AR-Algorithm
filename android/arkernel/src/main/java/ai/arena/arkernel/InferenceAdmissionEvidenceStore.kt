@@ -11,7 +11,7 @@ import java.security.MessageDigest
 import java.util.zip.CRC32
 
 private const val INFERENCE_EVIDENCE_MAGIC = 0x41524945 // ARIE
-private const val INFERENCE_EVIDENCE_VERSION = 1
+private const val INFERENCE_EVIDENCE_VERSION = 2
 private const val MAX_INFERENCE_EVIDENCE_BYTES = 8 * 1024
 private const val MAX_INFERENCE_EVIDENCE_ID = 128
 private const val MAX_INFERENCE_EVIDENCE_VALIDITY_MILLIS = 30L * 24 * 60 * 60 * 1_000
@@ -48,10 +48,27 @@ internal fun InferenceManifestIdentity.stableSha256(): String {
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
 
+internal fun InferenceSemanticConformanceOptions.stableSha256(): String {
+    val bytes = ByteArrayOutputStream().also { sink ->
+        DataOutputStream(sink).use { output ->
+            output.writeDouble(boxTolerancePixels)
+            output.writeDouble(anchorTolerancePixels)
+            output.writeDouble(confidenceTolerance)
+            output.writeDouble(depthAbsoluteToleranceMeters)
+            output.writeDouble(depthRelativeTolerance)
+            output.writeDouble(depthConfidenceTolerance)
+        }
+    }.toByteArray()
+    return MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+}
+
 data class PersistedInferenceAdmissionEvidence(
     val manifestIdentitySha256: String,
     val capabilitySignatureSha256: String,
     val calibrationProfileSha256: String,
+    val goldenSuiteSha256: String,
+    val conformanceOptionsSha256: String,
     val adapterId: String,
     val adapterVersion: String,
     val softwareRevision: String,
@@ -71,6 +88,8 @@ data class PersistedInferenceAdmissionEvidence(
         require(manifestIdentitySha256.isInferenceSha256())
         require(capabilitySignatureSha256.isInferenceSha256())
         require(calibrationProfileSha256.isInferenceSha256())
+        require(goldenSuiteSha256.isInferenceSha256())
+        require(conformanceOptionsSha256.isInferenceSha256())
         require(adapterId.isInferenceEvidenceId() && adapterVersion.isInferenceEvidenceId() &&
             softwareRevision.isInferenceEvidenceId())
         require(policyRevision >= 0)
@@ -82,12 +101,16 @@ data class PersistedInferenceAdmissionEvidence(
     }
 
     fun matches(identity: VerifiedInferenceIdentity, signature: DeviceCapabilitySignature,
-        calibrationSha256: String, expectedAdapterId: String, expectedAdapterVersion: String,
-        expectedSoftwareRevision: String, expectedPolicyRevision: Long,
-        nowEpochMillis: Long): Boolean =
+        calibrationSha256: String, expectedGoldenSuiteSha256: String,
+        expectedOptions: InferenceSemanticConformanceOptions, expectedAdapterId: String,
+        expectedAdapterVersion: String, expectedSoftwareRevision: String,
+        expectedPolicyRevision: Long, nowEpochMillis: Long): Boolean =
         manifestIdentitySha256 == identity.manifest.stableSha256() &&
             capabilitySignatureSha256 == signature.stableIdSha256 &&
-            calibrationProfileSha256 == calibrationSha256 && adapterId == expectedAdapterId &&
+            calibrationProfileSha256 == calibrationSha256 &&
+            goldenSuiteSha256 == expectedGoldenSuiteSha256 &&
+            conformanceOptionsSha256 == expectedOptions.stableSha256() &&
+            adapterId == expectedAdapterId &&
             adapterVersion == expectedAdapterVersion &&
             softwareRevision == expectedSoftwareRevision &&
             policyRevision == expectedPolicyRevision &&
@@ -102,6 +125,8 @@ data class PersistedInferenceAdmissionEvidence(
             identity: VerifiedInferenceIdentity,
             signature: DeviceCapabilitySignature,
             calibrationProfileSha256: String,
+            goldenSuiteSha256: String,
+            options: InferenceSemanticConformanceOptions,
             adapterId: String,
             adapterVersion: String,
             softwareRevision: String,
@@ -116,8 +141,9 @@ data class PersistedInferenceAdmissionEvidence(
             require(report.delegateAccepted)
             require(validityMillis in 1..MAX_INFERENCE_EVIDENCE_VALIDITY_MILLIS)
             return PersistedInferenceAdmissionEvidence(identity.manifest.stableSha256(),
-                signature.stableIdSha256, calibrationProfileSha256, adapterId, adapterVersion,
-                softwareRevision, policyRevision, recordedAtEpochMillis,
+                signature.stableIdSha256, calibrationProfileSha256, goldenSuiteSha256,
+                options.stableSha256(), adapterId, adapterVersion, softwareRevision,
+                policyRevision, recordedAtEpochMillis,
                 Math.addExact(recordedAtEpochMillis, validityMillis), report.evaluatedCases,
                 report.comparedDetections, report.comparedDepthPixels,
                 report.maximumDetectionCoordinateErrorPixels,
@@ -158,13 +184,16 @@ class InferenceAdmissionEvidenceStore(
         identity: VerifiedInferenceIdentity,
         signature: DeviceCapabilitySignature,
         calibrationSha256: String,
+        goldenSuiteSha256: String,
+        options: InferenceSemanticConformanceOptions,
         adapterId: String,
         adapterVersion: String,
         softwareRevision: String,
         policyRevision: Long,
         nowEpochMillis: Long = System.currentTimeMillis(),
     ): PersistedInferenceAdmissionEvidence? {
-        if (!calibrationSha256.isInferenceSha256() || !adapterId.isInferenceEvidenceId() ||
+        if (!calibrationSha256.isInferenceSha256() ||
+            !goldenSuiteSha256.isInferenceSha256() || !adapterId.isInferenceEvidenceId() ||
             !adapterVersion.isInferenceEvidenceId() ||
             !softwareRevision.isInferenceEvidenceId() || policyRevision < 0 ||
             nowEpochMillis < 0) return null
@@ -173,8 +202,9 @@ class InferenceAdmissionEvidenceStore(
         val evidence = runCatching {
             InferenceAdmissionEvidenceCodec.decode(file.readFully())
         }.getOrNull() ?: return null
-        return evidence.takeIf { it.matches(identity, signature, calibrationSha256, adapterId,
-            adapterVersion, softwareRevision, policyRevision, nowEpochMillis) }
+        return evidence.takeIf { it.matches(identity, signature, calibrationSha256,
+            goldenSuiteSha256, options, adapterId, adapterVersion, softwareRevision,
+            policyRevision, nowEpochMillis) }
     }
 
     @Synchronized fun clear() { file.delete() }
@@ -189,6 +219,8 @@ internal object InferenceAdmissionEvidenceCodec {
                 output.writeUTF(value.manifestIdentitySha256)
                 output.writeUTF(value.capabilitySignatureSha256)
                 output.writeUTF(value.calibrationProfileSha256)
+                output.writeUTF(value.goldenSuiteSha256)
+                output.writeUTF(value.conformanceOptionsSha256)
                 output.writeUTF(value.adapterId); output.writeUTF(value.adapterVersion)
                 output.writeUTF(value.softwareRevision); output.writeLong(value.policyRevision)
                 output.writeLong(value.recordedAtEpochMillis)
@@ -221,14 +253,16 @@ internal object InferenceAdmissionEvidenceCodec {
             val manifest = data.readUTF()
             val capability = data.readUTF()
             val calibration = data.readUTF()
+            val goldenSuite = data.readUTF(); val options = data.readUTF()
             val adapterId = data.readUTF(); val adapterVersion = data.readUTF()
             val software = data.readUTF(); val policy = data.readLong()
             val recorded = data.readLong(); val expires = data.readLong()
             val cases = data.readInt(); val detections = data.readLong()
             val depth = data.readLong(); val errors = DoubleArray(5) { data.readDouble() }
             require(data.available() == 0)
-            PersistedInferenceAdmissionEvidence(manifest, capability, calibration, adapterId,
-                adapterVersion, software, policy, recorded, expires, cases, detections, depth,
+            PersistedInferenceAdmissionEvidence(manifest, capability, calibration, goldenSuite,
+                options, adapterId, adapterVersion, software, policy, recorded, expires, cases,
+                detections, depth,
                 errors[0], errors[1], errors[2], errors[3], errors[4])
         }
     }

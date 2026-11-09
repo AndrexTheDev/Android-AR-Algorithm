@@ -10,8 +10,10 @@ fun interface VerifiedInferenceBackendFactory {
 enum class InferenceBackendAdmissionStatus {
     CPU_ONLY,
     DELEGATE_CREATION_FAILED,
+    DELEGATE_IDENTITY_REJECTED,
     DELEGATE_CONFORMANCE_REJECTED,
     DELEGATE_CONFORMANCE_ACCEPTED,
+    DELEGATE_CACHED_EVIDENCE_ACCEPTED,
 }
 
 data class VerifiedInferenceBackendAdmissionResult(
@@ -19,13 +21,17 @@ data class VerifiedInferenceBackendAdmissionResult(
     val usingDelegate: Boolean,
     val status: InferenceBackendAdmissionStatus,
     val conformanceReport: InferenceSemanticConformanceReport?,
+    val cachedEvidence: PersistedInferenceAdmissionEvidence? = null,
 ) {
     init {
         require(usingDelegate ==
-            (status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED))
+            (status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED ||
+                status == InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED))
         require((conformanceReport != null) ==
             (status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED ||
                 status == InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED))
+        require((cachedEvidence != null) ==
+            (status == InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED))
         conformanceReport?.let { require(it.delegateAccepted == usingDelegate) }
     }
 }
@@ -43,6 +49,42 @@ object VerifiedInferenceBackendAdmission {
         delegateFactory: VerifiedInferenceBackendFactory? = null,
         cases: List<InferenceSemanticGoldenCase> = emptyList(),
         options: InferenceSemanticConformanceOptions = InferenceSemanticConformanceOptions(),
+    ): VerifiedInferenceBackendAdmissionResult = createInternal(manifest, modelBytes,
+        cpuFactory, delegateFactory, cases, options, null, null)
+
+    /** Rechecks artifact/backend identity and uses evidence only when every exact key still matches. */
+    fun createAndSelectWithEvidence(
+        manifest: ModelManifest,
+        modelBytes: ByteBuffer,
+        cpuFactory: VerifiedInferenceBackendFactory,
+        delegateFactory: VerifiedInferenceBackendFactory,
+        evidence: PersistedInferenceAdmissionEvidence,
+        signature: DeviceCapabilitySignature,
+        calibrationProfileSha256: String,
+        goldenSuiteSha256: String,
+        adapterId: String,
+        adapterVersion: String,
+        softwareRevision: String,
+        policyRevision: Long,
+        nowEpochMillis: Long,
+        casesOnCacheMiss: List<InferenceSemanticGoldenCase> = emptyList(),
+        options: InferenceSemanticConformanceOptions = InferenceSemanticConformanceOptions(),
+    ): VerifiedInferenceBackendAdmissionResult {
+        val cacheKey = EvidenceKey(signature, calibrationProfileSha256, goldenSuiteSha256,
+            adapterId, adapterVersion, softwareRevision, policyRevision, nowEpochMillis)
+        return createInternal(manifest, modelBytes, cpuFactory, delegateFactory,
+            casesOnCacheMiss, options, evidence, cacheKey)
+    }
+
+    private fun createInternal(
+        manifest: ModelManifest,
+        modelBytes: ByteBuffer,
+        cpuFactory: VerifiedInferenceBackendFactory,
+        delegateFactory: VerifiedInferenceBackendFactory?,
+        cases: List<InferenceSemanticGoldenCase>,
+        options: InferenceSemanticConformanceOptions,
+        evidence: PersistedInferenceAdmissionEvidence?,
+        cacheKey: EvidenceKey?,
     ): VerifiedInferenceBackendAdmissionResult {
         val identity = VerifiedInferenceIdentity.create(manifest, modelBytes)
         val artifact = modelBytes.slice().asReadOnlyBuffer()
@@ -66,6 +108,23 @@ object VerifiedInferenceBackendAdmission {
                 return VerifiedInferenceBackendAdmissionResult(cpu, false,
                     InferenceBackendAdmissionStatus.DELEGATE_CREATION_FAILED, null)
             }
+            val exactEvidence = evidence?.takeIf { cached -> cacheKey != null && cached.matches(
+                identity, cacheKey.signature, cacheKey.calibrationProfileSha256,
+                cacheKey.goldenSuiteSha256, options, cacheKey.adapterId,
+                cacheKey.adapterVersion, cacheKey.softwareRevision,
+                cacheKey.policyRevision, cacheKey.nowEpochMillis) }
+            if (exactEvidence != null) {
+                if (delegate.manifest.exactIdentity() != identity.manifest) {
+                    closeQuietly(delegate)
+                    return VerifiedInferenceBackendAdmissionResult(cpu, false,
+                        InferenceBackendAdmissionStatus.DELEGATE_IDENTITY_REJECTED, null)
+                }
+                cpuOwned = false
+                closeQuietly(cpu)
+                return VerifiedInferenceBackendAdmissionResult(delegate, true,
+                    InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
+                    null, exactEvidence)
+            }
             cpuOwned = false
             val selection = InferenceBackendSemanticConformanceSelector.select(cpu, delegate,
                 identity, cases, options)
@@ -80,6 +139,17 @@ object VerifiedInferenceBackendAdmission {
             throw error
         }
     }
+
+    private data class EvidenceKey(
+        val signature: DeviceCapabilitySignature,
+        val calibrationProfileSha256: String,
+        val goldenSuiteSha256: String,
+        val adapterId: String,
+        val adapterVersion: String,
+        val softwareRevision: String,
+        val policyRevision: Long,
+        val nowEpochMillis: Long,
+    )
 
     private fun closeQuietly(backend: OnDeviceInferenceBackend) {
         try { backend.close() } catch (_: Throwable) { }

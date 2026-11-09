@@ -22,8 +22,9 @@ class InferenceAdmissionEvidenceCodecTest {
 
         assertEquals(evidence, decoded)
         assertEquals(64, evidence.manifestIdentitySha256.length)
-        assertTrue(decoded.matches(identity, signature(), "b".repeat(64), "adapter",
-            "1.2.3", "software-7", 9, 1_500))
+        assertTrue(decoded.matches(identity, signature(), "b".repeat(64),
+            "d".repeat(64), InferenceSemanticConformanceOptions(), "adapter", "1.2.3",
+            "software-7", 9, 1_500))
     }
 
     @Test
@@ -32,20 +33,26 @@ class InferenceAdmissionEvidenceCodecTest {
         val evidence = evidence(identity)
         val signature = signature()
 
+        val options = InferenceSemanticConformanceOptions()
         assertFalse(evidence.matches(identity(version = "2"), signature, "b".repeat(64),
-            "adapter", "1.2.3", "software-7", 9, 1_500))
-        assertFalse(evidence.matches(identity, signature, "c".repeat(64), "adapter",
-            "1.2.3", "software-7", 9, 1_500))
-        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "other",
-            "1.2.3", "software-7", 9, 1_500))
-        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "adapter",
-            "2", "software-7", 9, 1_500))
-        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "adapter",
-            "1.2.3", "software-8", 9, 1_500))
-        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "adapter",
-            "1.2.3", "software-7", 10, 1_500))
-        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "adapter",
-            "1.2.3", "software-7", 9, 2_000))
+            "d".repeat(64), options, "adapter", "1.2.3", "software-7", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "c".repeat(64), "d".repeat(64),
+            options, "adapter", "1.2.3", "software-7", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "e".repeat(64),
+            options, "adapter", "1.2.3", "software-7", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options.copy(confidenceTolerance = 0.02), "adapter", "1.2.3",
+            "software-7", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options, "other", "1.2.3", "software-7", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options, "adapter", "2", "software-7", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options, "adapter", "1.2.3", "software-8", 9, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options, "adapter", "1.2.3", "software-7", 10, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options, "adapter", "1.2.3", "software-7", 9, 2_000))
     }
 
     @Test
@@ -64,7 +71,8 @@ class InferenceAdmissionEvidenceCodecTest {
             report(accepted = false))
         try {
             PersistedInferenceAdmissionEvidence.fromAccepted(identity(), signature(),
-                "b".repeat(64), "adapter", "1", "software", 0, rejected, 1_000, 1_000)
+                "b".repeat(64), "d".repeat(64), InferenceSemanticConformanceOptions(),
+                "adapter", "1", "software", 0, rejected, 1_000, 1_000)
             fail("Expected rejected evidence refusal")
         } catch (_: IllegalArgumentException) { }
     }
@@ -81,7 +89,8 @@ class InferenceAdmissionEvidenceCodecTest {
 
     private fun evidence(identity: VerifiedInferenceIdentity) =
         PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature(), "b".repeat(64),
-            "adapter", "1.2.3", "software-7", 9, acceptedResult(), 1_000, 1_000)
+            "d".repeat(64), InferenceSemanticConformanceOptions(), "adapter", "1.2.3",
+            "software-7", 9, acceptedResult(), 1_000, 1_000)
 
     private fun acceptedResult() = VerifiedInferenceBackendAdmissionResult(
         FakeBackend(manifest()), true,

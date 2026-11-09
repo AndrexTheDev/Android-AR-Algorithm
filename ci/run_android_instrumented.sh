@@ -18,7 +18,7 @@ if [[ "$status" -ne 0 ]]; then
     | xargs -0 -r grep -aE '<failure|<error|Tests run:|FAILURES|AssertionError|Exception|failed to' \
     | sed -E 's/<[^>]+>/ /g; s/&quot;/"/g; s/&lt;/</g; s/&gt;/>/g' \
     | tail -n 80)
-  detail="$detail"$'\n'"$test_detail"
+  detail="$test_detail"$'\n'"$detail"
   detail=${detail//'%'/'%25'}
   detail=${detail//$'\r'/'%0D'}
   detail=${detail//$'\n'/'%0A'}

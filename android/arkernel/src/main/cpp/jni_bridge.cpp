@@ -1330,3 +1330,73 @@ Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeDestroy(
     JNIEnv*,jobject,jlong handle) {
   delete fromReconstructionPlannerHandle(handle);
 }
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ReconstructionTexturedAssetPublisher_nativeExportEmbeddedGlb(
+    JNIEnv* env,jobject,jobject positions,jint positions_offset,jint positions_remaining,
+    jobject normals,jint normals_offset,jint normals_remaining,
+    jobject texcoords,jint texcoords_offset,jint texcoords_remaining,
+    jobject indices,jint indices_offset,jint indices_remaining,jbyteArray png,
+    jint max_vertices,jint max_triangles,jint max_glb_bytes) {
+  if(!positions||!texcoords||!indices||!png||positions_offset<0||positions_remaining<=0||
+     normals_offset<0||normals_remaining<0||texcoords_offset<0||texcoords_remaining<=0||
+     indices_offset<0||indices_remaining<=0||max_vertices<=0||max_vertices>5000000||
+     max_triangles<=0||max_triangles>10000000||max_glb_bytes<=0||
+     positions_remaining%3!=0||texcoords_remaining%2!=0||indices_remaining%3!=0||
+     positions_remaining/3>max_vertices||indices_remaining/3>max_triangles||
+     texcoords_remaining/2!=positions_remaining/3||
+     (normals&&normals_remaining!=positions_remaining)||(!normals&&normals_remaining!=0))return nullptr;
+  auto* position_data=static_cast<float*>(env->GetDirectBufferAddress(positions));
+  auto* normal_data=normals?static_cast<float*>(env->GetDirectBufferAddress(normals)):nullptr;
+  auto* texcoord_data=static_cast<float*>(env->GetDirectBufferAddress(texcoords));
+  auto* index_data=static_cast<std::int32_t*>(env->GetDirectBufferAddress(indices));
+  const jlong position_capacity=env->GetDirectBufferCapacity(positions);
+  const jlong normal_capacity=normals?env->GetDirectBufferCapacity(normals):0;
+  const jlong texcoord_capacity=env->GetDirectBufferCapacity(texcoords);
+  const jlong index_capacity=env->GetDirectBufferCapacity(indices);
+  if(!position_data||!texcoord_data||!index_data||position_capacity<0||texcoord_capacity<0||
+     index_capacity<0||static_cast<jlong>(positions_offset)+positions_remaining>position_capacity||
+     static_cast<jlong>(texcoords_offset)+texcoords_remaining>texcoord_capacity||
+     static_cast<jlong>(indices_offset)+indices_remaining>index_capacity||
+     (normals&&(!normal_data||normal_capacity<0||
+      static_cast<jlong>(normals_offset)+normals_remaining>normal_capacity)))return nullptr;
+  const jsize png_size=env->GetArrayLength(png);
+  if(png_size<=0||png_size>max_glb_bytes)return nullptr;
+  try{
+    arkernel::ReconstructionMesh mesh;mesh.name="AR textured reconstruction";
+    const std::size_t vertex_count=static_cast<std::size_t>(positions_remaining/3);
+    mesh.positions_m.reserve(vertex_count);mesh.texcoords.reserve(vertex_count);
+    if(normal_data)mesh.normals.reserve(vertex_count);
+    for(std::size_t vertex=0;vertex<vertex_count;++vertex) {
+      const std::size_t p=static_cast<std::size_t>(positions_offset)+vertex*3;
+      const std::size_t uv=static_cast<std::size_t>(texcoords_offset)+vertex*2;
+      mesh.positions_m.push_back({position_data[p],position_data[p+1],position_data[p+2]});
+      mesh.texcoords.push_back({texcoord_data[uv],texcoord_data[uv+1]});
+      if(normal_data) {
+        const std::size_t n=static_cast<std::size_t>(normals_offset)+vertex*3;
+        mesh.normals.push_back({normal_data[n],normal_data[n+1],normal_data[n+2]});
+      }
+    }
+    mesh.triangle_indices.reserve(static_cast<std::size_t>(indices_remaining));
+    for(jint i=0;i<indices_remaining;++i) {
+      const std::int32_t value=index_data[static_cast<std::size_t>(indices_offset)+i];
+      if(value<0)return nullptr;
+      mesh.triangle_indices.push_back(static_cast<std::uint32_t>(value));
+    }
+    const std::size_t budget=static_cast<std::size_t>(max_glb_bytes);
+    if(static_cast<std::size_t>(png_size)>=budget||
+       !meshFitsGlbBudget(mesh,budget-static_cast<std::size_t>(png_size)))return nullptr;
+    std::vector<std::uint8_t> encoded(static_cast<std::size_t>(png_size));
+    env->GetByteArrayRegion(png,0,png_size,reinterpret_cast<jbyte*>(encoded.data()));
+    if(env->ExceptionCheck())return nullptr;
+    const auto glb=arkernel::exportGlbWithEmbeddedTexture(mesh,encoded,"image/png",
+                                                          static_cast<std::size_t>(png_size));
+    if(glb.size()>budget||glb.size()>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))
+      return nullptr;
+    jbyteArray output=env->NewByteArray(static_cast<jsize>(glb.size()));
+    if(!output)return nullptr;
+    env->SetByteArrayRegion(output,0,static_cast<jsize>(glb.size()),
+                            reinterpret_cast<const jbyte*>(glb.data()));
+    return env->ExceptionCheck()?nullptr:output;
+  }catch(...){return nullptr;}
+}

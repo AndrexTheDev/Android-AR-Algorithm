@@ -42,20 +42,23 @@ class ReconstructionFusionSourceMeshInstrumentedTest {
             assertEquals(built.sourceVertices * 3, mesh.positionsMeters.remaining().toLong())
             assertEquals(built.sourceTriangles * 3, mesh.triangleIndices.remaining().toLong())
 
-            val rgba = ByteArray(64 * 64 * 4).also { bytes ->
-                for (pixel in 0 until 64 * 64) {
+            // A higher-resolution view with the same angular field of view
+            // keeps the complete mesh inside the image while projecting each
+            // voxel-scale triangle above the calibrated selection area gate.
+            val rgba = ByteArray(128 * 128 * 4).also { bytes ->
+                for (pixel in 0 until 128 * 128) {
                     bytes[pixel * 4] = 70; bytes[pixel * 4 + 1] = 130.toByte()
                     bytes[pixel * 4 + 2] = 190.toByte(); bytes[pixel * 4 + 3] = 255.toByte()
                 }
             }
-            val textureDepth = MetricDepthBuffer(64, 64, 64,
-                direct(FloatArray(64 * 64) { 2f }),
-                direct(FloatArray(64 * 64) { 1f }), 64, 1_000,
-                direct(FloatArray(64 * 64) { 0.005f }), 64)
+            val textureDepth = MetricDepthBuffer(128, 128, 128,
+                direct(FloatArray(128 * 128) { 2f }),
+                direct(FloatArray(128 * 128) { 1f }), 128, 1_000,
+                direct(FloatArray(128 * 128) { 0.005f }), 128)
             val source = LoadedReconstructionTextureSource(1, 1_000, "arkf://fusion-source/1",
-                64, 64, 256, CanonicalTexturePixelFormat.RGBA8, rgba,
+                128, 128, 512, CanonicalTexturePixelFormat.RGBA8, rgba,
                 ReconstructionImageEncoding.PNG, textureDepth)
-            val textureCalibration = CameraCalibration(64, 64, 40.0, 40.0, 31.5, 31.5)
+            val textureCalibration = CameraCalibration(128, 128, 160.0, 160.0, 63.5, 63.5)
             val candidate = ReconstructionTextureCandidate(source, textureCalibration,
                 doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 1.0)
             val textured = ReconstructionTexturePipeline(ReconstructionTexturePipelineOptions(

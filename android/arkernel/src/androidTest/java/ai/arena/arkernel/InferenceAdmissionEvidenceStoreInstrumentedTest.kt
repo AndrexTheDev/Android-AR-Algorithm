@@ -23,25 +23,25 @@ class InferenceAdmissionEvidenceStoreInstrumentedTest {
         val signature = signature()
         val options = InferenceSemanticConformanceOptions()
         val evidence = PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature,
-            "b".repeat(64), "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3,
+            "b".repeat(64), "d".repeat(64), options, "adapter", "1", driverIdentity(), "software", 3,
             acceptedResult(), 1_000, 1_000)
         store.clear()
         try {
             store.write(evidence)
             assertNotNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3, 1_500))
+                "d".repeat(64), options, "adapter", "1", driverIdentity(), "software", 3, 1_500))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "2", "e".repeat(64),
+                "d".repeat(64), options, "adapter", "2", driverIdentity(),
                 "software", 3, 1_500))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "f".repeat(64),
-                "software", 3, 1_500))
+                "d".repeat(64), options, "adapter", "1",
+                driverIdentity(version = "2"), "software", 3, 1_500))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3, 2_000))
+                "d".repeat(64), options, "adapter", "1", driverIdentity(), "software", 3, 2_000))
 
             File(context.noBackupFilesDir, fileName).writeBytes(byteArrayOf(1, 2, 3))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3, 1_500))
+                "d".repeat(64), options, "adapter", "1", driverIdentity(), "software", 3, 1_500))
         } finally {
             store.clear()
         }
@@ -61,6 +61,12 @@ class InferenceAdmissionEvidenceStoreInstrumentedTest {
         inputChannels = 1, inputMean = listOf(0.0), inputStd = listOf(1.0),
         quantization = TensorQuantization.FLOAT32, labels = mapOf(0L to "Unknown"),
         modelByteSize = modelBytes.size.toLong())
+
+    private fun driverIdentity(version: String = "1") = InferenceDriverIdentity(
+        api = InferenceDriverApi.VULKAN, providerId = "test-vendor",
+        driverVersion = version,
+        acceleratorNameSha256 = InferenceDriverIdentity.hashObservedAcceleratorName("test-gpu"),
+        featureLevel = 13)
 
     private fun signature() = DeviceCapabilitySignature(apiLevel = 35,
         supportedAbis = listOf("arm64-v8a"), lowRamDevice = false, memoryClassMb = 512,

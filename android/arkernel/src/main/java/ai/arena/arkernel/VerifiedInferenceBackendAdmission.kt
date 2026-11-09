@@ -64,7 +64,7 @@ object VerifiedInferenceBackendAdmission {
         goldenSuiteSha256: String,
         adapterId: String,
         adapterVersion: String,
-        driverFingerprintSha256: String,
+        driverIdentity: InferenceDriverIdentity,
         softwareRevision: String,
         policyRevision: Long,
         nowEpochMillis: Long,
@@ -73,7 +73,7 @@ object VerifiedInferenceBackendAdmission {
         options: InferenceSemanticConformanceOptions = InferenceSemanticConformanceOptions(),
     ): VerifiedInferenceBackendAdmissionResult {
         val cacheKey = EvidenceKey(signature, calibrationProfileSha256, goldenSuiteSha256,
-            adapterId, adapterVersion, driverFingerprintSha256, softwareRevision,
+            adapterId, adapterVersion, driverIdentity, softwareRevision,
             policyRevision, nowEpochMillis)
         return createInternal(manifest, modelBytes, cpuFactory, delegateFactory,
             casesOnCacheMiss, options, evidence, cacheKey, sentinelCase)
@@ -115,7 +115,7 @@ object VerifiedInferenceBackendAdmission {
             val exactEvidence = evidence?.takeIf { cached -> cacheKey != null && cached.matches(
                 identity, cacheKey.signature, cacheKey.calibrationProfileSha256,
                 cacheKey.goldenSuiteSha256, options, cacheKey.adapterId,
-                cacheKey.adapterVersion, cacheKey.driverFingerprintSha256,
+                cacheKey.adapterVersion, cacheKey.driverIdentity,
                 cacheKey.softwareRevision, cacheKey.policyRevision, cacheKey.nowEpochMillis) }
             if (exactEvidence != null) {
                 cpuOwned = false
@@ -150,7 +150,7 @@ object VerifiedInferenceBackendAdmission {
         val goldenSuiteSha256: String,
         val adapterId: String,
         val adapterVersion: String,
-        val driverFingerprintSha256: String,
+        val driverIdentity: InferenceDriverIdentity,
         val softwareRevision: String,
         val policyRevision: Long,
         val nowEpochMillis: Long,

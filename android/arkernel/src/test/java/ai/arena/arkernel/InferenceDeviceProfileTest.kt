@@ -7,17 +7,33 @@ import org.junit.Test
 
 class InferenceDeviceProfileTest {
     @Test
+    fun canonicalDriverIdentityIsStableAndBindsObservableFields() {
+        val first = driver()
+        val same = driver()
+        val changed = driver(version = "2")
+        assertEquals(first.fingerprintSha256, same.fingerprintSha256)
+        assertEquals(64, first.fingerprintSha256.length)
+        assertNotEquals(first.fingerprintSha256, changed.fingerprintSha256)
+        assertNotEquals("test-gpu", first.acceleratorNameSha256)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun wildcardDriverProviderIsRejected() {
+        driver().copy(providerId = "vendor*")
+    }
+
+    @Test
     fun lookupRequiresExactCapabilityBackendVersionAndDriver() {
         val profile = profile()
         val manifest = manifest(listOf(profile))
         assertEquals(profile, manifest.measuredDeviceProfile(
-            "a".repeat(64), "litert-gpu", "2.1.0", "b".repeat(64)))
+            "a".repeat(64), "litert-gpu", "2.1.0", driver()))
         assertNull(manifest.measuredDeviceProfile(
-            "c".repeat(64), "litert-gpu", "2.1.0", "b".repeat(64)))
+            "c".repeat(64), "litert-gpu", "2.1.0", driver()))
         assertNull(manifest.measuredDeviceProfile(
-            "a".repeat(64), "litert-gpu", "2.1.1", "b".repeat(64)))
+            "a".repeat(64), "litert-gpu", "2.1.1", driver()))
         assertNull(manifest.measuredDeviceProfile(
-            "a".repeat(64), "litert-gpu", "2.1.0", "c".repeat(64)))
+            "a".repeat(64), "litert-gpu", "2.1.0", driver(version = "2")))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -35,7 +51,7 @@ class InferenceDeviceProfileTest {
     fun exactManifestHashBindsDriverFingerprint() {
         val first = manifest(listOf(profile())).exactIdentity().stableSha256()
         val second = manifest(listOf(profile().copy(
-            driverFingerprintSha256 = "c".repeat(64)))).exactIdentity().stableSha256()
+            driverIdentity = driver(version = "2")))).exactIdentity().stableSha256()
         assertNotEquals(first, second)
     }
 
@@ -43,11 +59,18 @@ class InferenceDeviceProfileTest {
         capabilitySignatureSha256 = "a".repeat(64),
         backendId = "litert-gpu",
         backendVersion = "2.1.0",
-        driverFingerprintSha256 = "b".repeat(64),
+        driverIdentity = driver(),
         averageLatencyMs = 7.0,
         p95LatencyMs = 10.0,
         peakWorkingMemoryBytes = 32L * 1024L * 1024L,
         sampleCount = 100)
+
+    private fun driver(version: String = "1") = InferenceDriverIdentity(
+        api = InferenceDriverApi.VULKAN,
+        providerId = "test-vendor",
+        driverVersion = version,
+        acceleratorNameSha256 = InferenceDriverIdentity.hashObservedAcceleratorName("test-gpu"),
+        featureLevel = 13)
 
     private fun manifest(profiles: List<InferenceDeviceProfile>) = ModelManifest(
         modelId = "depth-small",

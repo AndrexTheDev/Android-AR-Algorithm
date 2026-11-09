@@ -20,7 +20,7 @@ data class InferenceDeviceProfile(
     val capabilitySignatureSha256: String,
     val backendId: String,
     val backendVersion: String,
-    val driverFingerprintSha256: String,
+    val driverIdentity: InferenceDriverIdentity,
     val averageLatencyMs: Double,
     val p95LatencyMs: Double,
     val peakWorkingMemoryBytes: Long,
@@ -28,7 +28,6 @@ data class InferenceDeviceProfile(
 ) {
     init {
         require(capabilitySignatureSha256.isLowercaseSha256())
-        require(driverFingerprintSha256.isLowercaseSha256())
         require(backendId.matches(Regex("[A-Za-z0-9._-]{1,128}")))
         require(backendVersion.isNotBlank() && backendVersion.length <= 128)
         require(averageLatencyMs.isFinite() && averageLatencyMs > 0.0)
@@ -40,10 +39,12 @@ data class InferenceDeviceProfile(
         capabilitySignatureSha256: String,
         backendId: String,
         backendVersion: String,
-        driverFingerprintSha256: String,
+        driverIdentity: InferenceDriverIdentity,
     ): Boolean = this.capabilitySignatureSha256 == capabilitySignatureSha256 &&
         this.backendId == backendId && this.backendVersion == backendVersion &&
-        this.driverFingerprintSha256 == driverFingerprintSha256
+        this.driverIdentity == driverIdentity
+
+    val driverFingerprintSha256: String get() = driverIdentity.fingerprintSha256
 }
 
 private fun String.isLowercaseSha256(): Boolean = matches(Regex("[0-9a-f]{64}"))
@@ -126,12 +127,11 @@ class ModelManifest(
         capabilitySignatureSha256: String,
         backendId: String,
         backendVersion: String,
-        driverFingerprintSha256: String,
+        driverIdentity: InferenceDriverIdentity,
     ): InferenceDeviceProfile? {
         require(capabilitySignatureSha256.isLowercaseSha256())
-        require(driverFingerprintSha256.isLowercaseSha256())
         return deviceProfiles.singleOrNull { it.matches(capabilitySignatureSha256,
-            backendId, backendVersion, driverFingerprintSha256) }
+            backendId, backendVersion, driverIdentity) }
     }
 
     /** Hashes remaining bytes without changing the caller's buffer position. */

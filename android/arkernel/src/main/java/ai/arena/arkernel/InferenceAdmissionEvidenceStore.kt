@@ -65,7 +65,7 @@ internal fun InferenceSemanticConformanceOptions.stableSha256(): String {
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
 
-data class PersistedInferenceAdmissionEvidence(
+data class PersistedInferenceAdmissionEvidence internal constructor(
     val manifestIdentitySha256: String,
     val capabilitySignatureSha256: String,
     val calibrationProfileSha256: String,
@@ -107,7 +107,7 @@ data class PersistedInferenceAdmissionEvidence(
     fun matches(identity: VerifiedInferenceIdentity, signature: DeviceCapabilitySignature,
         calibrationSha256: String, expectedGoldenSuiteSha256: String,
         expectedOptions: InferenceSemanticConformanceOptions, expectedAdapterId: String,
-        expectedAdapterVersion: String, expectedDriverFingerprintSha256: String,
+        expectedAdapterVersion: String, expectedDriverIdentity: InferenceDriverIdentity,
         expectedSoftwareRevision: String,
         expectedPolicyRevision: Long, nowEpochMillis: Long): Boolean =
         manifestIdentitySha256 == identity.manifest.stableSha256() &&
@@ -117,7 +117,7 @@ data class PersistedInferenceAdmissionEvidence(
             conformanceOptionsSha256 == expectedOptions.stableSha256() &&
             adapterId == expectedAdapterId &&
             adapterVersion == expectedAdapterVersion &&
-            driverFingerprintSha256 == expectedDriverFingerprintSha256 &&
+            driverFingerprintSha256 == expectedDriverIdentity.fingerprintSha256 &&
             softwareRevision == expectedSoftwareRevision &&
             policyRevision == expectedPolicyRevision &&
             nowEpochMillis in recordedAtEpochMillis until expiresAtEpochMillis
@@ -135,7 +135,7 @@ data class PersistedInferenceAdmissionEvidence(
             options: InferenceSemanticConformanceOptions,
             adapterId: String,
             adapterVersion: String,
-            driverFingerprintSha256: String,
+            driverIdentity: InferenceDriverIdentity,
             softwareRevision: String,
             policyRevision: Long,
             result: VerifiedInferenceBackendAdmissionResult,
@@ -150,7 +150,8 @@ data class PersistedInferenceAdmissionEvidence(
             return PersistedInferenceAdmissionEvidence(identity.manifest.stableSha256(),
                 signature.stableIdSha256, calibrationProfileSha256, goldenSuiteSha256,
                 options.stableSha256(), adapterId, adapterVersion,
-                driverFingerprintSha256, softwareRevision, policyRevision, recordedAtEpochMillis,
+                driverIdentity.fingerprintSha256, softwareRevision, policyRevision,
+                recordedAtEpochMillis,
                 Math.addExact(recordedAtEpochMillis, validityMillis), report.evaluatedCases,
                 report.comparedDetections, report.comparedDepthPixels,
                 report.maximumDetectionCoordinateErrorPixels,
@@ -195,7 +196,7 @@ class InferenceAdmissionEvidenceStore(
         options: InferenceSemanticConformanceOptions,
         adapterId: String,
         adapterVersion: String,
-        driverFingerprintSha256: String,
+        driverIdentity: InferenceDriverIdentity,
         softwareRevision: String,
         policyRevision: Long,
         nowEpochMillis: Long = System.currentTimeMillis(),
@@ -203,7 +204,6 @@ class InferenceAdmissionEvidenceStore(
         if (!calibrationSha256.isInferenceSha256() ||
             !goldenSuiteSha256.isInferenceSha256() || !adapterId.isInferenceEvidenceId() ||
             !adapterVersion.isInferenceEvidenceId() ||
-            !driverFingerprintSha256.isInferenceSha256() ||
             !softwareRevision.isInferenceEvidenceId() || policyRevision < 0 ||
             nowEpochMillis < 0) return null
         val base = file.baseFile
@@ -213,7 +213,7 @@ class InferenceAdmissionEvidenceStore(
         }.getOrNull() ?: return null
         return evidence.takeIf { it.matches(identity, signature, calibrationSha256,
             goldenSuiteSha256, options, adapterId, adapterVersion,
-            driverFingerprintSha256, softwareRevision, policyRevision, nowEpochMillis) }
+            driverIdentity, softwareRevision, policyRevision, nowEpochMillis) }
     }
 
     @Synchronized fun clear() { file.delete() }

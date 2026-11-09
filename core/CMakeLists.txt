@@ -35,6 +35,7 @@ add_library(arkernel STATIC
     src/surfel_map.cpp
     src/tensor_preprocessor.cpp
     src/temporal_depth_filter.cpp
+    src/texture_view_selection.cpp
     src/tracking_quality.cpp
     src/tsdf_meshing.cpp
     src/visual_frontend.cpp

@@ -39,6 +39,7 @@
 #include "arkernel/surfel_map.h"
 #include "arkernel/tensor_preprocessor.h"
 #include "arkernel/temporal_depth_filter.h"
+#include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
@@ -590,6 +591,102 @@ int main() {
   try{ReconstructionFusionPipeline invalid_pipeline(invalid_pipeline_config);}
   catch(const std::invalid_argument&){rejected_pipeline_config=true;}
   CHECK(rejected_pipeline_config);
+
+  // Texture source selection uses calibrated projection, facing, image support
+  // and measured depth visibility without mutating the source mesh or building an atlas.
+  ReconstructionMesh texture_mesh;
+  texture_mesh.positions_m={{-0.5F,-0.5F,2.0F},{0.5F,-0.5F,2.0F},
+                            {0.5F,0.5F,2.0F},{-0.5F,0.5F,2.0F}};
+  texture_mesh.triangle_indices={0,2,1,0,3,2};
+  const PinholeRadTanCamera texture_camera({100,100,80,80,49.5,49.5});
+  std::vector<float> texture_depth(10000,2.0F);
+  std::vector<float> texture_confidence(10000,1.0F);
+  std::vector<float> texture_uncertainty(10000,0.005F);
+  const TsdfDepthImageView texture_depth_view{100,100,100,texture_depth.data(),
+    texture_depth.size(),texture_confidence.data(),100,texture_confidence.size(),
+    texture_uncertainty.data(),100,texture_uncertainty.size()};
+  std::vector<float> occluding_depth(10000,1.0F);
+  auto occluding_depth_view=texture_depth_view;
+  occluding_depth_view.depth_z_m=occluding_depth.data();
+  Pose outside_texture_pose;outside_texture_pose.translation={5,0,0};
+  Pose back_texture_pose;back_texture_pose.rotation={0,0,1,0};
+  back_texture_pose.translation={0,0,3};
+  std::vector<TextureViewCandidate> texture_candidates{
+    {3,"missing-depth.i420",&texture_camera,{},1.0,nullptr},
+    {2,"occluded.i420",&texture_camera,{},1.0,&occluding_depth_view},
+    {1,"visible.i420",&texture_camera,{},0.8,&texture_depth_view},
+    {5,"back.i420",&texture_camera,back_texture_pose,1.0,&texture_depth_view},
+    {4,"outside.i420",&texture_camera,outside_texture_pose,1.0,&texture_depth_view}};
+  const auto texture_selection=selectTextureViews(texture_mesh,texture_candidates);
+  CHECK(texture_selection.input_valid&&!texture_selection.truncated&&
+        texture_selection.assigned_triangles==2&&
+        texture_selection.unassigned_triangles==0&&
+        texture_selection.rejected_depth_inconsistent>0&&
+        texture_selection.rejected_missing_depth>0&&
+        texture_selection.rejected_back_facing>0&&
+        texture_selection.rejected_outside_image>0&&
+        texture_selection.views.size()==5&&
+        texture_selection.views[0].image_reference=="visible.i420");
+  CHECK(std::all_of(texture_selection.triangles.begin(),
+                    texture_selection.triangles.end(),[](const auto& triangle){
+    return triangle.assigned&&triangle.frame_id==1&&triangle.view_index==0&&
+      triangle.score>0.0&&
+      std::all_of(triangle.normalized_uv.begin(),triangle.normalized_uv.end(),
+                  [](const auto& uv){return uv.x>=0&&uv.x<=1&&uv.y>=0&&uv.y<=1;});}));
+  std::reverse(texture_candidates.begin(),texture_candidates.end());
+  const auto repeated_texture_selection=selectTextureViews(texture_mesh,texture_candidates);
+  CHECK(repeated_texture_selection.triangles[0].frame_id==
+          texture_selection.triangles[0].frame_id&&
+        repeated_texture_selection.triangles[0].normalized_uv[0].x==
+          texture_selection.triangles[0].normalized_uv[0].x);
+  TextureViewSelectionConfig no_depth_texture_config;
+  no_depth_texture_config.require_depth_visibility=false;
+  const std::vector<TextureViewCandidate> no_depth_candidate{
+    {7,"fallback.i420",&texture_camera,{},0.7,nullptr}};
+  const auto no_depth_texture_selection=selectTextureViews(
+      texture_mesh,no_depth_candidate,no_depth_texture_config);
+  CHECK(no_depth_texture_selection.input_valid&&
+        no_depth_texture_selection.assigned_triangles==2&&
+        no_depth_texture_selection.triangles[0].frame_id==7);
+  std::vector<float> unknown_texture_depth(10000,
+      std::numeric_limits<float>::quiet_NaN());
+  auto unknown_texture_depth_view=texture_depth_view;
+  unknown_texture_depth_view.depth_z_m=unknown_texture_depth.data();
+  const std::vector<TextureViewCandidate> unknown_texture_candidate{
+    {8,"unknown.i420",&texture_camera,{},1.0,&unknown_texture_depth_view}};
+  const auto unknown_texture_selection=selectTextureViews(
+      texture_mesh,unknown_texture_candidate);
+  CHECK(unknown_texture_selection.input_valid&&
+        unknown_texture_selection.assigned_triangles==0&&
+        unknown_texture_selection.rejected_missing_depth==2);
+  TsdfDepthImageView malformed_texture_depth;
+  malformed_texture_depth.width=100;malformed_texture_depth.height=100;
+  const std::vector<TextureViewCandidate> malformed_texture_candidate{
+    {9,"malformed.i420",&texture_camera,{},1.0,&malformed_texture_depth}};
+  const auto malformed_texture_selection=selectTextureViews(
+      texture_mesh,malformed_texture_candidate);
+  CHECK(!malformed_texture_selection.input_valid&&
+        malformed_texture_selection.error=="invalid texture view candidate");
+  auto limited_texture_config=no_depth_texture_config;
+  limited_texture_config.max_projection_tests=1;
+  const auto limited_texture_selection=selectTextureViews(
+      texture_mesh,no_depth_candidate,limited_texture_config);
+  CHECK(limited_texture_selection.input_valid&&limited_texture_selection.truncated&&
+        limited_texture_selection.projection_tests==1&&
+        limited_texture_selection.assigned_triangles==1&&
+        limited_texture_selection.unassigned_triangles==1);
+  auto duplicate_texture_candidates=no_depth_candidate;
+  duplicate_texture_candidates.push_back(no_depth_candidate.front());
+  const auto duplicate_texture_selection=selectTextureViews(
+      texture_mesh,duplicate_texture_candidates,no_depth_texture_config);
+  CHECK(!duplicate_texture_selection.input_valid&&
+        duplicate_texture_selection.error=="invalid texture view candidate");
+  auto invalid_texture_config=no_depth_texture_config;
+  invalid_texture_config.min_consistent_depth_samples=5;
+  bool rejected_texture_config=false;
+  try{selectTextureViews(texture_mesh,no_depth_candidate,invalid_texture_config);}
+  catch(const std::invalid_argument&){rejected_texture_config=true;}
+  CHECK(rejected_texture_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

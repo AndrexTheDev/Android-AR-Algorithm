@@ -55,6 +55,10 @@ The Camera2 bridge now associates exposure time and ISO by exact `SENSOR_TIMESTA
 
 The dependency-free `ReconstructionMesh` carries indexed triangle positions in metres, optional normals, optional UV coordinates and a base-colour texture URI. Vertex and triangle budgets, finite values and every index are validated.
 
+`selectTextureViews` now performs the bounded first stage of multi-view texturing without mutating that mesh. For each triangle it evaluates uniquely identified archived image references in deterministic frame-ID order using calibrated distorted projection, geometric front-facing angle, full-corner image support, projected pixel area, capture quality and optional aligned metric Z-depth. The depth gate checks four interior barycentric locations with absolute, relative and uncertainty-derived tolerance. Missing depth is unknown rather than visible; depth-backed visibility is required by default. Output records the selected frame, source-image normalized corner coordinates and score per triangle plus explicit rejection/truncation telemetry. Candidate, vertex, triangle and projection-test budgets bound memory and work.
+
+This is deliberately not yet an atlas or finished texture: adjacent labels are not globally regularized, pixels are not copied, exposure is not compensated and seams are not blended. OpenMVS confirms the useful separation between visibility-aware face/view quality, coherent labeling, seam leveling and atlas packing, but its AGPL implementation is not linked or copied. MIT-licensed xatlas remains a candidate for a separately reviewed UV parameterization adapter; source-view coordinates still need conversion into atlas coordinates before assigning `ReconstructionMesh::texcoords`.
+
 Core exports:
 
 - **glTF 2.0 (`.gltf` + `.bin` + PNG/JPEG)**: primary interchange/viewer format with indexed geometry, normals, UVs and PBR base colour;
@@ -73,7 +77,8 @@ An Android product viewer should be a separate optional module and load glTF/GLB
 ## Research basis
 
 - COLMAP separates Structure-from-Motion, global optimization and Multi-View Stereo; it is a final-reconstruction reference rather than an Android runtime dependency.
-- OpenMVS implements dense reconstruction, mesh reconstruction/refinement and multi-view texturing from poses and sparse geometry.
+- OpenMVS implements dense reconstruction and separates projected visibility/face-view quality, coherent labeling, seam leveling and atlas packing; its AGPL code is a design reference, not a linked dependency.
+- xatlas provides MIT-licensed mesh parameterization/UV unwrapping and is a candidate for a separately reviewed optional atlas adapter.
 - Open3D provides references for registration, reconstruction, processing, visualization and PBR.
 - Khronos glTF 2.0 is royalty-free and designed for efficient loading and broad tool interoperability.
 - Filament is a mobile PBR renderer with Android and glTF/GLB support and belongs in an optional viewer adapter.

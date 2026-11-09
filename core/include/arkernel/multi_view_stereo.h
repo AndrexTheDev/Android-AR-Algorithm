@@ -19,6 +19,9 @@ struct MultiViewStereoConfig {
   double min_depth_m{0.15};
   double max_depth_m{10.0};
   std::size_t depth_hypotheses{64};
+  std::size_t refinement_levels{2};
+  std::size_t refinement_hypotheses{9};
+  double refinement_radius_steps{1.5};
   int pixel_stride{2};
   int patch_radius{2};
   std::size_t min_supporting_views{2};

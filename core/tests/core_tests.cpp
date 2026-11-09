@@ -319,13 +319,23 @@ int main() {
   MultiViewStereoConfig mvs_config;mvs_config.min_depth_m=1;mvs_config.max_depth_m=4;
   mvs_config.depth_hypotheses=31;mvs_config.pixel_stride=4;mvs_config.min_zncc=0.85;
   mvs_config.min_winner_margin=0.005;
+  auto coarse_mvs_config=mvs_config;coarse_mvs_config.refinement_levels=0;
+  const auto coarse_mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_sources,
+    coarse_mvs_config);
   const auto mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_sources,mvs_config);
-  CHECK(mvs_depth.valid&&mvs_depth.valid_pixels>40);
+  CHECK(coarse_mvs_depth.valid&&mvs_depth.valid&&mvs_depth.valid_pixels>40);
   const std::size_t mvs_center=23*mvs_width+31;
   CHECK(std::isfinite(mvs_depth.depth_m[mvs_center])&&
         std::abs(mvs_depth.depth_m[mvs_center]-2.0F)<0.12F&&
         mvs_depth.confidence[mvs_center]>0.5F&&mvs_depth.uncertainty_m[mvs_center]>0);
+  CHECK(std::isfinite(coarse_mvs_depth.uncertainty_m[mvs_center])&&
+        mvs_depth.uncertainty_m[mvs_center]<coarse_mvs_depth.uncertainty_m[mvs_center]);
   CHECK(!estimateMultiViewDepth(mvs_reference_frame,{mvs_sources.front()},mvs_config).valid);
+  auto invalid_refinement=mvs_config;invalid_refinement.refinement_hypotheses=2;
+  bool rejected_refinement=false;
+  try{estimateMultiViewDepth(mvs_reference_frame,mvs_sources,invalid_refinement);}
+  catch(const std::invalid_argument&){rejected_refinement=true;}
+  CHECK(rejected_refinement);
 
   TemporalDepthFilterConfig temporal_config;temporal_config.max_absolute_difference_m=0.5;
   temporal_config.max_relative_difference=0.5;temporal_config.history_weight=0.5;

@@ -31,8 +31,16 @@ std::optional<double> patchZncc(const MultiViewStereoFrame& reference,const Mult
 
 MultiViewStereoDepth estimateMultiViewDepth(const MultiViewStereoFrame& reference,
  const std::vector<MultiViewStereoFrame>& sources,MultiViewStereoConfig config){
- if(config.min_depth_m<=0||config.max_depth_m<=config.min_depth_m||config.depth_hypotheses<3||
-    config.depth_hypotheses>512||config.pixel_stride<=0||config.patch_radius<1||config.patch_radius>5||
+ if(!std::isfinite(config.min_depth_m)||!std::isfinite(config.max_depth_m)||
+    !std::isfinite(config.refinement_radius_steps)||!std::isfinite(config.min_baseline_m)||
+    !std::isfinite(config.max_baseline_m)||!std::isfinite(config.min_zncc)||
+    !std::isfinite(config.min_winner_margin)||config.min_depth_m<=0||
+    config.max_depth_m<=config.min_depth_m||config.depth_hypotheses<3||
+    config.depth_hypotheses>512||config.refinement_levels>3||
+    (config.refinement_levels>0&&(config.refinement_hypotheses<3||
+      config.refinement_hypotheses>33||config.refinement_radius_steps<=0.0||
+      config.refinement_radius_steps>4.0))||config.pixel_stride<=0||
+    config.patch_radius<1||config.patch_radius>5||
     config.min_supporting_views==0||config.max_source_views==0||config.min_supporting_views>config.max_source_views||
     config.max_output_pixels==0||config.min_baseline_m<=0||config.max_baseline_m<=config.min_baseline_m||
     config.min_zncc<=-1||config.min_zncc>=1||config.min_winner_margin<=0||config.min_winner_margin>=2)
@@ -53,21 +61,54 @@ MultiViewStereoDepth estimateMultiViewDepth(const MultiViewStereoFrame& referenc
  const int border=config.patch_radius+1;const double inverse_near=1.0/config.min_depth_m,inverse_far=1.0/config.max_depth_m;
  const double inverse_step=(inverse_near-inverse_far)/static_cast<double>(config.depth_hypotheses-1);
  for(int y=border;y<reference.image.height-border;y+=config.pixel_stride)for(int x=border;x<reference.image.width-border;x+=config.pixel_stride){
-   std::vector<double> scores(config.depth_hypotheses,-2.0);std::vector<std::size_t> supports(config.depth_hypotheses);
-   for(std::size_t hypothesis=0;hypothesis<config.depth_hypotheses;++hypothesis){const double depth=1.0/(inverse_near-inverse_step*hypothesis);
-     double score=0;std::size_t support=0;for(const auto* source:usable){const auto value=patchZncc(reference,*source,x,y,depth,config.patch_radius);
+   auto scoreAt=[&](double inverse_depth,std::size_t& support){
+     if(!std::isfinite(inverse_depth)||inverse_depth<inverse_far||inverse_depth>inverse_near){support=0;return -2.0;}
+     const double depth=1.0/inverse_depth;double score=0;support=0;
+     for(const auto* source:usable){const auto value=patchZncc(reference,*source,x,y,depth,config.patch_radius);
        if(value){score+=*value;++support;}}
-     if(support>=config.min_supporting_views){scores[hypothesis]=score/static_cast<double>(support);supports[hypothesis]=support;}}
-   const auto best_iterator=std::max_element(scores.begin(),scores.end());const std::size_t best=static_cast<std::size_t>(best_iterator-scores.begin());
-   const double best_score=*best_iterator;if(best_score<config.min_zncc)continue;double second=-2;
-   for(std::size_t i=0;i<scores.size();++i)if((i+1<best||i>best+1)&&scores[i]>second)second=scores[i];
-   const double margin=best_score-second;if(second>-1.5&&margin<config.min_winner_margin)continue;
-   const double inverse_depth=inverse_near-inverse_step*best;const double depth=1.0/inverse_depth;
-   const double neighboring_inverse=best+1<config.depth_hypotheses?inverse_depth-inverse_step:inverse_depth+inverse_step;
+     return support>=config.min_supporting_views?score/static_cast<double>(support):-2.0;
+   };
+   std::vector<double> scores(config.depth_hypotheses,-2.0);std::vector<std::size_t> supports(config.depth_hypotheses);
+   for(std::size_t hypothesis=0;hypothesis<config.depth_hypotheses;++hypothesis){
+     const double inverse_depth=inverse_near-inverse_step*hypothesis;
+     scores[hypothesis]=scoreAt(inverse_depth,supports[hypothesis]);}
+   const auto coarse_best=std::max_element(scores.begin(),scores.end());
+   const std::size_t coarse_index=static_cast<std::size_t>(coarse_best-scores.begin());
+   double best_inverse=inverse_near-inverse_step*coarse_index;
+   double best_score=*coarse_best;std::size_t best_support=supports[coarse_index];
+   double second_score=-2.0;double final_inverse_step=inverse_step;
+   for(std::size_t i=0;i<scores.size();++i)
+     if((i+1<coarse_index||i>coarse_index+1)&&scores[i]>second_score)second_score=scores[i];
+   double search_step=inverse_step;
+   for(std::size_t level=0;level<config.refinement_levels&&best_score>-1.5;++level){
+     const double radius=search_step*config.refinement_radius_steps;
+     const double lower=std::max(inverse_far,best_inverse-radius);
+     const double upper=std::min(inverse_near,best_inverse+radius);
+     if(!(upper>lower))break;
+     const double step=(upper-lower)/static_cast<double>(config.refinement_hypotheses-1);
+     std::vector<double> refined_scores(config.refinement_hypotheses,-2.0);
+     std::vector<std::size_t> refined_supports(config.refinement_hypotheses);
+     for(std::size_t i=0;i<config.refinement_hypotheses;++i)
+       refined_scores[i]=scoreAt(lower+step*i,refined_supports[i]);
+     const auto refined_best=std::max_element(refined_scores.begin(),refined_scores.end());
+     const std::size_t refined_index=static_cast<std::size_t>(refined_best-refined_scores.begin());
+     best_inverse=lower+step*refined_index;best_score=*refined_best;
+     best_support=refined_supports[refined_index];
+     // Keep the coarse non-neighbour peak for ambiguity gating. Nearby fine samples
+     // describe the same mode and must not be mistaken for an independent winner.
+     final_inverse_step=step;search_step=step;
+   }
+   if(best_score<config.min_zncc)continue;
+   const double margin=best_score-second_score;
+   if(second_score>-1.5&&margin<config.min_winner_margin)continue;
+   const double depth=1.0/best_inverse;
+   const double neighboring_inverse=best_inverse-final_inverse_step>=inverse_far?
+     best_inverse-final_inverse_step:best_inverse+final_inverse_step;
+   if(neighboring_inverse<=0.0||neighboring_inverse>inverse_near)continue;
    const double sampling_uncertainty=std::abs(depth-1.0/neighboring_inverse)*0.5;
    const double score_confidence=(best_score-config.min_zncc)/(1.0-config.min_zncc);
-   const double margin_confidence=second<=-1.5?1.0:std::min(1.0,margin/config.min_winner_margin);
-   const double view_confidence=static_cast<double>(supports[best])/usable.size();
+   const double margin_confidence=second_score<=-1.5?1.0:std::min(1.0,margin/config.min_winner_margin);
+   const double view_confidence=static_cast<double>(best_support)/usable.size();
    const float confidence=static_cast<float>(std::max(0.0,std::min(1.0,score_confidence*margin_confidence*view_confidence)));
    const std::size_t index=static_cast<std::size_t>(y)*result.width+x;result.depth_m[index]=static_cast<float>(depth);
    result.confidence[index]=confidence;result.uncertainty_m[index]=static_cast<float>(sampling_uncertainty/std::max(0.1F,confidence));++result.valid_pixels;

@@ -71,6 +71,55 @@ const char* gradeName(MetricAccuracyGrade grade) {
     default: return "unverified";
   }
 }
+void appendQualityJson(std::ostream& out, const AccuracyAssessment* assessment) {
+  const MetricAccuracyGrade grade = assessment ? assessment->grade :
+      MetricAccuracyGrade::kUnverified;
+  out << "\"units\":\"meter\",\"accuracy\":\"" << gradeName(grade) << "\"";
+  if (!assessment) return;
+  const auto& dimensional = assessment->dimensional_validation;
+  out << ",\"exportAllowed\":" << (assessment->export_allowed ? "true" : "false")
+      << ",\"heldOutDimensions\":{\"passed\":"
+      << (dimensional.passed ? "true" : "false")
+      << ",\"acceptedObservations\":" << dimensional.accepted_observations
+      << ",\"dimensionBins\":" << dimensional.dimension_bins
+      << ",\"meanAbsoluteErrorMeters\":" << dimensional.mean_absolute_error_m
+      << ",\"maximumEffectiveAbsoluteErrorMeters\":"
+      << dimensional.maximum_effective_absolute_error_m
+      << ",\"maximumEffectiveRelativeError\":"
+      << dimensional.maximum_effective_relative_error
+      << ",\"maximumValidatedDimensionMeters\":"
+      << dimensional.maximum_validated_dimension_m << "},\"qualityFailures\":[";
+  for (std::size_t i = 0; i < assessment->failures.size(); ++i) {
+    if (i) out << ',';
+    out << '"' << escapeJson(assessment->failures[i]) << '"';
+  }
+  out << ']';
+}
+void appendQualityComments(std::ostream& out, const AccuracyAssessment& assessment,
+                           const char* prefix) {
+  const auto& dimensional = assessment.dimensional_validation;
+  out << prefix << "accuracy " << gradeName(assessment.grade) << '\n'
+      << prefix << "held_out_passed " << (dimensional.passed ? 1 : 0) << '\n'
+      << prefix << "held_out_observations " << dimensional.accepted_observations << '\n'
+      << prefix << "held_out_dimension_bins " << dimensional.dimension_bins << '\n'
+      << prefix << "held_out_mean_absolute_error_m " << dimensional.mean_absolute_error_m << '\n'
+      << prefix << "held_out_maximum_effective_absolute_error_m "
+      << dimensional.maximum_effective_absolute_error_m << '\n'
+      << prefix << "held_out_maximum_effective_relative_error "
+      << dimensional.maximum_effective_relative_error << '\n'
+      << prefix << "held_out_maximum_validated_dimension_m "
+      << dimensional.maximum_validated_dimension_m << '\n';
+  for (const auto& failure : assessment.failures)
+    out << prefix << "quality_failure " << failure << '\n';
+}
+AccuracyAssessment requireExportableAssessment(const ReconstructionQuality& quality,
+                                               ScanMode mode,
+                                               const AccuracyPolicy& policy) {
+  auto assessment = assessReconstructionQuality(quality, mode, policy);
+  if (!assessment.export_allowed)
+    throw std::invalid_argument("Reconstruction quality does not permit export");
+  return assessment;
+}
 }  // namespace
 
 DimensionalValidationReport evaluateHeldOutDimensions(
@@ -247,7 +296,8 @@ MeshValidationResult validateMesh(const ReconstructionMesh& mesh,
   return {true, {}};
 }
 
-GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name) {
+static GltfAsset exportGltfInternal(const ReconstructionMesh& mesh, const std::string& bin_name,
+                             const AccuracyAssessment* assessment) {
   const auto validation = validateMesh(mesh);
   if (!validation.valid) throw std::invalid_argument(validation.error);
   if (bin_name.empty()) throw std::invalid_argument("glTF binary file name is empty");
@@ -312,14 +362,25 @@ GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name
     "\",\"mimeType\":\"" << escapeJson(mesh.base_color_texture.mime_type) <<
     "\"}],\"textures\":[{\"source\":0}],\"materials\":[{\"pbrMetallicRoughness\":{"
     "\"baseColorTexture\":{\"index\":0},\"metallicFactor\":0,\"roughnessFactor\":1}}]";
-  json << ",\"extras\":{\"units\":\"meter\",\"accuracy\":\""
-       << gradeName(MetricAccuracyGrade::kUnverified) << "\"}}";
+  json << ",\"extras\":{";
+  appendQualityJson(json, assessment);
+  json << "}}";
   asset.json = json.str(); return asset;
 }
 
-std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
+GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name) {
+  return exportGltfInternal(mesh, bin_name, nullptr);
+}
+
+GltfAsset exportAssessedGltf(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy,
+    const std::string& bin_name) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return exportGltfInternal(mesh, bin_name, &assessment);
+}
+
+static std::vector<std::uint8_t> packageGlb(GltfAsset asset) {
   constexpr const char* internal_name="__arkernel_internal.bin";
-  GltfAsset asset=exportGltf(mesh,internal_name);
   const std::string uri="\"uri\":\""+std::string(internal_name)+"\",";
   const std::size_t position=asset.json.find(uri);
   if(position==std::string::npos)throw std::runtime_error("Internal glTF buffer URI missing");
@@ -345,9 +406,22 @@ std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
   return output;
 }
 
-std::string exportObj(const ReconstructionMesh& mesh, const std::string& material_name) {
+std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
+  return packageGlb(exportGltfInternal(mesh, "__arkernel_internal.bin", nullptr));
+}
+
+std::vector<std::uint8_t> exportAssessedGlb(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return packageGlb(exportGltfInternal(mesh, "__arkernel_internal.bin", &assessment));
+}
+
+static std::string exportObjInternal(const ReconstructionMesh& mesh, const std::string& material_name,
+                              const AccuracyAssessment* assessment) {
   const auto validation = validateMesh(mesh); if (!validation.valid) throw std::invalid_argument(validation.error);
   std::ostringstream out; out << std::setprecision(9) << "# AR Kernel; units: meters\n";
+  if (assessment) appendQualityComments(out, *assessment, "# arkernel ");
+  else out << "# arkernel accuracy unverified\n";
   if (!mesh.base_color_texture.uri.empty()) out << "mtllib " << material_name << "\nusemtl material0\n";
   for (const auto& p : mesh.positions_m) out << "v " << p.x << ' ' << p.y << ' ' << p.z << "\n";
   for (const auto& uv : mesh.texcoords) out << "vt " << uv.x << ' ' << 1.0F-uv.y << "\n";
@@ -361,16 +435,30 @@ std::string exportObj(const ReconstructionMesh& mesh, const std::string& materia
   } return out.str();
 }
 
+std::string exportObj(const ReconstructionMesh& mesh, const std::string& material_name) {
+  return exportObjInternal(mesh, material_name, nullptr);
+}
+
+std::string exportAssessedObj(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy,
+    const std::string& material_name) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return exportObjInternal(mesh, material_name, &assessment);
+}
+
 std::string exportMtl(const ReconstructionMesh& mesh) {
   std::ostringstream out; out << "newmtl material0\nKd 1 1 1\nKa 0 0 0\nKs 0 0 0\nillum 1\n";
   if (!mesh.base_color_texture.uri.empty()) out << "map_Kd " << mesh.base_color_texture.uri << "\n";
   return out.str();
 }
 
-std::string exportPly(const ReconstructionMesh& mesh) {
+static std::string exportPlyInternal(const ReconstructionMesh& mesh,
+                              const AccuracyAssessment* assessment) {
   const auto validation = validateMesh(mesh); if (!validation.valid) throw std::invalid_argument(validation.error);
-  std::ostringstream out; out << std::setprecision(9) << "ply\nformat ascii 1.0\ncomment units meter\nelement vertex "
-    << mesh.positions_m.size() << "\nproperty float x\nproperty float y\nproperty float z\n";
+  std::ostringstream out; out << std::setprecision(9) << "ply\nformat ascii 1.0\ncomment units meter\n";
+  if (assessment) appendQualityComments(out, *assessment, "comment arkernel ");
+  else out << "comment arkernel accuracy unverified\n";
+  out << "element vertex " << mesh.positions_m.size() << "\nproperty float x\nproperty float y\nproperty float z\n";
   if (!mesh.normals.empty()) out << "property float nx\nproperty float ny\nproperty float nz\n";
   out << "element face " << mesh.triangle_indices.size()/3
       << "\nproperty list uchar uint vertex_indices\nend_header\n";
@@ -378,6 +466,16 @@ std::string exportPly(const ReconstructionMesh& mesh) {
     if(!mesh.normals.empty()){const auto& n=mesh.normals[i];out<<' '<<n.x<<' '<<n.y<<' '<<n.z;} out<<'\n'; }
   for(std::size_t i=0;i<mesh.triangle_indices.size();i+=3) out<<"3 "<<mesh.triangle_indices[i]<<' '<<mesh.triangle_indices[i+1]<<' '<<mesh.triangle_indices[i+2]<<'\n';
   return out.str();
+}
+
+std::string exportPly(const ReconstructionMesh& mesh) {
+  return exportPlyInternal(mesh, nullptr);
+}
+
+std::string exportAssessedPly(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return exportPlyInternal(mesh, &assessment);
 }
 
 }  // namespace arkernel

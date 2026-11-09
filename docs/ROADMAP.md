@@ -96,7 +96,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 
 ## Metric reconstruction, object mode and portable assets
 
-- [x] Add evidence-based `unverified` / `approximate` / `centimeter-validated` quality contract.
+- [x] Add evidence-based `unverified` / `approximate` / `centimeter-validated` quality contract and assessed glTF/GLB/OBJ/PLY export paths that recompute and embed the held-out report; legacy geometry-only exports remain `unverified`.
 - [x] Add bounded canonical indexed mesh with normals, UVs and base-colour texture reference.
 - [x] Add dependency-free glTF 2.0, OBJ/MTL and PLY exporters.
 - [x] Add offline WebGL 2 viewer for exported textured glTF assets.

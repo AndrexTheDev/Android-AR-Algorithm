@@ -10,7 +10,7 @@ No camera-only Android implementation can truthfully guarantee absolute centimet
 - `approximate`: exportable geometry in metres, but an accuracy gate failed;
 - `centimeter-validated`: every configured evidence gate passed for this capture.
 
-The default policy requires calibrated intrinsics and camera/IMU extrinsics, independent metric scale, converged global optimization, reprojection RMSE <= 1 px, metric-depth RMSE <= 0.01 m, scale standard deviation <= 0.5%, and observed coverage >= 70% for environments or 85% for objects. These gates are not metrology certification. Validation must use held-out scale bars, surveyed targets or sensor ground truth. Apps must retain the metrics with each export and must not relabel `approximate` output.
+The default policy requires calibrated intrinsics and camera/IMU extrinsics, independent metric scale, converged global optimization, reprojection RMSE <= 1 px, metric-depth RMSE <= 0.01 m, scale standard deviation <= 0.5%, and observed coverage >= 70% for environments or 85% for objects. These gates are not metrology certification. Validation must use held-out scale bars, surveyed targets or sensor ground truth. Apps must retain the metrics with each export and must not relabel `approximate` output. The additive `exportAssessedGltf`, `exportAssessedGlb`, `exportAssessedObj`, and `exportAssessedPly` paths recompute the assessment from raw quality evidence, reject output when `export_allowed` is false, and embed grade, held-out scalar metrics and quality failures in glTF extras or format-native comments. Legacy geometry-only exporters remain compatible but label output `unverified`.
 
 For a 2 m object, 0.5% scale uncertainty alone is 1 cm. `assessed_extent_m * scale_stddev_ratio` is therefore also gated against a 1 cm absolute limit. Larger rooms automatically need a stricter relative-scale result.
 
@@ -64,7 +64,7 @@ Planned adapters include GLB, USDZ, untextured STL, LAS/LAZ/E57 and 3D Tiles. ST
 
 ## Viewer
 
-`tools/viewer/index.html` is a dependency-free WebGL 2 viewer for the generated glTF subset. Select one `.glb`, or select `.gltf`, referenced `.bin` and optional texture together. It supports orbit, zoom, normals, indexed triangles and base-colour textures without uploads or network access. Unsupported component encodings are rejected.
+`tools/viewer/index.html` is a dependency-free WebGL 2 viewer for the generated glTF subset. Select one `.glb`, or select `.gltf`, referenced `.bin` and optional texture together. It supports orbit, zoom, normals, indexed triangles and base-colour textures without uploads or network access. It also displays the embedded accuracy grade plus held-out observation count and maximum validated dimension; it does not infer or upgrade quality when metadata is absent. Unsupported component encodings are rejected.
 
 An Android product viewer should be a separate optional module and load glTF/GLB through Filament `gltfio`; this keeps a renderer out of the headless core AAR.
 

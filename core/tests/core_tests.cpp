@@ -79,6 +79,7 @@ int main() {
   CHECK(accuracy.dimensional_validation.passed&&
         accuracy.dimensional_validation.accepted_observations==3&&
         accuracy.dimensional_validation.dimension_bins>=2);
+  const auto validated_reconstruction_quality=reconstruction_quality;
   reconstruction_quality.assessed_extent_m=4.0;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
@@ -196,6 +197,12 @@ int main() {
   CHECK(gltf.binary.size()==3*sizeof(Vec3f)+3*sizeof(Vec3f)+3*sizeof(Vec2f)+3*sizeof(std::uint32_t));
   CHECK(gltf.json.find("\"version\":\"2.0\"")!=std::string::npos);
   CHECK(gltf.json.find("atlas.png")!=std::string::npos);
+  CHECK(gltf.json.find("\"accuracy\":\"unverified\"")!=std::string::npos);
+  const auto assessed_gltf=exportAssessedGltf(mesh,validated_reconstruction_quality,
+    ScanMode::kObject,AccuracyPolicy{},"triangle.bin");
+  CHECK(assessed_gltf.json.find("\"accuracy\":\"centimeter-validated\"")!=
+        std::string::npos);
+  CHECK(assessed_gltf.json.find("\"acceptedObservations\":3")!=std::string::npos);
   const auto glb=exportGlb(mesh);
   CHECK(glb.size()>28&&glb[0]=='g'&&glb[1]=='l'&&glb[2]=='T'&&glb[3]=='F');
   const auto read_u32=[&glb](std::size_t offset){return static_cast<std::uint32_t>(glb[offset])|
@@ -203,9 +210,24 @@ int main() {
     static_cast<std::uint32_t>(glb[offset+2])<<16U|
     static_cast<std::uint32_t>(glb[offset+3])<<24U;};
   CHECK(read_u32(4)==2&&read_u32(8)==glb.size()&&read_u32(16)==0x4E4F534AU);
+  const auto assessed_glb=exportAssessedGlb(mesh,validated_reconstruction_quality,
+    ScanMode::kObject);
+  const std::string assessed_glb_text(assessed_glb.begin(),assessed_glb.end());
+  CHECK(assessed_glb_text.find("centimeter-validated")!=std::string::npos);
   CHECK(exportObj(mesh).find("f 1/1/1 2/2/2 3/3/3")!=std::string::npos);
+  const auto assessed_obj=exportAssessedObj(mesh,validated_reconstruction_quality,
+    ScanMode::kObject);
+  CHECK(assessed_obj.find("# arkernel accuracy centimeter-validated")!=std::string::npos);
   CHECK(exportMtl(mesh).find("map_Kd atlas.png")!=std::string::npos);
   CHECK(exportPly(mesh).find("element face 1")!=std::string::npos);
+  const auto assessed_ply=exportAssessedPly(mesh,validated_reconstruction_quality,
+    ScanMode::kObject);
+  CHECK(assessed_ply.find("comment arkernel accuracy centimeter-validated")!=
+        std::string::npos);
+  bool rejected_unverified_export=false;
+  try{exportAssessedGltf(mesh,reconstruction_quality,ScanMode::kObject);}
+  catch(const std::invalid_argument&){rejected_unverified_export=true;}
+  CHECK(rejected_unverified_export);
   mesh.triangle_indices[2]=3;
   CHECK(!validateMesh(mesh).valid);
 

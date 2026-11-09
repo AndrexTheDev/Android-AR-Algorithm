@@ -1,17 +1,26 @@
 #include "arkernel/reconstruction_asset.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace arkernel {
 namespace {
 bool finite(float value) { return std::isfinite(value); }
 bool finite(double value) { return std::isfinite(value); }
+bool validEvidenceId(const std::string& value) {
+  if (value.empty() || value.size() > 128) return false;
+  return std::all_of(value.begin(), value.end(), [](unsigned char c) {
+    return std::isalnum(c) != 0 || c == '.' || c == '_' || c == ':' || c == '-';
+  });
+}
 std::string escapeJson(const std::string& text) {
   std::ostringstream out;
   for (const unsigned char c : text) {
@@ -58,6 +67,91 @@ const char* gradeName(MetricAccuracyGrade grade) {
 }
 }  // namespace
 
+DimensionalValidationReport evaluateHeldOutDimensions(
+    const std::vector<HeldOutDimensionObservation>& observations,
+    const DimensionalValidationPolicy& p) {
+  DimensionalValidationReport result;
+  const bool policy_valid = p.max_observations > 0 &&
+      p.min_observations > 0 && p.min_observations <= p.max_observations &&
+      p.min_dimension_bins > 0 && p.min_dimension_bins <= p.min_observations &&
+      finite(p.dimension_bin_width_m) && p.dimension_bin_width_m > 0.0 &&
+      finite(p.max_reference_uncertainty_m) && p.max_reference_uncertainty_m >= 0.0 &&
+      finite(p.max_mean_absolute_error_m) && p.max_mean_absolute_error_m > 0.0 &&
+      finite(p.max_absolute_error_m) && p.max_absolute_error_m > 0.0 &&
+      finite(p.max_relative_error) && p.max_relative_error > 0.0 &&
+      p.max_relative_error <= 1.0;
+  if (!policy_valid) {
+    result.failures.push_back("invalid dimensional validation policy");
+    return result;
+  }
+  if (observations.size() > p.max_observations)
+    result.failures.push_back("dimensional observation budget exceeded");
+
+  std::unordered_set<std::string> evidence_ids;
+  std::set<std::int64_t> dimension_bins;
+  double absolute_error_sum = 0.0;
+  const std::size_t count = std::min(observations.size(), p.max_observations);
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto& observation = observations[i];
+    const Vec3 delta = observation.reconstructed_b_m - observation.reconstructed_a_m;
+    const double reconstructed_distance = delta.norm();
+    const bool id_valid = validEvidenceId(observation.evidence_id);
+    const bool unique_id = id_valid && evidence_ids.insert(observation.evidence_id).second;
+    const bool finite_points = finite(observation.reconstructed_a_m.x) &&
+        finite(observation.reconstructed_a_m.y) &&
+        finite(observation.reconstructed_a_m.z) &&
+        finite(observation.reconstructed_b_m.x) &&
+        finite(observation.reconstructed_b_m.y) &&
+        finite(observation.reconstructed_b_m.z);
+    const bool valid = id_valid && unique_id && finite_points &&
+        finite(reconstructed_distance) && reconstructed_distance > 0.0 &&
+        finite(observation.reference_distance_m) && observation.reference_distance_m > 0.0 &&
+        finite(observation.reference_uncertainty_m) &&
+        observation.reference_uncertainty_m >= 0.0 &&
+        observation.reference_uncertainty_m <= p.max_reference_uncertainty_m &&
+        observation.reference_uncertainty_m < observation.reference_distance_m &&
+        observation.reference_kind != DimensionalReferenceKind::kUnknown &&
+        observation.held_out_from_calibration_and_optimization;
+    if (!valid) {
+      if (std::find(result.failures.begin(), result.failures.end(),
+                    "invalid or non-independent dimensional observation") ==
+          result.failures.end())
+        result.failures.push_back("invalid or non-independent dimensional observation");
+      continue;
+    }
+    const double absolute_error = std::abs(reconstructed_distance -
+                                           observation.reference_distance_m);
+    const double effective_error = std::max(0.0, absolute_error -
+                                                  observation.reference_uncertainty_m);
+    absolute_error_sum += absolute_error;
+    result.maximum_effective_absolute_error_m = std::max(
+        result.maximum_effective_absolute_error_m, effective_error);
+    result.maximum_effective_relative_error = std::max(
+        result.maximum_effective_relative_error,
+        effective_error / observation.reference_distance_m);
+    result.maximum_validated_dimension_m = std::max(
+        result.maximum_validated_dimension_m, observation.reference_distance_m);
+    dimension_bins.insert(static_cast<std::int64_t>(std::floor(
+        observation.reference_distance_m / p.dimension_bin_width_m)));
+    ++result.accepted_observations;
+  }
+  result.dimension_bins = dimension_bins.size();
+  if (result.accepted_observations > 0)
+    result.mean_absolute_error_m = absolute_error_sum / result.accepted_observations;
+  if (result.accepted_observations < p.min_observations)
+    result.failures.push_back("insufficient held-out dimensional observations");
+  if (result.dimension_bins < p.min_dimension_bins)
+    result.failures.push_back("insufficient held-out dimension diversity");
+  if (result.mean_absolute_error_m > p.max_mean_absolute_error_m)
+    result.failures.push_back("mean dimensional error exceeds policy");
+  if (result.maximum_effective_absolute_error_m > p.max_absolute_error_m)
+    result.failures.push_back("maximum dimensional error exceeds policy");
+  if (result.maximum_effective_relative_error > p.max_relative_error)
+    result.failures.push_back("relative dimensional error exceeds policy");
+  result.passed = result.failures.empty();
+  return result;
+}
+
 AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
                                                 ScanMode mode,
                                                 const AccuracyPolicy& p) {
@@ -71,6 +165,14 @@ AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
       p.min_environment_coverage_ratio <= 1.0 && p.min_object_coverage_ratio >= 0.0 &&
       p.min_object_coverage_ratio <= 1.0;
   if (!policy_valid) { result.failures.push_back("invalid accuracy policy"); return result; }
+  result.dimensional_validation = evaluateHeldOutDimensions(
+      q.held_out_dimensions, p.dimensional_validation);
+  if (!result.dimensional_validation.failures.empty() &&
+      result.dimensional_validation.failures.front() ==
+          "invalid dimensional validation policy") {
+    result.failures.push_back("invalid accuracy policy");
+    return result;
+  }
   if (!q.calibrated_intrinsics) result.failures.push_back("camera intrinsics are not calibrated");
   if (!q.calibrated_camera_imu) result.failures.push_back("camera-to-IMU calibration is missing");
   if (!q.metric_scale_observed) result.failures.push_back("metric scale has no independent observation");
@@ -88,6 +190,11 @@ AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
   else if (finite(q.scale_stddev_ratio) && q.scale_stddev_ratio >= 0.0 &&
            q.assessed_extent_m * q.scale_stddev_ratio > p.max_absolute_scale_error_m)
     result.failures.push_back("absolute scale error exceeds one centimeter policy");
+  if (!result.dimensional_validation.passed)
+    result.failures.push_back("held-out dimensional validation failed");
+  else if (finite(q.assessed_extent_m) && q.assessed_extent_m > 0.0 &&
+           result.dimensional_validation.maximum_validated_dimension_m < q.assessed_extent_m)
+    result.failures.push_back("held-out dimensions do not cover assessed extent");
   const double required_coverage = mode == ScanMode::kObject
       ? p.min_object_coverage_ratio : p.min_environment_coverage_ratio;
   if (!finite(q.surface_coverage_ratio) || q.surface_coverage_ratio < required_coverage ||

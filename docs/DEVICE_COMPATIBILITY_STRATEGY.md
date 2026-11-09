@@ -11,7 +11,7 @@ Broad coverage is nevertheless practical if the guarantee is split into levels:
 1. **Safety guarantee:** malformed metadata, unsupported capabilities, driver/runtime failures and resource pressure do not crash, corrupt a map or silently invent metric accuracy.
 2. **Functional guarantee:** a compatible camera/IMU/CPU combination is discovered by behavior, not an allowlist; unsupported accelerators fall back automatically.
 3. **Quality envelope:** tracking and reconstruction features are enabled only after static and active health checks pass.
-4. **Metric claim:** centimetre-level status is emitted only for a calibrated capability signature and measured target evidence. Other devices remain useful but explicitly `approximate` or `unverified`.
+4. **Metric claim:** centimetre-level status is emitted only for a calibrated capability signature and measured target evidence. Final reconstruction additionally requires the bounded held-out dimensional evaluator to pass on unique independent scale-bar, surveyed-distance or sensor-ground-truth point pairs across the assessed extent. Other devices remain useful but explicitly `approximate` or `unverified`.
 
 The recommended architecture is therefore **probe → fingerprint → self-test → select tier → continuously monitor → degrade safely**. A small physical matrix validates representative behavioral classes; replay, synthetic generation, combinatorial testing and fault injection cover the much larger state space.
 

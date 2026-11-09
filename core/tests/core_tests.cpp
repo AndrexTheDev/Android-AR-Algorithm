@@ -66,8 +66,18 @@ int main() {
   reconstruction_quality.scale_stddev_ratio=0.003;
   reconstruction_quality.assessed_extent_m=2.0;
   reconstruction_quality.surface_coverage_ratio=0.90;
+  reconstruction_quality.held_out_dimensions={
+      {"held-out-0.5m",{0,0,0},{0.502,0,0},0.5,0.001,
+       DimensionalReferenceKind::kHeldOutScaleBar,true},
+      {"surveyed-1m",{0,0,0},{1.003,0,0},1.0,0.001,
+       DimensionalReferenceKind::kSurveyedDistance,true},
+      {"ground-truth-2m",{0,0,0},{2.004,0,0},2.0,0.001,
+       DimensionalReferenceKind::kSensorGroundTruth,true}};
   auto accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kCentimeterValidated&&accuracy.export_allowed);
+  CHECK(accuracy.dimensional_validation.passed&&
+        accuracy.dimensional_validation.accepted_observations==3&&
+        accuracy.dimensional_validation.dimension_bins>=2);
   reconstruction_quality.assessed_extent_m=4.0;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
@@ -75,6 +85,22 @@ int main() {
   reconstruction_quality.depth_rmse_m=0.02;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
+  reconstruction_quality.depth_rmse_m=0.008;
+  const auto held_out_dimensions=reconstruction_quality.held_out_dimensions;
+  reconstruction_quality.held_out_dimensions.clear();
+  accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
+  CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed&&
+        !accuracy.dimensional_validation.passed);
+  auto invalid_dimensions=held_out_dimensions;
+  invalid_dimensions[0].held_out_from_calibration_and_optimization=false;
+  invalid_dimensions[1].evidence_id=invalid_dimensions[2].evidence_id;
+  const auto invalid_validation=evaluateHeldOutDimensions(invalid_dimensions);
+  CHECK(!invalid_validation.passed&&invalid_validation.accepted_observations==1);
+  auto inaccurate_dimensions=held_out_dimensions;
+  inaccurate_dimensions[2].reconstructed_b_m={2.05,0,0};
+  const auto inaccurate_validation=evaluateHeldOutDimensions(inaccurate_dimensions);
+  CHECK(!inaccurate_validation.passed&&
+        inaccurate_validation.maximum_effective_absolute_error_m>0.04);
   reconstruction_quality.metric_scale_observed=false;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kUnverified&&!accuracy.export_allowed);

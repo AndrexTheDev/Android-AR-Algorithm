@@ -38,6 +38,7 @@ add_library(arkernel STATIC
     src/texture_atlas.cpp
     src/texture_baking.cpp
     src/texture_photometry.cpp
+    src/texture_pipeline.cpp
     src/texture_seam_blending.cpp
     src/texture_view_selection.cpp
     src/tracking_quality.cpp

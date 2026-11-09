@@ -42,6 +42,7 @@
 #include "arkernel/texture_atlas.h"
 #include "arkernel/texture_baking.h"
 #include "arkernel/texture_photometry.h"
+#include "arkernel/texture_pipeline.h"
 #include "arkernel/texture_seam_blending.h"
 #include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
@@ -1006,6 +1007,35 @@ int main() {
   CHECK(limited_photometry.input_valid&&limited_photometry.truncated&&
         limited_photometry.sample_tests==1&&
         limited_photometry.error=="texture photometry sample budget exceeded");
+
+  // The transaction-level texture graph stops on any truncated stage and only
+  // exposes final mesh/pixels after selection, labels, layout, photometry,
+  // baking and seam blending have all completed.
+  TexturePipelineConfig texture_pipeline_config;
+  texture_pipeline_config.view_selection.require_depth_visibility=false;
+  texture_pipeline_config.atlas_layout=atlas_config;
+  const TextureSourceImageView pipeline_image{7,100,100,300,
+    TexturePixelFormat::kRgb8,red_texture_image.data(),red_texture_image.size()};
+  const auto texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},texture_pipeline_config);
+  CHECK(texture_pipeline.input_valid&&!texture_pipeline.truncated&&
+        texture_pipeline.error.empty()&&
+        texture_pipeline.stage==TexturePipelineStage::kComplete&&
+        texture_pipeline.atlas_width==256&&texture_pipeline.atlas_height==256&&
+        texture_pipeline.mesh.base_color_texture.uri.empty()&&
+        texture_pipeline.mesh.texcoords.size()==texture_pipeline.mesh.positions_m.size()&&
+        texture_pipeline.rgba8.size()==256*256*4&&
+        texture_pipeline.telemetry.assigned_triangles==2&&
+        texture_pipeline.telemetry.atlas_patches==1&&
+        texture_pipeline.telemetry.rasterized_pixels>0);
+  auto limited_texture_pipeline_config=texture_pipeline_config;
+  limited_texture_pipeline_config.baking.max_pixel_tests=1;
+  const auto limited_texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},limited_texture_pipeline_config);
+  CHECK(limited_texture_pipeline.input_valid&&limited_texture_pipeline.truncated&&
+        limited_texture_pipeline.stage==TexturePipelineStage::kBaking&&
+        limited_texture_pipeline.rgba8.empty()&&
+        limited_texture_pipeline.mesh.positions_m.empty());
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

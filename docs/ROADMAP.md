@@ -123,7 +123,8 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add bounded crash-safe Android publication of canonical GLB assets with opaque references and deterministic eviction.
 - [x] Add bounded Android decoding of archived JPEG/PNG sources to provenance-preserving canonical RGBA8.
 - [x] Add bounded JNI/Android finalization from seam-aware mesh plus RGBA atlas through PNG, embedded GLB and atomic publication.
-- [ ] Add end-to-end Android orchestration of core view selection/atlas/baking from archived frames and optional global seam optimization.
+- [x] Add fail-closed portable orchestration across view selection, coherent labels, atlas, photometry, baking and local seam blending.
+- [ ] Expose that complete graph through Android/JNI from archived frames and add optional global seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.

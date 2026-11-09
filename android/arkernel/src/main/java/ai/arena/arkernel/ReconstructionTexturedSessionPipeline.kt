@@ -177,7 +177,8 @@ data class ReconstructionTexturedSessionOptions(
  * once, fuses the same calibrated observations, builds only a complete raw
  * source mesh, runs the complete texture graph, and atomically publishes only
  * after PNG encoding and GLB embedding succeed. No stage assigns texture
- * metadata, publishes a partial asset, or upgrades quality evidence.
+ * metadata, publishes a partial asset, or upgrades quality evidence. Hosts may
+ * persist the terminal result with [ReconstructionSessionStateArchive.record].
  */
 class ReconstructionTexturedSessionPipeline(
     private val frameArchive: ReconstructionFrameArchive,

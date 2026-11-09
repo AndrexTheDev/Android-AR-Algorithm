@@ -112,7 +112,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
-- [ ] Add dense reconstruction refinement and fusion: bounded inverse-depth refinement, uncertainty, matching/consistency, sparse TSDF fusion, meshing, filtering, conservative clustering, Android orchestration, view selection, coherent labels, UV layout, relative per-view RGB normalization, local seam blending and canonical RGBA/I420 pixel baking are implemented; global seam optimization, measured quadric-error LOD and persisted reconstruction sessions remain.
+- [ ] Add dense reconstruction refinement and fusion: bounded inverse-depth refinement, uncertainty, matching/consistency, sparse TSDF fusion, meshing, filtering, conservative clustering, Android orchestration, view selection, coherent labels, UV layout, relative per-view RGB normalization, local seam blending and canonical RGBA/I420 pixel baking are implemented; global seam optimization and measured quadric-error LOD remain; bounded durable multi-session state is implemented.
 - [x] Add deterministic bounded visibility-aware per-triangle multi-view selection with calibrated projection and optional uncertainty-aware depth checks.
 - [x] Add bounded deterministic coherent patch labeling over visibility-approved alternatives while preserving sharp/non-manifold boundaries.
 - [x] Add bounded UV-island extraction, patch provenance, seam-aware vertex duplication and deterministic single-page atlas layout.
@@ -130,7 +130,8 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add CRC-framed, budgeted, frame-provenance-bound visibility-depth companions under the existing opaque archive reference.
 - [x] Expose the filtered metric source mesh directly from Android fusion as bounded native-order buffers and feed it to the texture graph without GLB reparsing.
 - [x] Add one bounded session-level transaction from archived colour/depth frames through direct complete fused source mesh, calibrated texture construction, embedded GLB and atomic publication, preserving exact provenance, uncertainty, stage telemetry and explicit `unverified` quality.
-- [ ] Add optional global seam optimization, measured quadric-error LOD and durable multi-session reconstruction state.
+- [x] Add a bounded durable multi-session reconstruction state archive with versioned CRC envelopes, monotonic generations, opaque references, exact terminal provenance/telemetry and deterministic session/generation/byte-budget eviction; no image/depth pixels or dense trajectories are stored.
+- [ ] Add optional global seam optimization and measured quadric-error LOD.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.

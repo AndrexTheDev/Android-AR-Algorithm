@@ -1,8 +1,10 @@
 #include <jni.h>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>

@@ -46,6 +46,7 @@ struct TextureAtlasLayoutResult {
   std::vector<std::size_t> source_triangle_patch;
   int atlas_width{0};
   int atlas_height{0};
+  int padding_px{0};
   double uniform_scale{0.0};
   std::size_t assigned_triangles{0};
   std::size_t omitted_unassigned_triangles{0};

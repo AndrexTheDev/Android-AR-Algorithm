@@ -40,6 +40,7 @@
 #include "arkernel/tensor_preprocessor.h"
 #include "arkernel/temporal_depth_filter.h"
 #include "arkernel/texture_atlas.h"
+#include "arkernel/texture_baking.h"
 #include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
@@ -840,6 +841,50 @@ int main() {
                          texture_selection.triangles,invalid_atlas_config);}
   catch(const std::invalid_argument&){rejected_atlas_config=true;}
   CHECK(rejected_atlas_config);
+
+  // Dependency-free baking rasterizes canonical source pixels into the layout
+  // and dilates colour only inside each patch padding rectangle.
+  std::vector<std::uint8_t> red_texture_image(100*100*3);
+  for(std::size_t pixel=0;pixel<10000;++pixel) {
+    red_texture_image[pixel*3]=220;red_texture_image[pixel*3+1]=20;
+    red_texture_image[pixel*3+2]=10;
+  }
+  const TextureSourceImageView red_texture_view{1,100,100,300,
+    TexturePixelFormat::kRgb8,red_texture_image.data(),red_texture_image.size()};
+  const auto baked_texture=bakeTextureAtlas(
+      atlas_layout,texture_selection.views,texture_selection.triangles,{red_texture_view});
+  CHECK(baked_texture.input_valid&&!baked_texture.truncated&&baked_texture.error.empty()&&
+        baked_texture.width==256&&baked_texture.height==256&&
+        baked_texture.rgba8.size()==256*256*4&&baked_texture.rasterized_pixels>0&&
+        baked_texture.padding_pixels>0&&
+        std::any_of(baked_texture.rgba8.begin(),baked_texture.rgba8.end(),
+                    [](std::uint8_t value){return value==220;}));
+  std::vector<std::uint8_t> i420_texture_image(100*100*3/2,82);
+  std::fill(i420_texture_image.begin()+10000,i420_texture_image.begin()+12500,90);
+  std::fill(i420_texture_image.begin()+12500,i420_texture_image.end(),240);
+  const TextureSourceImageView i420_texture_view{1,100,100,100,
+    TexturePixelFormat::kI420,i420_texture_image.data(),i420_texture_image.size()};
+  const auto baked_i420_texture=bakeTextureAtlas(
+      atlas_layout,texture_selection.views,texture_selection.triangles,{i420_texture_view});
+  CHECK(baked_i420_texture.input_valid&&!baked_i420_texture.truncated&&
+        baked_i420_texture.rasterized_pixels==baked_texture.rasterized_pixels&&
+        *std::max_element(baked_i420_texture.rgba8.begin(),
+                          baked_i420_texture.rgba8.end())==255);
+  TextureBakingConfig limited_baking_config;limited_baking_config.max_pixel_tests=1;
+  const auto limited_baking=bakeTextureAtlas(atlas_layout,texture_selection.views,
+      texture_selection.triangles,{red_texture_view},limited_baking_config);
+  CHECK(limited_baking.input_valid&&limited_baking.truncated&&
+        limited_baking.pixel_tests==1);
+  const auto missing_baking=bakeTextureAtlas(
+      atlas_layout,texture_selection.views,texture_selection.triangles,{});
+  CHECK(!missing_baking.input_valid&&
+        missing_baking.error=="invalid texture source image count");
+  TextureBakingConfig invalid_baking_config;invalid_baking_config.max_atlas_pixels=0;
+  bool rejected_baking_config=false;
+  try{bakeTextureAtlas(atlas_layout,texture_selection.views,
+                       texture_selection.triangles,{red_texture_view},invalid_baking_config);}
+  catch(const std::invalid_argument&){rejected_baking_config=true;}
+  CHECK(rejected_baking_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

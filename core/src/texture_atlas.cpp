@@ -305,6 +305,7 @@ TextureAtlasLayoutResult layoutTextureAtlas(
   }
   result.atlas_width = config.atlas_width;
   result.atlas_height = config.atlas_height;
+  result.padding_px = config.padding_px;
   result.uniform_scale = scale;
   result.patches.reserve(patch_data.size());
   for (std::size_t patch = 0; patch < patch_data.size(); ++patch) {

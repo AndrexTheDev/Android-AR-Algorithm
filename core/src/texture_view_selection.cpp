@@ -213,7 +213,9 @@ TextureViewSelectionResult selectTextureViews(
   result.views.reserve(candidates.size());
   for (const std::size_t candidate_index : order) {
     result.views.push_back({candidates[candidate_index].frame_id,
-                            candidates[candidate_index].image_reference});
+                            candidates[candidate_index].image_reference,
+                            candidates[candidate_index].camera->intrinsics().width,
+                            candidates[candidate_index].camera->intrinsics().height});
   }
   result.triangles.resize(triangle_count);
   result.alternatives.reserve(std::min(

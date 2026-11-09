@@ -51,6 +51,8 @@ struct TextureViewSelectionConfig {
 struct TextureViewReference {
   std::uint64_t frame_id{0};
   std::string image_reference;
+  int width{0};
+  int height{0};
 };
 
 struct TextureViewAlternative {

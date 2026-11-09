@@ -39,6 +39,7 @@
 #include "arkernel/surfel_map.h"
 #include "arkernel/tensor_preprocessor.h"
 #include "arkernel/temporal_depth_filter.h"
+#include "arkernel/texture_atlas.h"
 #include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
@@ -702,7 +703,8 @@ int main() {
   // reduces shared-edge seams without connecting non-manifold regions.
   TextureViewSelectionResult manual_texture_selection;
   manual_texture_selection.input_valid=true;
-  manual_texture_selection.views={{10,"view-a.i420"},{20,"view-b.i420"}};
+  manual_texture_selection.views={{10,"view-a.i420",100,100},
+                                  {20,"view-b.i420",100,100}};
   manual_texture_selection.alternatives={
     {0,10,{},0.90,1.0,100.0},{1,20,{},0.85,1.0,100.0},
     {1,20,{},0.90,1.0,100.0},{0,10,{},0.88,1.0,100.0}};
@@ -763,6 +765,81 @@ int main() {
   try{optimizeTextureViewLabels(texture_mesh,manual_texture_selection,invalid_label_config);}
   catch(const std::invalid_argument&){rejected_label_config=true;}
   CHECK(rejected_label_config);
+
+  // Atlas layout turns same-view connected labels into UV islands, duplicates
+  // vertices only at patch boundaries, and leaves pixel baking as a later stage.
+  TextureAtlasLayoutConfig atlas_config;atlas_config.atlas_width=256;
+  atlas_config.atlas_height=256;
+  const auto atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,atlas_config);
+  CHECK(atlas_layout.input_valid&&!atlas_layout.truncated&&atlas_layout.error.empty()&&
+        atlas_layout.patches.size()==1&&atlas_layout.assigned_triangles==2&&
+        atlas_layout.omitted_unassigned_triangles==0&&
+        atlas_layout.mesh.positions_m.size()==4&&atlas_layout.duplicated_vertices==0&&
+        atlas_layout.mesh.base_color_texture.uri.empty()&&
+        atlas_layout.mesh.texcoords.size()==atlas_layout.mesh.positions_m.size()&&
+        validateMesh(atlas_layout.mesh).valid);
+  CHECK(std::all_of(atlas_layout.mesh.texcoords.begin(),atlas_layout.mesh.texcoords.end(),
+                    [](const auto& uv){return uv.x>=0&&uv.x<=1&&uv.y>=0&&uv.y<=1;}));
+  const auto repeated_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,atlas_config);
+  CHECK(repeated_atlas_layout.mesh.triangle_indices==atlas_layout.mesh.triangle_indices&&
+        repeated_atlas_layout.mesh.texcoords.size()==atlas_layout.mesh.texcoords.size()&&
+        std::equal(repeated_atlas_layout.mesh.texcoords.begin(),
+          repeated_atlas_layout.mesh.texcoords.end(),atlas_layout.mesh.texcoords.begin(),
+          [](const auto& first,const auto& second){
+            return first.x==second.x&&first.y==second.y;})&&
+        repeated_atlas_layout.patches[0].atlas_x_px==atlas_layout.patches[0].atlas_x_px&&
+        repeated_atlas_layout.patches[0].atlas_y_px==atlas_layout.patches[0].atlas_y_px);
+  const auto split_atlas_layout=layoutTextureAtlas(
+      texture_mesh,manual_texture_selection.views,manual_texture_selection.triangles,
+      atlas_config);
+  CHECK(split_atlas_layout.input_valid&&split_atlas_layout.patches.size()==2&&
+        split_atlas_layout.mesh.positions_m.size()==6&&
+        split_atlas_layout.duplicated_vertices==2&&validateMesh(split_atlas_layout.mesh).valid);
+  auto scaled_atlas_config=atlas_config;scaled_atlas_config.atlas_width=40;
+  scaled_atlas_config.atlas_height=40;
+  const auto scaled_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,scaled_atlas_config);
+  CHECK(scaled_atlas_layout.input_valid&&!scaled_atlas_layout.truncated&&
+        scaled_atlas_layout.uniform_scale<1.0&&
+        scaled_atlas_layout.uniform_scale>=scaled_atlas_config.min_uniform_scale);
+  auto capacity_atlas_config=atlas_config;capacity_atlas_config.atlas_width=16;
+  capacity_atlas_config.atlas_height=16;capacity_atlas_config.min_uniform_scale=0.5;
+  const auto capacity_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,
+      capacity_atlas_config);
+  CHECK(capacity_atlas_layout.input_valid&&capacity_atlas_layout.truncated&&
+        capacity_atlas_layout.error=="texture atlas capacity exceeded");
+  auto unassigned_atlas_labels=texture_selection.triangles;
+  unassigned_atlas_labels[1].assigned=false;
+  unassigned_atlas_labels[1].alternative_count=0;
+  const auto unassigned_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,unassigned_atlas_labels,atlas_config);
+  CHECK(unassigned_atlas_layout.input_valid&&
+        unassigned_atlas_layout.error==
+          "atlas requires every triangle to have a texture label");
+  auto edge_limited_atlas_config=atlas_config;
+  edge_limited_atlas_config.max_unique_edges=1;
+  const auto edge_limited_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,
+      edge_limited_atlas_config);
+  CHECK(edge_limited_atlas_layout.input_valid&&edge_limited_atlas_layout.truncated&&
+        edge_limited_atlas_layout.error=="texture atlas edge budget exceeded");
+  auto sharp_atlas_labels=manual_texture_selection.triangles;
+  sharp_atlas_labels[1].view_index=0;sharp_atlas_labels[1].frame_id=10;
+  TextureAtlasLayoutConfig sharp_atlas_config=atlas_config;
+  sharp_atlas_config.max_normal_angle_degrees=45.0;
+  const auto sharp_atlas_layout=layoutTextureAtlas(
+      crease_mesh,manual_texture_selection.views,sharp_atlas_labels,sharp_atlas_config);
+  CHECK(sharp_atlas_layout.input_valid&&sharp_atlas_layout.sharp_edges==1&&
+        sharp_atlas_layout.patches.size()==2&&sharp_atlas_layout.duplicated_vertices==2);
+  auto invalid_atlas_config=atlas_config;invalid_atlas_config.atlas_width=8;
+  bool rejected_atlas_config=false;
+  try{layoutTextureAtlas(texture_mesh,texture_selection.views,
+                         texture_selection.triangles,invalid_atlas_config);}
+  catch(const std::invalid_argument&){rejected_atlas_config=true;}
+  CHECK(rejected_atlas_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

@@ -115,7 +115,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add coarse-to-fine/census refinement, forward-backward depth consistency, tiled sparse TSDF fusion, meshing and simplification.
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
-- [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage; `centimeter-validated` is impossible without it.
+- [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
 - [ ] Embed texture image chunks/data URIs where true single-file GLB is required.
 - [ ] Add optional Android Filament viewer module; then USDZ and survey-format adapters.

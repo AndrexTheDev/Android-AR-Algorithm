@@ -49,7 +49,27 @@ class NativeRuntimeInstrumentedTest {
             clockAligner.close()
         }
 
+        val dimensions = listOf(
+            heldOut("scale-0.5m", 0.502, 0.5, DimensionalReferenceKind.HELD_OUT_SCALE_BAR),
+            heldOut("survey-1m", 1.003, 1.0, DimensionalReferenceKind.SURVEYED_DISTANCE),
+            heldOut("rig-2m", 2.004, 2.0, DimensionalReferenceKind.SENSOR_GROUND_TRUTH),
+        )
+        val dimensionalReport = ArKernelDimensionalValidator.evaluate(dimensions)
+        assertTrue(dimensionalReport.reasons.toString(), dimensionalReport.passed)
+        assertEquals(3, dimensionalReport.acceptedObservations)
+        val rejectedReport = ArKernelDimensionalValidator.evaluate(dimensions.mapIndexed {
+                index, value -> if (index == 0) value.copy(
+                    heldOutFromCalibrationAndOptimization = false) else value
+        })
+        assertTrue(DimensionalValidationReason.INVALID_OR_NON_INDEPENDENT_OBSERVATION in
+            rejectedReport.reasons)
+
         val planner = ArKernelReconstructionPlanner(ReconstructionScanMode.ENVIRONMENT)
         planner.close()
+    }
+
+    private fun heldOut(id: String, reconstructed: Double, reference: Double,
+        kind: DimensionalReferenceKind) = HeldOutDimensionObservation(id,
+        Vector3(0.0, 0.0, 0.0), Vector3(reconstructed, 0.0, 0.0), reference, 0.001, kind)
     }
 }

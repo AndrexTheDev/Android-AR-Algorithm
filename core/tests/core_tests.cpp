@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -101,6 +102,29 @@ int main() {
   const auto inaccurate_validation=evaluateHeldOutDimensions(inaccurate_dimensions);
   CHECK(!inaccurate_validation.passed&&
         inaccurate_validation.maximum_effective_absolute_error_m>0.04);
+  const char* c_dimension_ids[3]={"held-out-0.5m","surveyed-1m","ground-truth-2m"};
+  ark_held_out_dimension_v1 c_dimensions[3]{};
+  for(std::size_t i=0;i<3;++i){
+    c_dimensions[i].struct_size=sizeof(c_dimensions[i]);
+    c_dimensions[i].evidence_id=c_dimension_ids[i];
+    c_dimensions[i].evidence_id_length=std::strlen(c_dimension_ids[i]);
+    c_dimensions[i].reconstructed_b_x_m=held_out_dimensions[i].reconstructed_b_m.x;
+    c_dimensions[i].reference_distance_m=held_out_dimensions[i].reference_distance_m;
+    c_dimensions[i].reference_uncertainty_m=held_out_dimensions[i].reference_uncertainty_m;
+    c_dimensions[i].reference_kind=static_cast<uint32_t>(i+1);
+    c_dimensions[i].held_out_from_calibration_and_optimization=1;
+  }
+  ark_dimensional_validation_report_v1 c_dimension_report{};
+  c_dimension_report.struct_size=sizeof(c_dimension_report);
+  CHECK(ark_evaluate_held_out_dimensions(c_dimensions,3,nullptr,&c_dimension_report)==
+        ARK_RESULT_OK);
+  CHECK(c_dimension_report.passed==1&&c_dimension_report.failure_flags==0&&
+        c_dimension_report.accepted_observations==3);
+  c_dimensions[0].held_out_from_calibration_and_optimization=0;
+  CHECK(ark_evaluate_held_out_dimensions(c_dimensions,3,nullptr,&c_dimension_report)==
+        ARK_RESULT_OK);
+  CHECK(c_dimension_report.passed==0&&
+        (c_dimension_report.failure_flags&ARK_DIMENSIONAL_FAILURE_INVALID_OBSERVATION)!=0);
   reconstruction_quality.metric_scale_observed=false;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kUnverified&&!accuracy.export_allowed);

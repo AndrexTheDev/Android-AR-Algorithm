@@ -952,6 +952,78 @@ Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeUpdate(JNIEnv* env,
   catch(...){return ARK_RESULT_INTERNAL_ERROR;}
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelDimensionalValidator_nativeEvaluate(
+    JNIEnv* env,jobject,jobjectArray evidence_ids,jdoubleArray observation_values,
+    jlongArray observation_metadata,jlongArray policy_counts,jdoubleArray policy_values,
+    jlongArray output_metadata,jdoubleArray output_values) {
+  if(!evidence_ids||!observation_values||!observation_metadata||!policy_counts||
+     !policy_values||!output_metadata||!output_values)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize count=env->GetArrayLength(evidence_ids);
+  if(count<0||count>64||env->GetArrayLength(observation_values)!=count*8||
+     env->GetArrayLength(observation_metadata)!=count*2||
+     env->GetArrayLength(policy_counts)<3||env->GetArrayLength(policy_values)<5||
+     env->GetArrayLength(output_metadata)<4||env->GetArrayLength(output_values)<4)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::array<jdouble,64*8> values{};std::array<jlong,64*2> metadata{};
+  jlong counts[3]{};jdouble policy_data[5]{};
+  env->GetDoubleArrayRegion(observation_values,0,count*8,values.data());
+  env->GetLongArrayRegion(observation_metadata,0,count*2,metadata.data());
+  env->GetLongArrayRegion(policy_counts,0,3,counts);
+  env->GetDoubleArrayRegion(policy_values,0,5,policy_data);
+  if(env->ExceptionCheck()||counts[0]<=0||counts[0]>64||counts[1]<=0||
+     counts[1]>counts[0]||counts[2]<=0||counts[2]>counts[1])
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::vector<std::string> ids;ids.reserve(static_cast<size_t>(count));
+  for(jsize i=0;i<count;++i){
+    auto* java_id=static_cast<jstring>(env->GetObjectArrayElement(evidence_ids,i));
+    if(!java_id)return ARK_RESULT_INVALID_ARGUMENT;
+    const jsize length=env->GetStringUTFLength(java_id);
+    const char* chars=env->GetStringUTFChars(java_id,nullptr);
+    if(!chars){env->DeleteLocalRef(java_id);return ARK_RESULT_INTERNAL_ERROR;}
+    if(length<=0||length>128){
+      env->ReleaseStringUTFChars(java_id,chars);env->DeleteLocalRef(java_id);
+      return ARK_RESULT_INVALID_ARGUMENT;
+    }
+    ids.emplace_back(chars,static_cast<size_t>(length));
+    env->ReleaseStringUTFChars(java_id,chars);env->DeleteLocalRef(java_id);
+  }
+  std::vector<ark_held_out_dimension_v1> observations(static_cast<size_t>(count));
+  for(jsize i=0;i<count;++i){
+    auto& output=observations[static_cast<size_t>(i)];const size_t offset=static_cast<size_t>(i)*8;
+    output.struct_size=sizeof(output);output.evidence_id=ids[static_cast<size_t>(i)].data();
+    output.evidence_id_length=ids[static_cast<size_t>(i)].size();
+    output.reconstructed_a_x_m=values[offset];output.reconstructed_a_y_m=values[offset+1];
+    output.reconstructed_a_z_m=values[offset+2];output.reconstructed_b_x_m=values[offset+3];
+    output.reconstructed_b_y_m=values[offset+4];output.reconstructed_b_z_m=values[offset+5];
+    output.reference_distance_m=values[offset+6];output.reference_uncertainty_m=values[offset+7];
+    output.reference_kind=static_cast<uint32_t>(metadata[static_cast<size_t>(i)*2]);
+    output.held_out_from_calibration_and_optimization=
+      metadata[static_cast<size_t>(i)*2+1]!=0?1u:0u;
+  }
+  ark_dimensional_validation_policy_v1 policy{};policy.struct_size=sizeof(policy);
+  policy.max_observations=static_cast<size_t>(counts[0]);
+  policy.min_observations=static_cast<size_t>(counts[1]);
+  policy.min_dimension_bins=static_cast<size_t>(counts[2]);
+  policy.dimension_bin_width_m=policy_data[0];
+  policy.max_reference_uncertainty_m=policy_data[1];
+  policy.max_mean_absolute_error_m=policy_data[2];
+  policy.max_absolute_error_m=policy_data[3];policy.max_relative_error=policy_data[4];
+  ark_dimensional_validation_report_v1 report{};report.struct_size=sizeof(report);
+  const auto status=ark_evaluate_held_out_dimensions(observations.data(),
+    observations.size(),&policy,&report);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong report_metadata[4]={report.passed?1L:0L,
+    static_cast<jlong>(report.failure_flags),static_cast<jlong>(report.accepted_observations),
+    static_cast<jlong>(report.dimension_bins)};
+  const jdouble report_values[4]={report.mean_absolute_error_m,
+    report.maximum_effective_absolute_error_m,report.maximum_effective_relative_error,
+    report.maximum_validated_dimension_m};
+  env->SetLongArrayRegion(output_metadata,0,4,report_metadata);
+  env->SetDoubleArrayRegion(output_values,0,4,report_values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeCreate(
     JNIEnv* env,jobject,jboolean object_mode,jlongArray integer_config,jdoubleArray scalar_config) {

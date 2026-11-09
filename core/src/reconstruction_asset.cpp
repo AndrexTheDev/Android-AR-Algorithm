@@ -13,6 +13,7 @@
 
 namespace arkernel {
 namespace {
+constexpr std::size_t kMaxDimensionalObservations = 64;
 bool finite(float value) { return std::isfinite(value); }
 bool finite(double value) { return std::isfinite(value); }
 bool validEvidenceId(const std::string& value) {
@@ -20,6 +21,11 @@ bool validEvidenceId(const std::string& value) {
   return std::all_of(value.begin(), value.end(), [](unsigned char c) {
     return std::isalnum(c) != 0 || c == '.' || c == '_' || c == ':' || c == '-';
   });
+}
+bool validReferenceKind(DimensionalReferenceKind kind) {
+  return kind == DimensionalReferenceKind::kHeldOutScaleBar ||
+      kind == DimensionalReferenceKind::kSurveyedDistance ||
+      kind == DimensionalReferenceKind::kSensorGroundTruth;
 }
 std::string escapeJson(const std::string& text) {
   std::ostringstream out;
@@ -72,7 +78,7 @@ DimensionalValidationReport evaluateHeldOutDimensions(
     const DimensionalValidationPolicy& p) {
   DimensionalValidationReport result;
   const bool policy_valid = p.max_observations > 0 &&
-      p.min_observations > 0 && p.min_observations <= p.max_observations &&
+      p.max_observations <= kMaxDimensionalObservations && p.min_observations > 0 && p.min_observations <= p.max_observations &&
       p.min_dimension_bins > 0 && p.min_dimension_bins <= p.min_observations &&
       finite(p.dimension_bin_width_m) && p.dimension_bin_width_m > 0.0 &&
       finite(p.max_reference_uncertainty_m) && p.max_reference_uncertainty_m >= 0.0 &&
@@ -110,7 +116,7 @@ DimensionalValidationReport evaluateHeldOutDimensions(
         observation.reference_uncertainty_m >= 0.0 &&
         observation.reference_uncertainty_m <= p.max_reference_uncertainty_m &&
         observation.reference_uncertainty_m < observation.reference_distance_m &&
-        observation.reference_kind != DimensionalReferenceKind::kUnknown &&
+        validReferenceKind(observation.reference_kind) &&
         observation.held_out_from_calibration_and_optimization;
     if (!valid) {
       if (std::find(result.failures.begin(), result.failures.end(),

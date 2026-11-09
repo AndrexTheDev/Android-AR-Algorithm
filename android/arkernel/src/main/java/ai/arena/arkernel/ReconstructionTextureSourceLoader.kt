@@ -21,7 +21,19 @@ data class LoadedReconstructionTextureSource(
     val bytes: ByteArray,
     val archivedEncoding: ReconstructionImageEncoding,
     val visibilityDepth: MetricDepthBuffer? = null,
-)
+    /** Exact archived provenance, including an optimized pose when published. */
+    val frameMetadata: ReconstructionFrameMetadata? = null,
+) {
+    init {
+        frameMetadata?.let { metadata ->
+            require(metadata.frameId == frameId && metadata.timestampNs == timestampNs &&
+                metadata.width == width && metadata.height == height &&
+                metadata.encoding == archivedEncoding) {
+                "Loaded source frame metadata does not match canonical source"
+            }
+        }
+    }
+}
 
 data class ReconstructionTextureSourceLoadOptions(
     val maxSources: Int = 256,
@@ -43,11 +55,14 @@ data class LoadedReconstructionTextureSources(
     val decodedCompressedSources: Int,
     val visibilityDepthBytes: Long,
     val loadedVisibilityDepthSources: Int,
+    val poseManifestGeneration: Long? = null,
 )
 
 /**
  * Resolves the core's unique frame/view table against one archive and converts
- * compressed sources to canonical pixels as one fail-closed operation.
+ * compressed sources to canonical pixels as one fail-closed operation. Exact
+ * archived metadata, including an accepted optimized pose and its manifest
+ * generation, travels with each owned canonical source.
  */
 class ReconstructionTextureSourceLoader(
     private val archive: ReconstructionFrameArchive,
@@ -65,6 +80,7 @@ class ReconstructionTextureSourceLoader(
             "Texture source references must be unique"
         }
         val output = ArrayList<LoadedReconstructionTextureSource>(requests.size)
+        val poseManifest = archive.loadPoseManifest()
         var archivedBytes = 0L
         var canonicalBytes = 0L
         var decodedSources = 0
@@ -75,11 +91,22 @@ class ReconstructionTextureSourceLoader(
             val frame = requireNotNull(archive.load(request.reference)) {
                 "Archived texture source is missing"
             }
-            val metadata = frame.metadata
-            require(metadata.frameId == request.frameId && metadata.width == request.width &&
-                metadata.height == request.height) {
+            val archivedMetadata = frame.metadata
+            require(archivedMetadata.frameId == request.frameId &&
+                archivedMetadata.width == request.width &&
+                archivedMetadata.height == request.height) {
                 "Archived texture source provenance does not match view table"
             }
+            val optimizedPose = poseManifest?.poses?.firstOrNull {
+                it.frameId == archivedMetadata.frameId &&
+                    it.timestampNs == archivedMetadata.timestampNs
+            }
+            val metadata = optimizedPose?.let { pose ->
+                archivedMetadata.copy(worldFromCamera = pose.worldFromCamera.copyOf(),
+                    translationSigmaMeters = pose.translationSigmaMeters,
+                    rotationSigmaDegrees = pose.rotationSigmaDegrees)
+            } ?: archivedMetadata.copy(
+                worldFromCamera = archivedMetadata.worldFromCamera.copyOf())
             archivedBytes = Math.addExact(archivedBytes, frame.imageBytes.size.toLong())
             val expectedCanonicalBytes = when (metadata.encoding) {
                 ReconstructionImageEncoding.JPEG, ReconstructionImageEncoding.PNG ->
@@ -97,16 +124,19 @@ class ReconstructionTextureSourceLoader(
                     decodedSources++
                     LoadedReconstructionTextureSource(metadata.frameId, metadata.timestampNs, request.reference,
                         metadata.width, metadata.height, metadata.width * 4,
-                        CanonicalTexturePixelFormat.RGBA8, decoded.rgba8, metadata.encoding)
+                        CanonicalTexturePixelFormat.RGBA8, decoded.rgba8, metadata.encoding,
+                        frameMetadata = metadata)
                 }
                 ReconstructionImageEncoding.GRAY8 ->
                     LoadedReconstructionTextureSource(metadata.frameId, metadata.timestampNs, request.reference,
                         metadata.width, metadata.height, metadata.rowStrideBytes,
-                        CanonicalTexturePixelFormat.GRAY8, frame.imageBytes, metadata.encoding)
+                        CanonicalTexturePixelFormat.GRAY8, frame.imageBytes, metadata.encoding,
+                        frameMetadata = metadata)
                 ReconstructionImageEncoding.I420 ->
                     LoadedReconstructionTextureSource(metadata.frameId, metadata.timestampNs, request.reference,
                         metadata.width, metadata.height, metadata.width,
-                        CanonicalTexturePixelFormat.I420, frame.imageBytes, metadata.encoding)
+                        CanonicalTexturePixelFormat.I420, frame.imageBytes, metadata.encoding,
+                        frameMetadata = metadata)
             }
             require(source.bytes.size.toLong() == expectedCanonicalBytes ||
                 metadata.encoding == ReconstructionImageEncoding.GRAY8) {
@@ -128,6 +158,7 @@ class ReconstructionTextureSourceLoader(
             output += source.copy(visibilityDepth = archivedDepth?.toMetricDepthBuffer())
         }
         return LoadedReconstructionTextureSources(output, archivedBytes, canonicalBytes,
-            decodedSources, visibilityDepthBytes, loadedVisibilityDepthSources)
+            decodedSources, visibilityDepthBytes, loadedVisibilityDepthSources,
+            poseManifest?.generation)
     }
 }

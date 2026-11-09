@@ -39,6 +39,11 @@ class ReconstructionTextureSourceLoaderInstrumentedTest {
                 ReconstructionTextureSourceLoadOptions(maxSources = 2,
                     maxCanonicalBytes = 64)).load(requests)
             assertEquals(2, loaded.sources.size)
+            val sourceMetadata = requireNotNull(loaded.sources[0].frameMetadata)
+            assertEquals(1L, sourceMetadata.frameId)
+            assertEquals(10L, sourceMetadata.timestampNs)
+            assertEquals(ReconstructionImageEncoding.PNG, sourceMetadata.encoding)
+            assertEquals(null, loaded.poseManifestGeneration)
             assertEquals(10L, loaded.sources[0].timestampNs)
             assertEquals(20L, loaded.sources[1].timestampNs)
             assertEquals(1, loaded.decodedCompressedSources)

@@ -364,6 +364,71 @@ int main() {
   CHECK(strict_zncc_mvs_depth.valid&&
         !std::isfinite(strict_zncc_mvs_depth.depth_m[census_probe]));
 
+  // Cached source-view depth must agree metrically and survive a geometric
+  // source-to-reference round trip. One inconsistent view reduces confidence;
+  // requiring both views rejects the same reference sample.
+  MultiViewStereoDepth consistent_source_depth;
+  consistent_source_depth.width=mvs_width;consistent_source_depth.height=mvs_height;
+  consistent_source_depth.depth_m.assign(mvs_width*mvs_height,2.0F);
+  consistent_source_depth.confidence.assign(mvs_width*mvs_height,1.0F);
+  consistent_source_depth.uncertainty_m.assign(mvs_width*mvs_height,0.01F);
+  consistent_source_depth.valid_pixels=mvs_width*mvs_height;
+  consistent_source_depth.valid=true;
+  auto inconsistent_source_depth=consistent_source_depth;
+  inconsistent_source_depth.depth_m.assign(mvs_width*mvs_height,3.0F);
+  const std::vector<MultiViewStereoDepthFrame> consistency_sources{
+    {mvs_sources[0],&consistent_source_depth},
+    {mvs_sources[1],&inconsistent_source_depth}};
+  MultiViewStereoConsistencyConfig consistency_config;
+  consistency_config.search_radius_px=1;consistency_config.min_source_confidence=0.5;
+  const auto consistency_depth=filterMultiViewDepthConsistency(
+    mvs_reference_frame,mvs_depth,consistency_sources,consistency_config);
+  CHECK(consistency_depth.valid&&
+        consistency_depth.consistency_tested_pixels==mvs_depth.valid_pixels&&
+        consistency_depth.consistency_rejected_pixels<consistency_depth.consistency_tested_pixels&&
+        std::isfinite(consistency_depth.depth_m[mvs_center])&&
+        consistency_depth.confidence[mvs_center]<mvs_depth.confidence[mvs_center]);
+  auto strict_consistency_config=consistency_config;
+  strict_consistency_config.min_consistent_views=2;
+  const auto strict_consistency_depth=filterMultiViewDepthConsistency(
+    mvs_reference_frame,mvs_depth,consistency_sources,strict_consistency_config);
+  CHECK(strict_consistency_depth.valid&&strict_consistency_depth.valid_pixels==0&&
+        strict_consistency_depth.consistency_rejected_pixels==
+          strict_consistency_depth.consistency_tested_pixels&&
+        !std::isfinite(strict_consistency_depth.depth_m[mvs_center]));
+
+  auto shifted_source_depth=consistent_source_depth;
+  const float mvs_nan=std::numeric_limits<float>::quiet_NaN();
+  shifted_source_depth.depth_m.assign(mvs_width*mvs_height,mvs_nan);
+  shifted_source_depth.confidence.assign(mvs_width*mvs_height,0.0F);
+  shifted_source_depth.uncertainty_m.assign(mvs_width*mvs_height,mvs_nan);
+  shifted_source_depth.valid_pixels=1;
+  const auto center_ray=mvs_camera.unproject({31.0,23.0});
+  CHECK(center_ray.has_value());
+  const Vec3 center_point=*center_ray*(mvs_depth.depth_m[mvs_center]/center_ray->z);
+  const Vec3 left_camera_point=center_point-Vec3{0.1,0,0};
+  const auto left_projection=mvs_camera.project(left_camera_point);
+  CHECK(left_projection.has_value());
+  const int shifted_x=static_cast<int>(std::lround(left_projection->x))+1;
+  const int shifted_y=static_cast<int>(std::lround(left_projection->y));
+  const std::size_t shifted_index=shifted_y*mvs_width+shifted_x;
+  shifted_source_depth.depth_m[shifted_index]=static_cast<float>(left_camera_point.z);
+  shifted_source_depth.confidence[shifted_index]=1.0F;
+  shifted_source_depth.uncertainty_m[shifted_index]=0.01F;
+  auto round_trip_config=consistency_config;
+  round_trip_config.search_radius_px=2;round_trip_config.max_round_trip_error_px=0.25;
+  const auto round_trip_depth=filterMultiViewDepthConsistency(mvs_reference_frame,mvs_depth,
+    {{mvs_sources[0],&shifted_source_depth}},round_trip_config);
+  CHECK(round_trip_depth.valid&&!std::isfinite(round_trip_depth.depth_m[mvs_center]));
+
+  auto invalid_consistency_config=consistency_config;
+  invalid_consistency_config.search_radius_px=9;
+  bool rejected_consistency_config=false;
+  try{filterMultiViewDepthConsistency(mvs_reference_frame,mvs_depth,consistency_sources,
+                                      invalid_consistency_config);}
+  catch(const std::invalid_argument&){rejected_consistency_config=true;}
+  CHECK(rejected_consistency_config);
+
   CHECK(!estimateMultiViewDepth(mvs_reference_frame,{mvs_sources.front()},mvs_config).valid);
   auto invalid_census=mvs_config;invalid_census.min_census_bits=25;
   bool rejected_census=false;

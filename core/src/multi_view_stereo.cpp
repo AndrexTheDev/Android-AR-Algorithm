@@ -150,6 +150,69 @@ std::optional<double> patchMatchingScore(const MultiViewStereoFrame& reference,
   return std::nullopt;
 }
 
+bool validDepthFrame(const MultiViewStereoFrame& frame,
+                     const MultiViewStereoDepth& depth) {
+  if (frame.camera == nullptr || !finitePose(frame.world_from_camera) || !depth.valid ||
+      depth.width <= 0 || depth.height <= 0) {
+    return false;
+  }
+  const auto& intrinsics = frame.camera->intrinsics();
+  if (depth.width != intrinsics.width || depth.height != intrinsics.height) return false;
+  const std::size_t width = static_cast<std::size_t>(depth.width);
+  const std::size_t height = static_cast<std::size_t>(depth.height);
+  if (width > std::numeric_limits<std::size_t>::max() / height) return false;
+  const std::size_t pixels = width * height;
+  return depth.depth_m.size() == pixels && depth.confidence.size() == pixels &&
+         depth.uncertainty_m.size() == pixels;
+}
+
+struct NearestDepthSample {
+  int x{0};
+  int y{0};
+  double depth_m{0.0};
+  double uncertainty_m{0.0};
+};
+
+std::optional<NearestDepthSample> nearestDepthSample(
+    const MultiViewStereoDepth& depth, const Vec2& projected,
+    int search_radius_px, double min_confidence) {
+  if (projected.x < 0.0 || projected.y < 0.0 || projected.x >= depth.width ||
+      projected.y >= depth.height) {
+    return std::nullopt;
+  }
+  const int center_x = static_cast<int>(std::lround(projected.x));
+  const int center_y = static_cast<int>(std::lround(projected.y));
+  double best_distance_squared = std::numeric_limits<double>::infinity();
+  const double max_distance = static_cast<double>(search_radius_px) + 0.75;
+  const double max_distance_squared = max_distance * max_distance;
+  std::optional<NearestDepthSample> best;
+  for (int y = std::max(0, center_y - search_radius_px);
+       y <= std::min(depth.height - 1, center_y + search_radius_px); ++y) {
+    for (int x = std::max(0, center_x - search_radius_px);
+         x <= std::min(depth.width - 1, center_x + search_radius_px); ++x) {
+      const std::size_t index = static_cast<std::size_t>(y) * depth.width + x;
+      const double candidate_depth = depth.depth_m[index];
+      const double candidate_confidence = depth.confidence[index];
+      const double candidate_uncertainty = depth.uncertainty_m[index];
+      if (!std::isfinite(candidate_depth) || candidate_depth <= 0.0 ||
+          !std::isfinite(candidate_confidence) ||
+          candidate_confidence < min_confidence || candidate_confidence > 1.0 ||
+          !std::isfinite(candidate_uncertainty) || candidate_uncertainty < 0.0) {
+        continue;
+      }
+      const double dx = static_cast<double>(x) - projected.x;
+      const double dy = static_cast<double>(y) - projected.y;
+      const double distance_squared = dx * dx + dy * dy;
+      if (distance_squared <= max_distance_squared &&
+          distance_squared < best_distance_squared) {
+        best_distance_squared = distance_squared;
+        best = NearestDepthSample{x, y, candidate_depth, candidate_uncertainty};
+      }
+    }
+  }
+  return best;
+}
+
 }  // namespace
 
 MultiViewStereoDepth estimateMultiViewDepth(const MultiViewStereoFrame& reference,
@@ -322,6 +385,162 @@ MultiViewStereoDepth estimateMultiViewDepth(const MultiViewStereoFrame& referenc
       result.confidence[index] = confidence;
       result.uncertainty_m[index] = static_cast<float>(
           sampling_uncertainty / std::max(0.1F, confidence));
+      ++result.valid_pixels;
+    }
+  }
+  result.valid = true;
+  return result;
+}
+
+MultiViewStereoDepth filterMultiViewDepthConsistency(
+    const MultiViewStereoFrame& reference,
+    const MultiViewStereoDepth& reference_depth,
+    const std::vector<MultiViewStereoDepthFrame>& sources,
+    MultiViewStereoConsistencyConfig config) {
+  if (config.min_consistent_views == 0 || config.max_source_views == 0 ||
+      config.min_consistent_views > config.max_source_views ||
+      config.max_output_pixels == 0 || config.search_radius_px < 0 ||
+      config.search_radius_px > 8 ||
+      !std::isfinite(config.min_source_confidence) ||
+      config.min_source_confidence < 0.0 || config.min_source_confidence > 1.0 ||
+      !std::isfinite(config.min_baseline_m) || config.min_baseline_m <= 0.0 ||
+      !std::isfinite(config.max_baseline_m) ||
+      config.max_baseline_m <= config.min_baseline_m ||
+      !std::isfinite(config.max_absolute_depth_error_m) ||
+      config.max_absolute_depth_error_m <= 0.0 ||
+      config.max_absolute_depth_error_m > 10.0 ||
+      !std::isfinite(config.max_relative_depth_error) ||
+      config.max_relative_depth_error < 0.0 || config.max_relative_depth_error > 1.0 ||
+      !std::isfinite(config.uncertainty_sigma) || config.uncertainty_sigma < 0.0 ||
+      config.uncertainty_sigma > 10.0 ||
+      !std::isfinite(config.max_round_trip_error_px) ||
+      config.max_round_trip_error_px <= 0.0 ||
+      config.max_round_trip_error_px > 16.0) {
+    throw std::invalid_argument("Invalid multi-view depth consistency configuration");
+  }
+
+  MultiViewStereoDepth result;
+  if (!validDepthFrame(reference, reference_depth) || sources.empty() ||
+      sources.size() > config.max_source_views) {
+    return result;
+  }
+  const std::size_t reference_pixels =
+      static_cast<std::size_t>(reference_depth.width) * reference_depth.height;
+  if (reference_pixels > config.max_output_pixels) return result;
+
+  struct UsableSource {
+    const MultiViewStereoDepthFrame* source{nullptr};
+    Pose camera_from_world{};
+  };
+  std::vector<UsableSource> usable;
+  usable.reserve(sources.size());
+  for (const auto& source : sources) {
+    if (source.depth == nullptr || !validDepthFrame(source.frame, *source.depth)) {
+      return result;
+    }
+    const double baseline =
+        (source.frame.world_from_camera.translation -
+         reference.world_from_camera.translation).norm();
+    if (baseline >= config.min_baseline_m && baseline <= config.max_baseline_m) {
+      usable.push_back({&source, inverse(source.frame.world_from_camera)});
+    }
+  }
+
+  result = reference_depth;
+  result.valid_pixels = 0;
+  result.consistency_tested_pixels = 0;
+  result.consistency_rejected_pixels = 0;
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  const Pose reference_from_world = inverse(reference.world_from_camera);
+  for (int y = 0; y < result.height; ++y) {
+    for (int x = 0; x < result.width; ++x) {
+      const std::size_t index = static_cast<std::size_t>(y) * result.width + x;
+      const double reference_depth_m = reference_depth.depth_m[index];
+      if (!std::isfinite(reference_depth_m) || reference_depth_m <= 0.0) {
+        result.depth_m[index] = nan;
+        result.confidence[index] = 0.0F;
+        result.uncertainty_m[index] = nan;
+        continue;
+      }
+      ++result.consistency_tested_pixels;
+      const double reference_confidence = reference_depth.confidence[index];
+      const double reference_uncertainty = reference_depth.uncertainty_m[index];
+      if (!std::isfinite(reference_confidence) || reference_confidence < 0.0 ||
+          reference_confidence > 1.0 || !std::isfinite(reference_uncertainty) ||
+          reference_uncertainty < 0.0) {
+        result.depth_m[index] = nan;
+        result.confidence[index] = 0.0F;
+        result.uncertainty_m[index] = nan;
+        ++result.consistency_rejected_pixels;
+        continue;
+      }
+
+      const auto reference_ray =
+          reference.camera->unproject({static_cast<double>(x), static_cast<double>(y)});
+      std::size_t evaluated_views = 0;
+      std::size_t consistent_views = 0;
+      if (reference_ray && reference_ray->z > 1e-9) {
+        const Vec3 reference_point = *reference_ray * (reference_depth_m / reference_ray->z);
+        const Vec3 world = reference.world_from_camera.rotation.rotate(reference_point) +
+                           reference.world_from_camera.translation;
+        for (const auto& usable_source : usable) {
+          const auto& source = *usable_source.source;
+          const Vec3 predicted_source =
+              usable_source.camera_from_world.rotation.rotate(world) +
+              usable_source.camera_from_world.translation;
+          const auto projected_source = source.frame.camera->project(predicted_source);
+          if (!projected_source) continue;
+          const auto observed = nearestDepthSample(*source.depth, *projected_source,
+                                                   config.search_radius_px,
+                                                   config.min_source_confidence);
+          if (!observed) continue;
+          ++evaluated_views;
+
+          const double depth_error = std::abs(observed->depth_m - predicted_source.z);
+          const double relative_tolerance =
+              config.max_relative_depth_error *
+              std::min(observed->depth_m, predicted_source.z);
+          const double uncertainty_tolerance = config.uncertainty_sigma *
+              std::hypot(reference_uncertainty, observed->uncertainty_m);
+          const double allowed_depth_error = std::max(
+              config.max_absolute_depth_error_m,
+              std::max(relative_tolerance, uncertainty_tolerance));
+          if (depth_error > allowed_depth_error) continue;
+
+          const auto source_ray = source.frame.camera->unproject(
+              {static_cast<double>(observed->x), static_cast<double>(observed->y)});
+          if (!source_ray || source_ray->z <= 1e-9) continue;
+          const Vec3 observed_source =
+              *source_ray * (observed->depth_m / source_ray->z);
+          const Vec3 observed_world =
+              source.frame.world_from_camera.rotation.rotate(observed_source) +
+              source.frame.world_from_camera.translation;
+          const Vec3 returned_reference =
+              reference_from_world.rotation.rotate(observed_world) +
+              reference_from_world.translation;
+          const auto returned_pixel = reference.camera->project(returned_reference);
+          if (!returned_pixel) continue;
+          const double dx = returned_pixel->x - x;
+          const double dy = returned_pixel->y - y;
+          if (std::sqrt(dx * dx + dy * dy) <= config.max_round_trip_error_px) {
+            ++consistent_views;
+          }
+        }
+      }
+
+      if (consistent_views < config.min_consistent_views) {
+        result.depth_m[index] = nan;
+        result.confidence[index] = 0.0F;
+        result.uncertainty_m[index] = nan;
+        ++result.consistency_rejected_pixels;
+        continue;
+      }
+      const double consistency_ratio =
+          evaluated_views > 0
+              ? static_cast<double>(consistent_views) / evaluated_views
+              : 0.0;
+      result.confidence[index] = static_cast<float>(std::max(
+          0.0, std::min(1.0, reference_confidence * consistency_ratio)));
       ++result.valid_pixels;
     }
   }

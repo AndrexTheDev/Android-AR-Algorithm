@@ -51,7 +51,28 @@ struct MultiViewStereoDepth {
   std::vector<float> confidence;
   std::vector<float> uncertainty_m;
   std::size_t valid_pixels{0};
+  std::size_t consistency_tested_pixels{0};
+  std::size_t consistency_rejected_pixels{0};
   bool valid{false};
+};
+
+struct MultiViewStereoDepthFrame {
+  MultiViewStereoFrame frame{};
+  const MultiViewStereoDepth* depth{nullptr};
+};
+
+struct MultiViewStereoConsistencyConfig {
+  std::size_t min_consistent_views{1};
+  std::size_t max_source_views{8};
+  std::size_t max_output_pixels{4'194'304};
+  int search_radius_px{2};
+  double min_source_confidence{0.1};
+  double min_baseline_m{0.03};
+  double max_baseline_m{3.0};
+  double max_absolute_depth_error_m{0.03};
+  double max_relative_depth_error{0.02};
+  double uncertainty_sigma{2.0};
+  double max_round_trip_error_px{1.5};
 };
 
 // Bounded calibrated inverse-depth plane sweep. Invalid pixels remain NaN and
@@ -60,5 +81,13 @@ MultiViewStereoDepth estimateMultiViewDepth(
     const MultiViewStereoFrame& reference,
     const std::vector<MultiViewStereoFrame>& sources,
     MultiViewStereoConfig config={});
+
+// Filters an existing reference depth map against cached source-view depth
+// maps. Failed pixels remain explicit NaN; no missing depth is synthesized.
+MultiViewStereoDepth filterMultiViewDepthConsistency(
+    const MultiViewStereoFrame& reference,
+    const MultiViewStereoDepth& reference_depth,
+    const std::vector<MultiViewStereoDepthFrame>& sources,
+    MultiViewStereoConsistencyConfig config={});
 
 }  // namespace arkernel

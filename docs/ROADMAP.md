@@ -112,7 +112,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
-- [ ] Add dense reconstruction refinement and fusion: bounded multi-level coarse-to-fine inverse-depth refinement with refined sampling uncertainty and selectable ZNCC/Census/hybrid matching are implemented; forward-backward depth consistency, tiled sparse TSDF fusion, meshing and simplification remain.
+- [ ] Add dense reconstruction refinement and fusion: bounded multi-level coarse-to-fine inverse-depth refinement, refined sampling uncertainty, selectable ZNCC/Census/hybrid matching and cached forward-backward depth consistency are implemented; tiled sparse TSDF fusion, meshing and simplification remain.
 - [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.

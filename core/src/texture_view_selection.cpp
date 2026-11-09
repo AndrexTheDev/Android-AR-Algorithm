@@ -6,6 +6,7 @@
 #include <limits>
 #include <numeric>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace arkernel {
@@ -160,7 +161,11 @@ TextureViewSelectionResult selectTextureViews(
       config.max_image_reference_bytes > 16384 || config.max_vertices == 0 ||
       config.max_vertices > 5000000 || config.max_triangles == 0 ||
       config.max_triangles > 5000000 || config.max_projection_tests == 0 ||
-      config.max_projection_tests > 100000000) {
+      config.max_projection_tests > 100000000 ||
+      config.max_alternatives_per_triangle == 0 ||
+      config.max_alternatives_per_triangle > 16 ||
+      config.max_alternative_records == 0 ||
+      config.max_alternative_records > 16000000) {
     throw std::invalid_argument("Invalid texture view selection configuration");
   }
 
@@ -211,6 +216,9 @@ TextureViewSelectionResult selectTextureViews(
                             candidates[candidate_index].image_reference});
   }
   result.triangles.resize(triangle_count);
+  result.alternatives.reserve(std::min(
+      config.max_alternative_records,
+      triangle_count * config.max_alternatives_per_triangle));
   const double weight_sum = config.quality_weight + config.facing_weight +
                             config.resolution_weight;
   const std::array<std::array<double, 3>, 4> depth_weights{{
@@ -234,6 +242,14 @@ TextureViewSelectionResult selectTextureViews(
     if (!std::isfinite(normal_norm) || normal_norm < 1e-15) continue;
     const Vec3 normal = unnormalized_normal * (1.0 / normal_norm);
     const Vec3 centroid = weightedPoint(world_points, depth_weights[0]);
+    std::array<TextureViewAlternative,16> triangle_alternatives{};
+    std::size_t triangle_alternative_count=0;
+    const auto better_alternative=[](const TextureViewAlternative& first,
+                                     const TextureViewAlternative& second) {
+      return first.score > second.score + 1e-12 ||
+          (std::abs(first.score - second.score) <= 1e-12 &&
+           first.frame_id < second.frame_id);
+    };
 
     for (std::size_t view_index = 0; view_index < order.size(); ++view_index) {
       const std::size_t candidate_index = order[view_index];
@@ -318,25 +334,53 @@ TextureViewSelectionResult selectTextureViews(
       const double score = (config.quality_weight * candidate.quality_score +
                             config.facing_weight * facing +
                             config.resolution_weight * resolution) / weight_sum;
-      auto& selection = result.triangles[triangle];
-      if (!selection.assigned || score > selection.score + 1e-12 ||
-          (std::abs(score - selection.score) <= 1e-12 &&
-           candidate.frame_id < selection.frame_id)) {
-        selection.assigned = true;
-        selection.view_index = view_index;
-        selection.frame_id = candidate.frame_id;
-        selection.score = score;
-        selection.facing_cosine = facing;
-        selection.projected_area_px2 = projected_area;
-        const auto& intrinsics = candidate.camera->intrinsics();
-        const double width_scale = std::max(1, intrinsics.width - 1);
-        const double height_scale = std::max(1, intrinsics.height - 1);
-        for (std::size_t corner = 0; corner < 3; ++corner) {
-          selection.normalized_uv[corner] = {
-              static_cast<float>(projected[corner].x / width_scale),
-              static_cast<float>(projected[corner].y / height_scale)};
-        }
+      TextureViewAlternative alternative;
+      alternative.view_index = view_index;
+      alternative.frame_id = candidate.frame_id;
+      alternative.score = score;
+      alternative.facing_cosine = facing;
+      alternative.projected_area_px2 = projected_area;
+      const auto& intrinsics = candidate.camera->intrinsics();
+      const double width_scale = std::max(1, intrinsics.width - 1);
+      const double height_scale = std::max(1, intrinsics.height - 1);
+      for (std::size_t corner = 0; corner < 3; ++corner) {
+        alternative.normalized_uv[corner] = {
+            static_cast<float>(projected[corner].x / width_scale),
+            static_cast<float>(projected[corner].y / height_scale)};
       }
+      if(triangle_alternative_count<config.max_alternatives_per_triangle) {
+        triangle_alternatives[triangle_alternative_count++]=alternative;
+      } else if(better_alternative(
+                    alternative,triangle_alternatives[triangle_alternative_count-1])) {
+        triangle_alternatives[triangle_alternative_count-1]=alternative;
+      }
+      std::sort(triangle_alternatives.begin(),
+                triangle_alternatives.begin()+
+                    static_cast<std::ptrdiff_t>(triangle_alternative_count),
+                better_alternative);
+    }
+
+    if (triangle_alternative_count>0) {
+      const auto& best = triangle_alternatives[0];
+      auto& selection = result.triangles[triangle];
+      selection.assigned = true;
+      selection.view_index = best.view_index;
+      selection.frame_id = best.frame_id;
+      selection.normalized_uv = best.normalized_uv;
+      selection.score = best.score;
+      selection.facing_cosine = best.facing_cosine;
+      selection.projected_area_px2 = best.projected_area_px2;
+      selection.alternative_offset = result.alternatives.size();
+      const std::size_t remaining = config.max_alternative_records -
+          std::min(config.max_alternative_records, result.alternatives.size());
+      selection.alternative_count = std::min(remaining,
+                                             triangle_alternative_count);
+      result.alternatives.insert(result.alternatives.end(),
+          triangle_alternatives.begin(),
+          triangle_alternatives.begin()+
+              static_cast<std::ptrdiff_t>(selection.alternative_count));
+      if (selection.alternative_count < triangle_alternative_count)
+        result.alternatives_truncated = true;
     }
   }
 
@@ -344,6 +388,250 @@ TextureViewSelectionResult selectTextureViews(
       result.triangles.begin(), result.triangles.end(),
       [](const TriangleTextureView& value) { return value.assigned; }));
   result.unassigned_triangles = triangle_count - result.assigned_triangles;
+  return result;
+}
+
+TextureLabelOptimizationResult optimizeTextureViewLabels(
+    const ReconstructionMesh& mesh,
+    const TextureViewSelectionResult& selection,
+    TextureLabelOptimizationConfig config) {
+  if (!std::isfinite(config.data_weight) || config.data_weight <= 0.0 ||
+      !std::isfinite(config.seam_penalty) || config.seam_penalty < 0.0 ||
+      !std::isfinite(config.max_normal_angle_degrees) ||
+      config.max_normal_angle_degrees <= 0.0 ||
+      config.max_normal_angle_degrees >= 180.0 ||
+      config.max_iterations == 0 || config.max_iterations > 100 ||
+      config.max_triangles == 0 || config.max_triangles > 5000000 ||
+      config.max_unique_edges == 0 || config.max_unique_edges > 6000000 ||
+      config.max_label_evaluations == 0 ||
+      config.max_label_evaluations > 1000000000) {
+    throw std::invalid_argument("Invalid texture label optimization configuration");
+  }
+
+  TextureLabelOptimizationResult result;
+  const auto mesh_validation = validateMesh(
+      mesh, {5000000, config.max_triangles});
+  if (!mesh_validation.valid) {
+    result.error = mesh_validation.error;
+    return result;
+  }
+  const std::size_t triangle_count = mesh.triangle_indices.size() / 3;
+  if (!selection.input_valid || selection.triangles.size() != triangle_count ||
+      selection.views.empty()) {
+    result.error = "texture selection does not match mesh";
+    return result;
+  }
+  for (const auto& triangle : selection.triangles) {
+    if (!triangle.assigned) {
+      if (triangle.alternative_count != 0) {
+        result.error = "unassigned triangle has alternatives";
+        return result;
+      }
+      continue;
+    }
+    if (triangle.view_index >= selection.views.size() ||
+        selection.views[triangle.view_index].frame_id != triangle.frame_id ||
+        triangle.alternative_offset > selection.alternatives.size() ||
+        triangle.alternative_count > selection.alternatives.size() -
+            triangle.alternative_offset) {
+      result.error = "texture assignment is invalid";
+      return result;
+    }
+    std::unordered_set<std::size_t> alternative_views;
+    for (std::size_t i = 0; i < triangle.alternative_count; ++i) {
+      const auto& alternative = selection.alternatives[
+          triangle.alternative_offset + i];
+      if (alternative.view_index >= selection.views.size() ||
+          selection.views[alternative.view_index].frame_id != alternative.frame_id ||
+          !std::isfinite(alternative.score) || alternative.score < 0.0 ||
+          alternative.score > 1.000001 ||
+          !alternative_views.insert(alternative.view_index).second) {
+        result.error = "texture alternative is invalid";
+        return result;
+      }
+      for (const auto& uv : alternative.normalized_uv) {
+        if (!std::isfinite(uv.x) || !std::isfinite(uv.y)) {
+          result.error = "texture alternative UV is invalid";
+          return result;
+        }
+      }
+    }
+  }
+
+  struct EdgeKey {
+    std::uint32_t first{0};
+    std::uint32_t second{0};
+    bool operator==(const EdgeKey& other) const {
+      return first == other.first && second == other.second;
+    }
+  };
+  struct EdgeHash {
+    std::size_t operator()(const EdgeKey& edge) const {
+      return static_cast<std::size_t>(edge.first) * 0x9e3779b1U ^ edge.second;
+    }
+  };
+  struct EdgeUse {
+    std::size_t first_triangle{0};
+    std::size_t second_triangle{0};
+    std::size_t count{0};
+  };
+  const auto edge_key=[](std::uint32_t first,std::uint32_t second) {
+    return first < second ? EdgeKey{first,second} : EdgeKey{second,first};
+  };
+  const std::size_t no_neighbor = std::numeric_limits<std::size_t>::max();
+  std::vector<std::array<std::size_t,3>> adjacency(
+      triangle_count, {no_neighbor,no_neighbor,no_neighbor});
+  std::vector<std::size_t> adjacency_count(triangle_count, 0);
+  std::unordered_map<EdgeKey,EdgeUse,EdgeHash> edges;
+  edges.reserve(std::min(config.max_unique_edges, triangle_count * 3));
+  for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
+    const std::array<std::uint32_t,3> indices{
+      mesh.triangle_indices[triangle*3],mesh.triangle_indices[triangle*3+1],
+      mesh.triangle_indices[triangle*3+2]};
+    for (std::size_t side = 0; side < 3; ++side) {
+      if (indices[side] == indices[(side+1)%3]) continue;
+      const EdgeKey key=edge_key(indices[side],indices[(side+1)%3]);
+      auto found=edges.find(key);
+      if (found == edges.end()) {
+        if (edges.size() >= config.max_unique_edges) {
+          result.input_valid = true;
+          result.truncated = true;
+          result.error = "texture label edge budget exceeded";
+          return result;
+        }
+        edges.emplace(key,EdgeUse{triangle,triangle,1});
+      } else {
+        if (found->second.count == 1) found->second.second_triangle=triangle;
+        ++found->second.count;
+      }
+    }
+  }
+  std::vector<Vec3> face_normals(triangle_count);
+  std::vector<bool> face_normal_valid(triangle_count,false);
+  for(std::size_t triangle=0;triangle<triangle_count;++triangle) {
+    const Vec3 a=toVec3(mesh.positions_m[mesh.triangle_indices[triangle*3]]);
+    const Vec3 b=toVec3(mesh.positions_m[mesh.triangle_indices[triangle*3+1]]);
+    const Vec3 c=toVec3(mesh.positions_m[mesh.triangle_indices[triangle*3+2]]);
+    const Vec3 ab=b-a,ac=c-a;
+    const Vec3 normal{ab.y*ac.z-ab.z*ac.y,ab.z*ac.x-ab.x*ac.z,
+                      ab.x*ac.y-ab.y*ac.x};
+    const double length=normal.norm();
+    if(std::isfinite(length)&&length>1e-15) {
+      face_normals[triangle]=normal*(1.0/length);face_normal_valid[triangle]=true;
+    }
+  }
+  const double minimum_normal_cosine=std::cos(
+      config.max_normal_angle_degrees*3.14159265358979323846/180.0);
+  for (const auto& item : edges) {
+    if (item.second.count == 2) {
+      const std::size_t first=item.second.first_triangle;
+      const std::size_t second=item.second.second_triangle;
+      const double normal_cosine=face_normal_valid[first]&&face_normal_valid[second]?
+          face_normals[first].x*face_normals[second].x+
+          face_normals[first].y*face_normals[second].y+
+          face_normals[first].z*face_normals[second].z:-1.0;
+      if(normal_cosine<minimum_normal_cosine) {
+        ++result.sharp_edges;
+      } else if (first != second && adjacency_count[first] < 3 &&
+                 adjacency_count[second] < 3) {
+        adjacency[first][adjacency_count[first]++]=second;
+        adjacency[second][adjacency_count[second]++]=first;
+      }
+    } else if (item.second.count > 2) {
+      ++result.non_manifold_edges;
+    }
+  }
+
+  result.input_valid = true;
+  result.source_alternatives_truncated = selection.alternatives_truncated;
+  result.triangles = selection.triangles;
+  const auto seam_count=[&](const std::vector<TriangleTextureView>& triangles) {
+    std::size_t seams=0;
+    for (std::size_t triangle=0;triangle<triangle_count;++triangle) {
+      if (!triangles[triangle].assigned) continue;
+      for (std::size_t i=0;i<adjacency_count[triangle];++i) {
+        const std::size_t neighbor=adjacency[triangle][i];
+        if (neighbor>triangle&&triangles[neighbor].assigned&&
+            triangles[neighbor].view_index!=triangles[triangle].view_index)++seams;
+      }
+    }
+    return seams;
+  };
+  const auto patch_count=[&](const std::vector<TriangleTextureView>& triangles) {
+    std::vector<std::size_t> parent(triangle_count);
+    std::iota(parent.begin(),parent.end(),0);
+    const auto find_root=[&](std::size_t value,auto&& self)->std::size_t {
+      if(parent[value]!=value)parent[value]=self(parent[value],self);
+      return parent[value];
+    };
+    for(std::size_t triangle=0;triangle<triangle_count;++triangle) {
+      if(!triangles[triangle].assigned)continue;
+      for(std::size_t i=0;i<adjacency_count[triangle];++i) {
+        const std::size_t neighbor=adjacency[triangle][i];
+        if(neighbor<=triangle||!triangles[neighbor].assigned||
+           triangles[neighbor].view_index!=triangles[triangle].view_index)continue;
+        const std::size_t first=find_root(triangle,find_root);
+        const std::size_t second=find_root(neighbor,find_root);
+        if(first!=second)parent[second]=first;
+      }
+    }
+    std::unordered_set<std::size_t> roots;
+    for(std::size_t triangle=0;triangle<triangle_count;++triangle)
+      if(triangles[triangle].assigned)roots.insert(find_root(triangle,find_root));
+    return roots.size();
+  };
+  result.seam_edges_before=seam_count(result.triangles);
+  result.patches_before=patch_count(result.triangles);
+  std::vector<std::size_t> original_labels(triangle_count);
+  for(std::size_t triangle=0;triangle<triangle_count;++triangle)
+    original_labels[triangle]=result.triangles[triangle].view_index;
+
+  for (std::size_t iteration=0;iteration<config.max_iterations;++iteration) {
+    bool changed=false;
+    ++result.iterations;
+    for (std::size_t triangle=0;triangle<triangle_count;++triangle) {
+      const auto& source_triangle=selection.triangles[triangle];
+      if (!source_triangle.assigned || source_triangle.alternative_count==0)continue;
+      const TextureViewAlternative* best=nullptr;
+      double best_energy=std::numeric_limits<double>::infinity();
+      for(std::size_t i=0;i<source_triangle.alternative_count;++i) {
+        if(result.label_evaluations>=config.max_label_evaluations) {
+          result.truncated=true;
+          break;
+        }
+        ++result.label_evaluations;
+        const auto& alternative=selection.alternatives[
+            source_triangle.alternative_offset+i];
+        double energy=config.data_weight*(1.0-alternative.score);
+        for(std::size_t n=0;n<adjacency_count[triangle];++n) {
+          const auto& neighbor=result.triangles[adjacency[triangle][n]];
+          if(neighbor.assigned&&neighbor.view_index!=alternative.view_index)
+            energy+=config.seam_penalty;
+        }
+        if(!best||energy<best_energy-1e-12||
+           (std::abs(energy-best_energy)<=1e-12&&
+            alternative.frame_id<best->frame_id)) {
+          best=&alternative;best_energy=energy;
+        }
+      }
+      if(result.truncated)break;
+      if(best&&best->view_index!=result.triangles[triangle].view_index) {
+        auto& output=result.triangles[triangle];
+        output.view_index=best->view_index;output.frame_id=best->frame_id;
+        output.normalized_uv=best->normalized_uv;output.score=best->score;
+        output.facing_cosine=best->facing_cosine;
+        output.projected_area_px2=best->projected_area_px2;
+        changed=true;
+      }
+    }
+    if(result.truncated||!changed)break;
+  }
+  result.changed_labels=0;
+  for(std::size_t triangle=0;triangle<triangle_count;++triangle)
+    result.changed_labels+=result.triangles[triangle].view_index!=
+                           original_labels[triangle];
+  result.seam_edges_after=seam_count(result.triangles);
+  result.patches_after=patch_count(result.triangles);
   return result;
 }
 

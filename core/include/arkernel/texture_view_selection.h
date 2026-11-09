@@ -44,11 +44,22 @@ struct TextureViewSelectionConfig {
   std::size_t max_vertices{1000000};
   std::size_t max_triangles{2000000};
   std::size_t max_projection_tests{16000000};
+  std::size_t max_alternatives_per_triangle{4};
+  std::size_t max_alternative_records{1000000};
 };
 
 struct TextureViewReference {
   std::uint64_t frame_id{0};
   std::string image_reference;
+};
+
+struct TextureViewAlternative {
+  std::size_t view_index{0};
+  std::uint64_t frame_id{0};
+  std::array<Vec2f, 3> normalized_uv{};
+  double score{0.0};
+  double facing_cosine{0.0};
+  double projected_area_px2{0.0};
 };
 
 struct TriangleTextureView {
@@ -60,6 +71,10 @@ struct TriangleTextureView {
   double score{0.0};
   double facing_cosine{0.0};
   double projected_area_px2{0.0};
+  // Range in TextureViewSelectionResult::alternatives. Every record in this
+  // range passed all geometric/depth gates for this triangle.
+  std::size_t alternative_offset{0};
+  std::size_t alternative_count{0};
 };
 
 struct TextureViewSelectionResult {
@@ -67,6 +82,7 @@ struct TextureViewSelectionResult {
   // assignments index this table rather than duplicating strings per face.
   std::vector<TextureViewReference> views;
   std::vector<TriangleTextureView> triangles;
+  std::vector<TextureViewAlternative> alternatives;
   std::size_t candidates{0};
   std::size_t projection_tests{0};
   std::size_t assigned_triangles{0};
@@ -78,6 +94,7 @@ struct TextureViewSelectionResult {
   std::size_t rejected_depth_inconsistent{0};
   bool input_valid{false};
   bool truncated{false};
+  bool alternatives_truncated{false};
   std::string error;
 };
 
@@ -88,5 +105,40 @@ TextureViewSelectionResult selectTextureViews(
     const ReconstructionMesh& mesh,
     const std::vector<TextureViewCandidate>& candidates,
     TextureViewSelectionConfig config = {});
+
+struct TextureLabelOptimizationConfig {
+  double data_weight{1.0};
+  double seam_penalty{0.15};
+  double max_normal_angle_degrees{75.0};
+  std::size_t max_iterations{8};
+  std::size_t max_triangles{2000000};
+  std::size_t max_unique_edges{3000000};
+  std::size_t max_label_evaluations{32000000};
+};
+
+struct TextureLabelOptimizationResult {
+  std::vector<TriangleTextureView> triangles;
+  std::size_t iterations{0};
+  std::size_t changed_labels{0};
+  std::size_t seam_edges_before{0};
+  std::size_t seam_edges_after{0};
+  std::size_t patches_before{0};
+  std::size_t patches_after{0};
+  std::size_t non_manifold_edges{0};
+  std::size_t sharp_edges{0};
+  std::size_t label_evaluations{0};
+  bool input_valid{false};
+  bool truncated{false};
+  bool source_alternatives_truncated{false};
+  std::string error;
+};
+
+// Deterministic bounded ICM labeling over shared manifold edges. It may choose
+// only alternatives that already passed selectTextureViews visibility gates.
+// Non-manifold edges do not connect patches and unassigned faces remain so.
+TextureLabelOptimizationResult optimizeTextureViewLabels(
+    const ReconstructionMesh& mesh,
+    const TextureViewSelectionResult& selection,
+    TextureLabelOptimizationConfig config = {});
 
 }  // namespace arkernel

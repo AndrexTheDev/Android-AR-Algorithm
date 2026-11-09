@@ -625,7 +625,8 @@ int main() {
         texture_selection.rejected_missing_depth>0&&
         texture_selection.rejected_back_facing>0&&
         texture_selection.rejected_outside_image>0&&
-        texture_selection.views.size()==5&&
+        texture_selection.views.size()==5&&texture_selection.alternatives.size()==2&&
+        !texture_selection.alternatives_truncated&&
         texture_selection.views[0].image_reference=="visible.i420");
   CHECK(std::all_of(texture_selection.triangles.begin(),
                     texture_selection.triangles.end(),[](const auto& triangle){
@@ -675,6 +676,15 @@ int main() {
         limited_texture_selection.projection_tests==1&&
         limited_texture_selection.assigned_triangles==1&&
         limited_texture_selection.unassigned_triangles==1);
+  auto alternative_limited_config=no_depth_texture_config;
+  alternative_limited_config.max_alternative_records=1;
+  const auto alternative_limited_selection=selectTextureViews(
+      texture_mesh,no_depth_candidate,alternative_limited_config);
+  CHECK(alternative_limited_selection.input_valid&&
+        !alternative_limited_selection.truncated&&
+        alternative_limited_selection.alternatives_truncated&&
+        alternative_limited_selection.assigned_triangles==2&&
+        alternative_limited_selection.alternatives.size()==1);
   auto duplicate_texture_candidates=no_depth_candidate;
   duplicate_texture_candidates.push_back(no_depth_candidate.front());
   const auto duplicate_texture_selection=selectTextureViews(
@@ -687,6 +697,72 @@ int main() {
   try{selectTextureViews(texture_mesh,no_depth_candidate,invalid_texture_config);}
   catch(const std::invalid_argument&){rejected_texture_config=true;}
   CHECK(rejected_texture_config);
+
+  // Coherent labeling may switch only to visibility-approved alternatives and
+  // reduces shared-edge seams without connecting non-manifold regions.
+  TextureViewSelectionResult manual_texture_selection;
+  manual_texture_selection.input_valid=true;
+  manual_texture_selection.views={{10,"view-a.i420"},{20,"view-b.i420"}};
+  manual_texture_selection.alternatives={
+    {0,10,{},0.90,1.0,100.0},{1,20,{},0.85,1.0,100.0},
+    {1,20,{},0.90,1.0,100.0},{0,10,{},0.88,1.0,100.0}};
+  manual_texture_selection.triangles.resize(2);
+  manual_texture_selection.triangles[0].assigned=true;
+  manual_texture_selection.triangles[0].view_index=0;
+  manual_texture_selection.triangles[0].frame_id=10;
+  manual_texture_selection.triangles[0].score=0.90;
+  manual_texture_selection.triangles[0].alternative_offset=0;
+  manual_texture_selection.triangles[0].alternative_count=2;
+  manual_texture_selection.triangles[1].assigned=true;
+  manual_texture_selection.triangles[1].view_index=1;
+  manual_texture_selection.triangles[1].frame_id=20;
+  manual_texture_selection.triangles[1].score=0.90;
+  manual_texture_selection.triangles[1].alternative_offset=2;
+  manual_texture_selection.triangles[1].alternative_count=2;
+  TextureLabelOptimizationConfig label_config;label_config.seam_penalty=0.20;
+  const auto coherent_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,label_config);
+  CHECK(coherent_labels.input_valid&&!coherent_labels.truncated&&
+        coherent_labels.seam_edges_before==1&&coherent_labels.seam_edges_after==0&&
+        coherent_labels.patches_before==2&&coherent_labels.patches_after==1&&
+        coherent_labels.changed_labels==1&&coherent_labels.iterations>=1&&
+        coherent_labels.triangles[0].frame_id==20&&
+        coherent_labels.triangles[1].frame_id==20);
+  auto data_only_label_config=label_config;data_only_label_config.seam_penalty=0.0;
+  const auto data_only_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,data_only_label_config);
+  CHECK(data_only_labels.input_valid&&data_only_labels.changed_labels==0&&
+        data_only_labels.seam_edges_after==1);
+  auto label_budget_config=label_config;label_budget_config.max_label_evaluations=1;
+  const auto limited_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,label_budget_config);
+  CHECK(limited_labels.input_valid&&limited_labels.truncated&&
+        limited_labels.label_evaluations==1);
+  auto edge_limited_label_config=label_config;edge_limited_label_config.max_unique_edges=1;
+  const auto edge_limited_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,edge_limited_label_config);
+  CHECK(edge_limited_labels.input_valid&&edge_limited_labels.truncated&&
+        edge_limited_labels.error=="texture label edge budget exceeded");
+  ReconstructionMesh texture_non_manifold_mesh;
+  texture_non_manifold_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{0,-1,0},{0,0,1}};
+  texture_non_manifold_mesh.triangle_indices={0,1,2,1,0,3,0,1,4};
+  auto non_manifold_selection=manual_texture_selection;
+  non_manifold_selection.triangles.push_back(non_manifold_selection.triangles.back());
+  non_manifold_selection.triangles.back().alternative_offset=0;
+  non_manifold_selection.triangles.back().alternative_count=0;
+  const auto non_manifold_labels=optimizeTextureViewLabels(
+      texture_non_manifold_mesh,non_manifold_selection,label_config);
+  CHECK(non_manifold_labels.input_valid&&non_manifold_labels.non_manifold_edges==1);
+  auto sharp_label_config=label_config;sharp_label_config.max_normal_angle_degrees=45.0;
+  const auto sharp_labels=optimizeTextureViewLabels(
+      crease_mesh,manual_texture_selection,sharp_label_config);
+  CHECK(sharp_labels.input_valid&&sharp_labels.sharp_edges==1&&
+        sharp_labels.changed_labels==0&&sharp_labels.patches_after==2);
+  auto invalid_label_config=label_config;invalid_label_config.max_iterations=0;
+  bool rejected_label_config=false;
+  try{optimizeTextureViewLabels(texture_mesh,manual_texture_selection,invalid_label_config);}
+  catch(const std::invalid_argument&){rejected_label_config=true;}
+  CHECK(rejected_label_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

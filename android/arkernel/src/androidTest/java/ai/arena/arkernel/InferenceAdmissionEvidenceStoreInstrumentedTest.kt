@@ -23,21 +23,25 @@ class InferenceAdmissionEvidenceStoreInstrumentedTest {
         val signature = signature()
         val options = InferenceSemanticConformanceOptions()
         val evidence = PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature,
-            "b".repeat(64), "d".repeat(64), options, "adapter", "1", "software", 3,
+            "b".repeat(64), "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3,
             acceptedResult(), 1_000, 1_000)
         store.clear()
         try {
             store.write(evidence)
             assertNotNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "software", 3, 1_500))
+                "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3, 1_500))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "2", "software", 3, 1_500))
+                "d".repeat(64), options, "adapter", "2", "e".repeat(64),
+                "software", 3, 1_500))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "software", 3, 2_000))
+                "d".repeat(64), options, "adapter", "1", "f".repeat(64),
+                "software", 3, 1_500))
+            assertNull(store.readExact(identity, signature, "b".repeat(64),
+                "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3, 2_000))
 
             File(context.noBackupFilesDir, fileName).writeBytes(byteArrayOf(1, 2, 3))
             assertNull(store.readExact(identity, signature, "b".repeat(64),
-                "d".repeat(64), options, "adapter", "1", "software", 3, 1_500))
+                "d".repeat(64), options, "adapter", "1", "e".repeat(64), "software", 3, 1_500))
         } finally {
             store.clear()
         }

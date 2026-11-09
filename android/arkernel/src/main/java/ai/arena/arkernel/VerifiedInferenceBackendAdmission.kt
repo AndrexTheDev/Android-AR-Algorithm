@@ -64,6 +64,7 @@ object VerifiedInferenceBackendAdmission {
         goldenSuiteSha256: String,
         adapterId: String,
         adapterVersion: String,
+        driverFingerprintSha256: String,
         softwareRevision: String,
         policyRevision: Long,
         nowEpochMillis: Long,
@@ -72,7 +73,8 @@ object VerifiedInferenceBackendAdmission {
         options: InferenceSemanticConformanceOptions = InferenceSemanticConformanceOptions(),
     ): VerifiedInferenceBackendAdmissionResult {
         val cacheKey = EvidenceKey(signature, calibrationProfileSha256, goldenSuiteSha256,
-            adapterId, adapterVersion, softwareRevision, policyRevision, nowEpochMillis)
+            adapterId, adapterVersion, driverFingerprintSha256, softwareRevision,
+            policyRevision, nowEpochMillis)
         return createInternal(manifest, modelBytes, cpuFactory, delegateFactory,
             casesOnCacheMiss, options, evidence, cacheKey, sentinelCase)
     }
@@ -113,8 +115,8 @@ object VerifiedInferenceBackendAdmission {
             val exactEvidence = evidence?.takeIf { cached -> cacheKey != null && cached.matches(
                 identity, cacheKey.signature, cacheKey.calibrationProfileSha256,
                 cacheKey.goldenSuiteSha256, options, cacheKey.adapterId,
-                cacheKey.adapterVersion, cacheKey.softwareRevision,
-                cacheKey.policyRevision, cacheKey.nowEpochMillis) }
+                cacheKey.adapterVersion, cacheKey.driverFingerprintSha256,
+                cacheKey.softwareRevision, cacheKey.policyRevision, cacheKey.nowEpochMillis) }
             if (exactEvidence != null) {
                 cpuOwned = false
                 val sentinel = InferenceBackendSemanticConformanceSelector.select(cpu, delegate,
@@ -148,6 +150,7 @@ object VerifiedInferenceBackendAdmission {
         val goldenSuiteSha256: String,
         val adapterId: String,
         val adapterVersion: String,
+        val driverFingerprintSha256: String,
         val softwareRevision: String,
         val policyRevision: Long,
         val nowEpochMillis: Long,

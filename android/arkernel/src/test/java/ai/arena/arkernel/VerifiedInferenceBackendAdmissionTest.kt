@@ -113,7 +113,7 @@ class VerifiedInferenceBackendAdmissionTest {
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
-            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500,
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "e".repeat(64), "software", 3, 1_500,
             InferenceSemanticGoldenCase("startup-sentinel", frame))
 
         assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
@@ -136,7 +136,7 @@ class VerifiedInferenceBackendAdmissionTest {
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
-            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500,
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "e".repeat(64), "software", 3, 1_500,
             InferenceSemanticGoldenCase("regression-sentinel", frame))
 
         assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED,
@@ -149,7 +149,7 @@ class VerifiedInferenceBackendAdmissionTest {
     }
 
     @Test
-    fun cacheKeyMismatchRunsFullGoldenConformance() {
+    fun driverFingerprintMismatchRunsFullGoldenConformance() {
         val frame = frame(30)
         val calls = AtomicInteger()
         val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
@@ -158,7 +158,8 @@ class VerifiedInferenceBackendAdmissionTest {
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
-            "b".repeat(64), "d".repeat(64), "adapter", "different", "software", 3, 1_500,
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "f".repeat(64),
+            "software", 3, 1_500,
             InferenceSemanticGoldenCase("unused-sentinel", frame),
             listOf(InferenceSemanticGoldenCase("cache-miss", frame)))
 
@@ -177,7 +178,7 @@ class VerifiedInferenceBackendAdmissionTest {
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
             VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
-            "b".repeat(64), "d".repeat(64), "adapter", "1", "software", 3, 1_500,
+            "b".repeat(64), "d".repeat(64), "adapter", "1", "e".repeat(64), "software", 3, 1_500,
             InferenceSemanticGoldenCase("identity-sentinel", frame))
 
         assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED, result.status)
@@ -243,7 +244,7 @@ class VerifiedInferenceBackendAdmissionTest {
         }, true, InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED, report)
         return PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature(),
             "b".repeat(64), "d".repeat(64), InferenceSemanticConformanceOptions(),
-            "adapter", "1", "software", 3, accepted, 1_000, 1_000)
+            "adapter", "1", "e".repeat(64), "software", 3, accepted, 1_000, 1_000)
     }
 
     private fun signature() = DeviceCapabilitySignature(apiLevel = 35,

@@ -2,6 +2,7 @@ package ai.arena.arkernel
 
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.zip.CRC32
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -23,7 +24,7 @@ class InferenceAdmissionEvidenceCodecTest {
         assertEquals(evidence, decoded)
         assertEquals(64, evidence.manifestIdentitySha256.length)
         assertTrue(decoded.matches(identity, signature(), "b".repeat(64),
-            "d".repeat(64), InferenceSemanticConformanceOptions(), "adapter", "1.2.3",
+            "d".repeat(64), InferenceSemanticConformanceOptions(), "adapter", "1.2.3", "e".repeat(64),
             "software-7", 9, 1_500))
     }
 
@@ -35,24 +36,26 @@ class InferenceAdmissionEvidenceCodecTest {
 
         val options = InferenceSemanticConformanceOptions()
         assertFalse(evidence.matches(identity(version = "2"), signature, "b".repeat(64),
-            "d".repeat(64), options, "adapter", "1.2.3", "software-7", 9, 1_500))
+            "d".repeat(64), options, "adapter", "1.2.3", "e".repeat(64), "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "c".repeat(64), "d".repeat(64),
-            options, "adapter", "1.2.3", "software-7", 9, 1_500))
+            options, "adapter", "1.2.3", "e".repeat(64), "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "e".repeat(64),
-            options, "adapter", "1.2.3", "software-7", 9, 1_500))
+            options, "adapter", "1.2.3", "e".repeat(64), "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
-            options.copy(confidenceTolerance = 0.02), "adapter", "1.2.3",
+            options.copy(confidenceTolerance = 0.02), "adapter", "1.2.3", "e".repeat(64),
             "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
-            options, "other", "1.2.3", "software-7", 9, 1_500))
+            options, "other", "1.2.3", "e".repeat(64), "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
-            options, "adapter", "2", "software-7", 9, 1_500))
+            options, "adapter", "2", "e".repeat(64), "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
-            options, "adapter", "1.2.3", "software-8", 9, 1_500))
+            options, "adapter", "1.2.3", "f".repeat(64), "software-7", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
-            options, "adapter", "1.2.3", "software-7", 10, 1_500))
+            options, "adapter", "1.2.3", "e".repeat(64), "software-8", 9, 1_500))
         assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
-            options, "adapter", "1.2.3", "software-7", 9, 2_000))
+            options, "adapter", "1.2.3", "e".repeat(64), "software-7", 10, 1_500))
+        assertFalse(evidence.matches(identity, signature, "b".repeat(64), "d".repeat(64),
+            options, "adapter", "1.2.3", "e".repeat(64), "software-7", 9, 2_000))
     }
 
     @Test
@@ -72,8 +75,21 @@ class InferenceAdmissionEvidenceCodecTest {
         try {
             PersistedInferenceAdmissionEvidence.fromAccepted(identity(), signature(),
                 "b".repeat(64), "d".repeat(64), InferenceSemanticConformanceOptions(),
-                "adapter", "1", "software", 0, rejected, 1_000, 1_000)
+                "adapter", "1", "e".repeat(64), "software", 0, rejected, 1_000, 1_000)
             fail("Expected rejected evidence refusal")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test
+    fun previousEvidenceVersionIsRejectedInsteadOfReusedWithoutDriverIdentity() {
+        val bytes = InferenceAdmissionEvidenceCodec.encode(evidence(identity()))
+        val payloadSize = ByteBuffer.wrap(bytes, 0, Int.SIZE_BYTES).int
+        ByteBuffer.wrap(bytes, 2 * Int.SIZE_BYTES, Int.SIZE_BYTES).putInt(2)
+        val crc = CRC32().apply { update(bytes, Int.SIZE_BYTES, payloadSize) }.value
+        ByteBuffer.wrap(bytes, Int.SIZE_BYTES + payloadSize, Int.SIZE_BYTES).putInt(crc.toInt())
+        try {
+            InferenceAdmissionEvidenceCodec.decode(bytes)
+            fail("Expected old evidence version rejection")
         } catch (_: IllegalArgumentException) { }
     }
 
@@ -89,7 +105,7 @@ class InferenceAdmissionEvidenceCodecTest {
 
     private fun evidence(identity: VerifiedInferenceIdentity) =
         PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature(), "b".repeat(64),
-            "d".repeat(64), InferenceSemanticConformanceOptions(), "adapter", "1.2.3",
+            "d".repeat(64), InferenceSemanticConformanceOptions(), "adapter", "1.2.3", "e".repeat(64),
             "software-7", 9, acceptedResult(), 1_000, 1_000)
 
     private fun acceptedResult() = VerifiedInferenceBackendAdmissionResult(

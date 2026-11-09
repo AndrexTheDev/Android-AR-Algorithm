@@ -11,7 +11,7 @@ import java.security.MessageDigest
 import java.util.zip.CRC32
 
 private const val INFERENCE_EVIDENCE_MAGIC = 0x41524945 // ARIE
-private const val INFERENCE_EVIDENCE_VERSION = 2
+private const val INFERENCE_EVIDENCE_VERSION = 3
 private const val MAX_INFERENCE_EVIDENCE_BYTES = 8 * 1024
 private const val MAX_INFERENCE_EVIDENCE_ID = 128
 private const val MAX_INFERENCE_EVIDENCE_VALIDITY_MILLIS = 30L * 24 * 60 * 60 * 1_000
@@ -73,6 +73,7 @@ data class PersistedInferenceAdmissionEvidence(
     val conformanceOptionsSha256: String,
     val adapterId: String,
     val adapterVersion: String,
+    val driverFingerprintSha256: String,
     val softwareRevision: String,
     val policyRevision: Long,
     val recordedAtEpochMillis: Long,
@@ -93,6 +94,7 @@ data class PersistedInferenceAdmissionEvidence(
         require(goldenSuiteSha256.isInferenceSha256())
         require(conformanceOptionsSha256.isInferenceSha256())
         require(adapterId.isInferenceEvidenceId() && adapterVersion.isInferenceEvidenceId() &&
+            driverFingerprintSha256.isInferenceSha256() &&
             softwareRevision.isInferenceEvidenceId())
         require(policyRevision >= 0)
         require(recordedAtEpochMillis >= 0 && expiresAtEpochMillis > recordedAtEpochMillis &&
@@ -105,7 +107,8 @@ data class PersistedInferenceAdmissionEvidence(
     fun matches(identity: VerifiedInferenceIdentity, signature: DeviceCapabilitySignature,
         calibrationSha256: String, expectedGoldenSuiteSha256: String,
         expectedOptions: InferenceSemanticConformanceOptions, expectedAdapterId: String,
-        expectedAdapterVersion: String, expectedSoftwareRevision: String,
+        expectedAdapterVersion: String, expectedDriverFingerprintSha256: String,
+        expectedSoftwareRevision: String,
         expectedPolicyRevision: Long, nowEpochMillis: Long): Boolean =
         manifestIdentitySha256 == identity.manifest.stableSha256() &&
             capabilitySignatureSha256 == signature.stableIdSha256 &&
@@ -114,6 +117,7 @@ data class PersistedInferenceAdmissionEvidence(
             conformanceOptionsSha256 == expectedOptions.stableSha256() &&
             adapterId == expectedAdapterId &&
             adapterVersion == expectedAdapterVersion &&
+            driverFingerprintSha256 == expectedDriverFingerprintSha256 &&
             softwareRevision == expectedSoftwareRevision &&
             policyRevision == expectedPolicyRevision &&
             nowEpochMillis in recordedAtEpochMillis until expiresAtEpochMillis
@@ -131,6 +135,7 @@ data class PersistedInferenceAdmissionEvidence(
             options: InferenceSemanticConformanceOptions,
             adapterId: String,
             adapterVersion: String,
+            driverFingerprintSha256: String,
             softwareRevision: String,
             policyRevision: Long,
             result: VerifiedInferenceBackendAdmissionResult,
@@ -144,8 +149,8 @@ data class PersistedInferenceAdmissionEvidence(
             require(validityMillis in 1..MAX_INFERENCE_EVIDENCE_VALIDITY_MILLIS)
             return PersistedInferenceAdmissionEvidence(identity.manifest.stableSha256(),
                 signature.stableIdSha256, calibrationProfileSha256, goldenSuiteSha256,
-                options.stableSha256(), adapterId, adapterVersion, softwareRevision,
-                policyRevision, recordedAtEpochMillis,
+                options.stableSha256(), adapterId, adapterVersion,
+                driverFingerprintSha256, softwareRevision, policyRevision, recordedAtEpochMillis,
                 Math.addExact(recordedAtEpochMillis, validityMillis), report.evaluatedCases,
                 report.comparedDetections, report.comparedDepthPixels,
                 report.maximumDetectionCoordinateErrorPixels,
@@ -190,6 +195,7 @@ class InferenceAdmissionEvidenceStore(
         options: InferenceSemanticConformanceOptions,
         adapterId: String,
         adapterVersion: String,
+        driverFingerprintSha256: String,
         softwareRevision: String,
         policyRevision: Long,
         nowEpochMillis: Long = System.currentTimeMillis(),
@@ -197,6 +203,7 @@ class InferenceAdmissionEvidenceStore(
         if (!calibrationSha256.isInferenceSha256() ||
             !goldenSuiteSha256.isInferenceSha256() || !adapterId.isInferenceEvidenceId() ||
             !adapterVersion.isInferenceEvidenceId() ||
+            !driverFingerprintSha256.isInferenceSha256() ||
             !softwareRevision.isInferenceEvidenceId() || policyRevision < 0 ||
             nowEpochMillis < 0) return null
         val base = file.baseFile
@@ -205,8 +212,8 @@ class InferenceAdmissionEvidenceStore(
             InferenceAdmissionEvidenceCodec.decode(file.readFully())
         }.getOrNull() ?: return null
         return evidence.takeIf { it.matches(identity, signature, calibrationSha256,
-            goldenSuiteSha256, options, adapterId, adapterVersion, softwareRevision,
-            policyRevision, nowEpochMillis) }
+            goldenSuiteSha256, options, adapterId, adapterVersion,
+            driverFingerprintSha256, softwareRevision, policyRevision, nowEpochMillis) }
     }
 
     @Synchronized fun clear() { file.delete() }
@@ -224,6 +231,7 @@ internal object InferenceAdmissionEvidenceCodec {
                 output.writeUTF(value.goldenSuiteSha256)
                 output.writeUTF(value.conformanceOptionsSha256)
                 output.writeUTF(value.adapterId); output.writeUTF(value.adapterVersion)
+                output.writeUTF(value.driverFingerprintSha256)
                 output.writeUTF(value.softwareRevision); output.writeLong(value.policyRevision)
                 output.writeLong(value.recordedAtEpochMillis)
                 output.writeLong(value.expiresAtEpochMillis)
@@ -257,13 +265,14 @@ internal object InferenceAdmissionEvidenceCodec {
             val calibration = data.readUTF()
             val goldenSuite = data.readUTF(); val options = data.readUTF()
             val adapterId = data.readUTF(); val adapterVersion = data.readUTF()
+            val driver = data.readUTF()
             val software = data.readUTF(); val policy = data.readLong()
             val recorded = data.readLong(); val expires = data.readLong()
             val cases = data.readInt(); val detections = data.readLong()
             val depth = data.readLong(); val errors = DoubleArray(5) { data.readDouble() }
             require(data.available() == 0)
             PersistedInferenceAdmissionEvidence(manifest, capability, calibration, goldenSuite,
-                options, adapterId, adapterVersion, software, policy, recorded, expires, cases,
+                options, adapterId, adapterVersion, driver, software, policy, recorded, expires, cases,
                 detections, depth,
                 errors[0], errors[1], errors[2], errors[3], errors[4])
         }

@@ -225,6 +225,7 @@ class StandaloneArRuntime private constructor(
             resourceDecision: RuntimeResourceDecision? = null,
             calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
             calibrationProfileSha256: String? = null,
+            guidedMotionAdmissionProbe: GuidedMotionAdmissionProbe? = null,
         ): StandaloneArRuntime {
             require(resourceDecision == null || resourceDecision.liveMappingEnabled) {
                 "A non-mapping resource decision cannot create the VIO runtime"
@@ -253,7 +254,8 @@ class StandaloneArRuntime private constructor(
                 calibrationRuntimeMonitor = calibrationRuntimeMonitor,
                 maximumCameraFramesPerSecond = resourceDecision?.targetFramesPerSecond ?: 30,
                 maximumPendingReconstructionFrames =
-                    resourceDecision?.maximumPendingReconstructionFrames ?: 2)
+                    resourceDecision?.maximumPendingReconstructionFrames ?: 2,
+                guidedMotionAdmissionProbe = guidedMotionAdmissionProbe)
             val executionController = resourceDecision?.let {
                 RuntimeExecutionPlanController(RuntimeExecutionPlan(it, calibrationProfileSha256))
             }

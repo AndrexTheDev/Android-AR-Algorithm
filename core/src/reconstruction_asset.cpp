@@ -1,6 +1,7 @@
 #include "arkernel/reconstruction_asset.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -111,6 +112,38 @@ void appendQualityComments(std::ostream& out, const AccuracyAssessment& assessme
       << dimensional.maximum_validated_dimension_m << '\n';
   for (const auto& failure : assessment.failures)
     out << prefix << "quality_failure " << failure << '\n';
+}
+struct EncodedTextureView {
+  const std::vector<std::uint8_t>* bytes{nullptr};
+  std::string mime_type;
+};
+bool validEncodedTexture(const EncodedTextureView& texture,
+                         std::size_t max_encoded_image_bytes) {
+  if (!texture.bytes || texture.bytes->empty() || max_encoded_image_bytes == 0 ||
+      texture.bytes->size() > max_encoded_image_bytes) return false;
+  const auto& bytes=*texture.bytes;
+  if (texture.mime_type=="image/png") {
+    static constexpr std::array<std::uint8_t,8> signature{{137,80,78,71,13,10,26,10}};
+    if(bytes.size()<45||!std::equal(signature.begin(),signature.end(),bytes.begin()))return false;
+    const auto read_be=[&](std::size_t offset){return
+      static_cast<std::uint32_t>(bytes[offset])<<24U|
+      static_cast<std::uint32_t>(bytes[offset+1])<<16U|
+      static_cast<std::uint32_t>(bytes[offset+2])<<8U|bytes[offset+3];};
+    if(read_be(8)!=13||!std::equal(bytes.begin()+12,bytes.begin()+16,"IHDR")||
+       read_be(16)==0||read_be(20)==0)return false;
+    std::size_t offset=8;
+    while(offset+12<=bytes.size()) {
+      const std::size_t payload=read_be(offset);
+      if(payload>bytes.size()-offset-12)return false;
+      const bool iend=payload==0&&std::equal(bytes.begin()+static_cast<std::ptrdiff_t>(offset+4),
+                                             bytes.begin()+static_cast<std::ptrdiff_t>(offset+8),"IEND");
+      offset+=payload+12;
+      if(iend)return offset==bytes.size();
+    }
+    return false;
+  }
+  return texture.mime_type=="image/jpeg"&&bytes.size()>=4&&bytes[0]==0xFF&&bytes[1]==0xD8&&
+      bytes[bytes.size()-2]==0xFF&&bytes.back()==0xD9;
 }
 AccuracyAssessment requireExportableAssessment(const ReconstructionQuality& quality,
                                                ScanMode mode,
@@ -297,7 +330,8 @@ MeshValidationResult validateMesh(const ReconstructionMesh& mesh,
 }
 
 static GltfAsset exportGltfInternal(const ReconstructionMesh& mesh, const std::string& bin_name,
-                             const AccuracyAssessment* assessment) {
+                             const AccuracyAssessment* assessment,
+                             const EncodedTextureView* embedded_texture = nullptr) {
   const auto validation = validateMesh(mesh);
   if (!validation.valid) throw std::invalid_argument(validation.error);
   if (bin_name.empty()) throw std::invalid_argument("glTF binary file name is empty");
@@ -307,6 +341,15 @@ static GltfAsset exportGltfInternal(const ReconstructionMesh& mesh, const std::s
   const std::size_t normal_offset = mesh.normals.empty() ? 0 : append(asset.binary, mesh.normals);
   const std::size_t uv_offset = mesh.texcoords.empty() ? 0 : append(asset.binary, mesh.texcoords);
   const std::size_t index_offset = append(asset.binary, mesh.triangle_indices);
+  std::size_t image_offset=0,image_bytes=0;
+  if (embedded_texture) {
+    while ((asset.binary.size() & 3U) != 0U) asset.binary.push_back(0);
+    image_offset=asset.binary.size();image_bytes=embedded_texture->bytes->size();
+    if (image_bytes>std::numeric_limits<std::size_t>::max()-asset.binary.size())
+      throw std::length_error("Embedded texture exceeds addressable memory");
+    asset.binary.insert(asset.binary.end(),embedded_texture->bytes->begin(),
+                        embedded_texture->bytes->end());
+  }
   Vec3f minimum = mesh.positions_m.front(), maximum = minimum;
   for (const auto& p : mesh.positions_m) {
     minimum.x = std::min(minimum.x, p.x); minimum.y = std::min(minimum.y, p.y);
@@ -327,6 +370,12 @@ static GltfAsset exportGltfInternal(const ReconstructionMesh& mesh, const std::s
   const auto normal_view = mesh.normals.empty() ? 0 : view(normal_offset, normal_bytes, 34962);
   const auto uv_view = mesh.texcoords.empty() ? 0 : view(uv_offset, uv_bytes, 34962);
   const auto index_view = view(index_offset, index_bytes, 34963);
+  std::size_t image_view=0;
+  if (embedded_texture) {
+    std::ostringstream s;s<<"{\"buffer\":0,\"byteOffset\":"<<image_offset
+      <<",\"byteLength\":"<<image_bytes<<"}";
+    views.push_back(s.str());image_view=views.size()-1;
+  }
   std::vector<std::string> accessors;
   std::ostringstream pos; pos << "{\"bufferView\":" << pos_view
     << ",\"componentType\":5126,\"count\":" << mesh.positions_m.size()
@@ -355,13 +404,18 @@ static GltfAsset exportGltfInternal(const ReconstructionMesh& mesh, const std::s
   if (!mesh.normals.empty()) json << ",\"NORMAL\":" << normal_accessor;
   if (!mesh.texcoords.empty()) json << ",\"TEXCOORD_0\":" << uv_accessor;
   json << "},\"indices\":" << index_accessor;
-  if (!mesh.base_color_texture.uri.empty()) json << ",\"material\":0";
+  const bool has_texture=embedded_texture||!mesh.base_color_texture.uri.empty();
+  if (has_texture) json << ",\"material\":0";
   json << "}]}]";
-  if (!mesh.base_color_texture.uri.empty()) json <<
-    ",\"images\":[{\"uri\":\"" << escapeJson(mesh.base_color_texture.uri) <<
-    "\",\"mimeType\":\"" << escapeJson(mesh.base_color_texture.mime_type) <<
-    "\"}],\"textures\":[{\"source\":0}],\"materials\":[{\"pbrMetallicRoughness\":{"
-    "\"baseColorTexture\":{\"index\":0},\"metallicFactor\":0,\"roughnessFactor\":1}}]";
+  if (has_texture) {
+    json << ",\"images\":[{";
+    if (embedded_texture) json << "\"bufferView\":" << image_view;
+    else json << "\"uri\":\"" << escapeJson(mesh.base_color_texture.uri) << "\"";
+    json << ",\"mimeType\":\"" << escapeJson(embedded_texture?
+        embedded_texture->mime_type:mesh.base_color_texture.mime_type) <<
+      "\"}],\"textures\":[{\"source\":0}],\"materials\":[{\"pbrMetallicRoughness\":{"
+      "\"baseColorTexture\":{\"index\":0},\"metallicFactor\":0,\"roughnessFactor\":1}}]";
+  }
   json << ",\"extras\":{";
   appendQualityJson(json, assessment);
   json << "}}";
@@ -414,6 +468,28 @@ std::vector<std::uint8_t> exportAssessedGlb(const ReconstructionMesh& mesh,
     const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy) {
   const auto assessment = requireExportableAssessment(quality, mode, policy);
   return packageGlb(exportGltfInternal(mesh, "__arkernel_internal.bin", &assessment));
+}
+
+std::vector<std::uint8_t> exportGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type,std::size_t max_encoded_image_bytes) {
+  const EncodedTextureView texture{&encoded_image,mime_type};
+  if(!mesh.base_color_texture.uri.empty()||mesh.texcoords.size()!=mesh.positions_m.size()||
+     !validEncodedTexture(texture,max_encoded_image_bytes))
+    throw std::invalid_argument("Invalid embedded GLB texture");
+  return packageGlb(exportGltfInternal(mesh,"__arkernel_internal.bin",nullptr,&texture));
+}
+
+std::vector<std::uint8_t> exportAssessedGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type,const ReconstructionQuality& quality,ScanMode mode,
+    const AccuracyPolicy& policy,std::size_t max_encoded_image_bytes) {
+  const EncodedTextureView texture{&encoded_image,mime_type};
+  if(!mesh.base_color_texture.uri.empty()||mesh.texcoords.size()!=mesh.positions_m.size()||
+     !validEncodedTexture(texture,max_encoded_image_bytes))
+    throw std::invalid_argument("Invalid embedded GLB texture");
+  const auto assessment=requireExportableAssessment(quality,mode,policy);
+  return packageGlb(exportGltfInternal(mesh,"__arkernel_internal.bin",&assessment,&texture));
 }
 
 static std::string exportObjInternal(const ReconstructionMesh& mesh, const std::string& material_name,

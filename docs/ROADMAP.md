@@ -119,9 +119,10 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add bounded Gray/RGB/RGBA/canonical-I420 atlas rasterization and patch-local padding dilation with raw RGBA8 output.
 - [x] Add bounded robust cross-view seam sampling and deterministic per-view linear RGB exposure normalization.
 - [x] Add deterministic bounded local RGB blending across paired manifold atlas seams.
-- [ ] Add JPEG/PNG platform decoding/encoding and optional global seam optimization.
+- [x] Add bounded Android RGBA8-to-PNG encoding and portable PNG/JPEG embedding in canonical GLB output.
+- [ ] Add archived JPEG/PNG source decoding, complete Android texturing orchestration, durable asset publication and optional global seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
-- [ ] Embed texture image chunks/data URIs where true single-file GLB is required.
+- [x] Embed bounded encoded PNG/JPEG image buffer views for true single-file textured GLB output.
 - [ ] Add optional Android Filament viewer module; then USDZ and survey-format adapters.

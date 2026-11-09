@@ -219,6 +219,34 @@ int main() {
     static_cast<std::uint32_t>(glb[offset+2])<<16U|
     static_cast<std::uint32_t>(glb[offset+3])<<24U;};
   CHECK(read_u32(4)==2&&read_u32(8)==glb.size()&&read_u32(16)==0x4E4F534AU);
+  auto embedded_mesh=mesh;embedded_mesh.base_color_texture.uri.clear();
+  const std::vector<std::uint8_t> tiny_png{
+    137,80,78,71,13,10,26,10,
+    0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,0,0,0,0,
+    0,0,0,0,73,69,78,68,0,0,0,0};
+  const auto embedded_glb=exportGlbWithEmbeddedTexture(embedded_mesh,tiny_png);
+  const std::string embedded_glb_text(embedded_glb.begin(),embedded_glb.end());
+  CHECK(embedded_glb.size()>glb.size()&&
+        embedded_glb_text.find("\"mimeType\":\"image/png\"")!=std::string::npos&&
+        embedded_glb_text.find("\"bufferView\":4")!=std::string::npos&&
+        std::search(embedded_glb.begin(),embedded_glb.end(),tiny_png.begin(),tiny_png.end())!=
+          embedded_glb.end());
+  const auto assessed_embedded_glb=exportAssessedGlbWithEmbeddedTexture(embedded_mesh,
+      tiny_png,"image/png",validated_reconstruction_quality,ScanMode::kObject);
+  CHECK(std::string(assessed_embedded_glb.begin(),assessed_embedded_glb.end()).find(
+        "centimeter-validated")!=std::string::npos);
+  bool rejected_fake_png=false;
+  try{exportGlbWithEmbeddedTexture(embedded_mesh,{1,2,3},"image/png");}
+  catch(const std::invalid_argument&){rejected_fake_png=true;}
+  CHECK(rejected_fake_png);
+  bool rejected_embedded_budget=false;
+  try{exportGlbWithEmbeddedTexture(embedded_mesh,tiny_png,"image/png",8);}
+  catch(const std::invalid_argument&){rejected_embedded_budget=true;}
+  CHECK(rejected_embedded_budget);
+  bool rejected_ambiguous_texture=false;
+  try{exportGlbWithEmbeddedTexture(mesh,tiny_png);}
+  catch(const std::invalid_argument&){rejected_ambiguous_texture=true;}
+  CHECK(rejected_ambiguous_texture);
   const auto assessed_glb=exportAssessedGlb(mesh,validated_reconstruction_quality,
     ScanMode::kObject);
   const std::string assessed_glb_text(assessed_glb.begin(),assessed_glb.end());

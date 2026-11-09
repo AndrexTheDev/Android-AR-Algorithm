@@ -144,6 +144,22 @@ std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh);
 std::vector<std::uint8_t> exportAssessedGlb(
     const ReconstructionMesh& mesh, const ReconstructionQuality& quality,
     ScanMode mode, const AccuracyPolicy& policy = {});
+// Embeds one already encoded PNG or JPEG in the GLB binary chunk. The mesh URI
+// must still be empty: successful embedding, not raw atlas availability, is
+// what creates the glTF image/material relationship.
+std::vector<std::uint8_t> exportGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,
+    const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type = "image/png",
+    std::size_t max_encoded_image_bytes = 134217728);
+std::vector<std::uint8_t> exportAssessedGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,
+    const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type,
+    const ReconstructionQuality& quality,
+    ScanMode mode,
+    const AccuracyPolicy& policy = {},
+    std::size_t max_encoded_image_bytes = 134217728);
 std::string exportObj(const ReconstructionMesh& mesh,
                       const std::string& material_file_name = "scene.mtl");
 std::string exportAssessedObj(const ReconstructionMesh& mesh,

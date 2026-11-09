@@ -3,6 +3,7 @@ package ai.arena.arkernel
 import kotlin.math.abs
 
 enum class CameraCalibrationRuntimeFailure {
+    PHYSICAL_CAPTURE_RESULT_MISSING,
     CROP_REGION_MISSING,
     CROP_REGION_CHANGED,
     VIDEO_STABILIZATION_MISSING,

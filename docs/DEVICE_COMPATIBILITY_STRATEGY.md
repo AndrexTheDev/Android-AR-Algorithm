@@ -19,8 +19,8 @@ The recommended architecture is therefore **probe → fingerprint → self-test 
 
 The existing implementation already has strong bounded buffers, exact configured YUV size checks, capture-result/image association by exact sensor timestamp, explicit calibration input, native clock-alignment primitives, deterministic replay, mapping quality gates, CPU fallbacks and thermal inference control. The remaining broad-device risks are concrete:
 
-- `Camera2FrameSource` defaults to the first back-facing ID; it does not yet pin a physical camera behind a logical device or prevent automatic lens switching.
-- continuous-picture autofocus is requested while focus distance, focal length, crop, distortion correction, OIS/EIS and rolling-shutter state are not yet bound to the supplied calibration;
+- `Camera2FrameSource` now binds a signed physical-camera ID through an API-28 `OutputConfiguration`, rejects unavailable/API-inexpressible routes before opening, and consumes that physical sensor's capture metadata; physical Camera2 routing still requires representative HAL/device validation.
+- profile-bound focus distance, focal length, crop, distortion correction and OIS/EIS are requested and continuously checked; rolling-shutter state is not yet bound to the supplied calibration;
 - image/capture timestamps are matched exactly, but the declared/observed camera timebase is not checked against IMU/boot time before VIO starts;
 - the native `ClockAligner` estimates affine offset/drift but is not yet part of Android admission and continuous camera/IMU health monitoring;
 - `AndroidImuSource` combines the most recent accelerometer and gyro values at the timestamp of whichever event arrives. This bounded path needs interpolation/resampling to a declared common timestamp rather than silently reusing an asynchronously aged component;
@@ -160,7 +160,7 @@ Admission is not permanent. Monitor:
 - inference p95, failures, memory pressure and thermal state;
 - reconstruction uncertainty and dimensional evidence.
 
-Use hysteresis to avoid oscillation. Pause mapping before changing camera mode or calibration. A quality downgrade must invalidate claims derived from the stronger tier, not merely change a UI badge. The implemented `CameraCalibrationRuntimeMonitor` now compares every capture result with the signed stream binding: crop, video/OIS modes, distortion correction, and optionally focal length/focus distance with explicit tolerances. `Camera2FrameSource` requests the bound mode and terminally stops frames on missing or changed required metadata; `ArKernelSession` immediately exposes `PAUSED/CALIBRATION_CHANGED`. It never hot-swaps calibration inside an active map.
+Use hysteresis to avoid oscillation. Pause mapping before changing camera mode or calibration. A quality downgrade must invalidate claims derived from the stronger tier, not merely change a UI badge. The implemented `CameraCalibrationRuntimeMonitor` now compares every capture result with the signed stream binding: crop, video/OIS modes, distortion correction, and optionally focal length/focus distance with explicit tolerances. For a logical multi-camera on API 28+, `Camera2FrameSource` pins the requested advertised physical camera on the output configuration and reads its physical capture result; unsupported API levels, unadvertised IDs, or a missing physical result fail closed rather than falling back to automatic lens selection. The source terminally stops frames on missing or changed required metadata; `ArKernelSession` immediately exposes `PAUSED/CALIBRATION_CHANGED`. It never hot-swaps calibration inside an active map.
 
 ## Operational tiers
 

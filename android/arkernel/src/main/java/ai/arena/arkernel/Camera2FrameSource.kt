@@ -2,6 +2,7 @@ package ai.arena.arkernel
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
@@ -14,6 +15,8 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
 import android.media.ImageReader
 import java.util.TreeMap
 import android.os.Build
@@ -142,17 +145,24 @@ class Camera2FrameSource(
             require(cameraId == null || cameraId == selectedCameraId) {
                 "Requested camera ID does not match calibration binding"
             }
-            val physicalCameraId = binding?.physicalCameraId
-            require(physicalCameraId == null || physicalCameraId == selectedCameraId) {
-                "Direct Camera2 source cannot silently switch to a different physical camera"
+            val characteristics = manager.getCameraCharacteristics(selectedCameraId)
+            val advertisedPhysicalIds = if (Build.VERSION.SDK_INT >= 28)
+                Api28CameraRouting.physicalCameraIds(characteristics) else emptySet()
+            val route = when (val decision = CameraPhysicalRoutingPolicy.decide(
+                selectedCameraId, binding?.physicalCameraId, advertisedPhysicalIds,
+                Build.VERSION.SDK_INT)) {
+                is CameraPhysicalRoutingDecision.Accepted -> decision.route
+                is CameraPhysicalRoutingDecision.Rejected ->
+                    error("Calibrated camera routing rejected: ${decision.reason}")
             }
-            manager.openCamera(selectedCameraId, object : CameraDevice.StateCallback() {
+            manager.openCamera(route.logicalCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     val transition = lifecycle.deviceOpened(lifecycleGeneration)
                     if (!transition.accepted || !running) { camera.close(); return }
                     device = camera
                     try {
-                        createSession(camera, imageReader, cameraHandler, lifecycleGeneration)
+                        createSession(camera, imageReader, cameraHandler, lifecycleGeneration,
+                            route.outputPhysicalCameraId)
                     } catch (error: Throwable) {
                         camera.close()
                         reportLifecycleFailure(lifecycle.fail(lifecycleGeneration,
@@ -185,9 +195,8 @@ class Camera2FrameSource(
     } ?: error("No back-facing Camera2 device")
 
     private fun createSession(camera: CameraDevice, imageReader: ImageReader, handler: Handler,
-        lifecycleGeneration: Long) {
-        camera.createCaptureSession(listOf(imageReader.surface),
-            object : CameraCaptureSession.StateCallback() {
+        lifecycleGeneration: Long, outputPhysicalCameraId: String?) {
+        val stateCallback = object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(captureSession: CameraCaptureSession) {
                     val transition = lifecycle.sessionConfigured(lifecycleGeneration)
                     if (!transition.accepted || !running) { captureSession.close(); return }
@@ -228,15 +237,26 @@ class Camera2FrameSource(
                                 request: CaptureRequest,
                                 result: TotalCaptureResult,
                             ) {
-                                if (!monitorCalibration(result)) return
-                                val rawTimestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
+                                val metadataResult = if (outputPhysicalCameraId == null) result
+                                    else if (Build.VERSION.SDK_INT >= 28)
+                                        Api28CameraRouting.physicalResult(result,
+                                            outputPhysicalCameraId)
+                                    else null
+                                if (metadataResult == null) {
+                                    reportCalibrationFailure(
+                                        CameraCalibrationRuntimeFailure.PHYSICAL_CAPTURE_RESULT_MISSING)
+                                    return
+                                }
+                                if (!monitorCalibration(metadataResult)) return
+                                val rawTimestamp = metadataResult.get(
+                                    CaptureResult.SENSOR_TIMESTAMP) ?: return
                                 emitCompatibilityTiming(CameraTimingSampleKind.CAPTURE_RESULT,
                                     rawTimestamp)
                                 val timestamp = timestampNormalizer.normalize(rawTimestamp)
                                     ?.normalizedTimestampNs ?: return
                                 handleCaptureMetadata(timestamp,
-                                    result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
-                                    result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
+                                    metadataResult.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
+                                    metadataResult.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
                             }
                         }, handler)
                     } catch (error: Throwable) {
@@ -252,7 +272,14 @@ class Camera2FrameSource(
                     reportLifecycleFailure(transition,
                         IllegalStateException("Camera capture session failed"))
                 }
-            }, handler)
+            }
+        if (outputPhysicalCameraId == null) {
+            camera.createCaptureSession(listOf(imageReader.surface), stateCallback, handler)
+        } else {
+            check(Build.VERSION.SDK_INT >= 28)
+            Api28CameraRouting.createPhysicalSession(camera, imageReader, handler,
+                outputPhysicalCameraId, stateCallback)
+        }
     }
 
     private fun selectedCameraRanges(cameraId: String): Array<out Range<Int>> =
@@ -266,7 +293,7 @@ class Camera2FrameSource(
         .filter { it.upper <= maximumFramesPerSecond }
         .maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
 
-    private fun monitorCalibration(result: TotalCaptureResult): Boolean {
+    private fun monitorCalibration(result: CaptureResult): Boolean {
         val monitor = calibrationRuntimeMonitor ?: return true
         if (calibrationFailureReported) return false
         val crop = result.get(CaptureResult.SCALER_CROP_REGION)
@@ -279,9 +306,14 @@ class Camera2FrameSource(
             result.get(CaptureResult.LENS_FOCAL_LENGTH)?.toDouble(),
             result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.toDouble()))
         if (failure == null) return true
-        calibrationFailureReported = true
-        onCalibrationRuntimeFailure?.invoke(failure)
+        reportCalibrationFailure(failure)
         return false
+    }
+
+    private fun reportCalibrationFailure(reason: CameraCalibrationRuntimeFailure) {
+        if (calibrationFailureReported) return
+        calibrationFailureReported = true
+        onCalibrationRuntimeFailure?.invoke(reason)
     }
 
     private fun handleCaptureMetadata(timestampNs: Long, exposureTimeNs: Long, sensitivityIso: Int) {
@@ -432,6 +464,35 @@ class Camera2FrameSource(
     }
 
     override fun close() = stop()
+
+    @TargetApi(28)
+    private object Api28CameraRouting {
+        fun physicalCameraIds(characteristics: CameraCharacteristics): Set<String> =
+            characteristics.physicalCameraIds
+
+        fun createPhysicalSession(
+            camera: CameraDevice,
+            imageReader: ImageReader,
+            handler: Handler,
+            physicalCameraId: String,
+            callback: CameraCaptureSession.StateCallback,
+        ) {
+            val output = OutputConfiguration(imageReader.surface).apply {
+                setPhysicalCameraId(physicalCameraId)
+            }
+            val configuration = SessionConfiguration(
+                SessionConfiguration.SESSION_REGULAR,
+                listOf(output),
+                java.util.concurrent.Executor { command -> handler.post(command) },
+                callback)
+            camera.createCaptureSession(configuration)
+        }
+
+        fun physicalResult(
+            result: TotalCaptureResult,
+            physicalCameraId: String,
+        ): CaptureResult? = result.physicalCameraResults[physicalCameraId]
+    }
 
     private companion object {
         const val AFFINE_SAMPLE_INTERVAL = 15L

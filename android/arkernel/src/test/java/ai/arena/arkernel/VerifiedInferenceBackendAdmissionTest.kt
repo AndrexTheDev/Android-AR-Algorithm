@@ -182,8 +182,9 @@ class VerifiedInferenceBackendAdmissionTest {
         val calls = AtomicInteger()
         val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
         val wrongIdentity = verifiedTestExecutionIdentity().copy(adapterVersion = "wrong")
-        val delegate = FakeBackend(manifest, { calls.incrementAndGet(); output(frame, 0.9) },
-            wrongIdentity)
+        val delegate = FakeBackend(manifest, wrongIdentity) {
+            calls.incrementAndGet(); output(frame, 0.9)
+        }
 
         val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
             sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
@@ -330,9 +331,9 @@ class VerifiedInferenceBackendAdmissionTest {
 
     private class FakeBackend(
         override val manifest: ModelManifest,
-        private val inference: (PerceptionFrame) -> OnDeviceInferenceOutput,
         override val executionIdentity: InferenceExecutionIdentity? =
             verifiedTestExecutionIdentity(),
+        private val inference: (PerceptionFrame) -> OnDeviceInferenceOutput,
     ) : OnDeviceInferenceBackend {
         var closeCount = 0
         override fun infer(frame: PerceptionFrame) = inference(frame)

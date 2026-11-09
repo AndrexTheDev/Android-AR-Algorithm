@@ -10,7 +10,8 @@ import java.security.Signature
 import java.security.interfaces.ECPublicKey
 
 private const val CALIBRATION_PROFILE_MAGIC = 0x41524B43 // ARKC
-private const val CALIBRATION_PROFILE_VERSION = 2
+private const val CALIBRATION_PROFILE_VERSION = 3
+private const val MIN_SUPPORTED_CALIBRATION_PROFILE_VERSION = 2
 private const val MAX_CALIBRATION_PROFILE_BYTES = 16 * 1024
 private const val MAX_CALIBRATION_SIGNATURE_BYTES = 512
 
@@ -42,6 +43,8 @@ data class CalibrationStreamBinding(
     val focalLengthToleranceMm: Double = 0.02,
     val expectedFocusDistanceDiopters: Double? = null,
     val focusDistanceToleranceDiopters: Double = 0.05,
+    val expectedRollingShutterSkewNs: Long? = null,
+    val rollingShutterSkewToleranceNs: Long = 0L,
 ) {
     init {
         require(cameraId.isNotBlank() && cameraId.length <= 256)
@@ -56,6 +59,9 @@ data class CalibrationStreamBinding(
             (expectedFocusDistanceDiopters.isFinite() && expectedFocusDistanceDiopters >= 0.0))
         require(focusDistanceToleranceDiopters.isFinite() &&
             focusDistanceToleranceDiopters in 0.0..100.0)
+        require(expectedRollingShutterSkewNs == null ||
+            expectedRollingShutterSkewNs in 0L..1_000_000_000L)
+        require(rollingShutterSkewToleranceNs in 0L..1_000_000_000L)
     }
 }
 
@@ -342,13 +348,15 @@ internal object CalibrationProfileCodec {
         require(payload.size in 1..MAX_CALIBRATION_PROFILE_BYTES)
         return DataInputStream(ByteArrayInputStream(payload)).use { input ->
             require(input.readInt() == CALIBRATION_PROFILE_MAGIC)
-            require(input.readInt() == CALIBRATION_PROFILE_VERSION)
+            val version = input.readInt()
+            require(version in MIN_SUPPORTED_CALIBRATION_PROFILE_VERSION..
+                CALIBRATION_PROFILE_VERSION)
             val id = input.readUTF()
             val revision = input.readLong()
             val issuer = enumValue<CalibrationProfileIssuerClass>(input.readInt())
             val claim = enumValue<CalibrationMetricClaim>(input.readInt())
             val capability = input.readUTF()
-            val stream = readStream(input)
+            val stream = readStream(input, version)
             val width = input.readInt(); val height = input.readInt()
             val values = DoubleArray(16) { input.readDouble() }
             val calibration = CameraCalibration(width, height, values[0], values[1], values[2],
@@ -382,9 +390,12 @@ internal object CalibrationProfileCodec {
         output.writeBoolean(stream.expectedFocusDistanceDiopters != null)
         stream.expectedFocusDistanceDiopters?.let(output::writeDouble)
         output.writeDouble(stream.focusDistanceToleranceDiopters)
+        output.writeBoolean(stream.expectedRollingShutterSkewNs != null)
+        stream.expectedRollingShutterSkewNs?.let(output::writeLong)
+        output.writeLong(stream.rollingShutterSkewToleranceNs)
     }
 
-    private fun readStream(input: DataInputStream): CalibrationStreamBinding {
+    private fun readStream(input: DataInputStream, version: Int): CalibrationStreamBinding {
         val cameraId = input.readUTF()
         val physicalId = if (input.readBoolean()) input.readUTF() else null
         val width = input.readInt(); val height = input.readInt()
@@ -396,9 +407,13 @@ internal object CalibrationProfileCodec {
         val focalTolerance = input.readDouble()
         val focusDistance = if (input.readBoolean()) input.readDouble() else null
         val focusTolerance = input.readDouble()
+        val rollingShutterSkew = if (version >= 3 && input.readBoolean())
+            input.readLong() else null
+        val rollingShutterTolerance = if (version >= 3) input.readLong() else 0L
         return CalibrationStreamBinding(cameraId, physicalId, width, height,
             cropLeft, cropTop, cropWidth, cropHeight, videoMode, opticalMode,
-            distortionMode, focalLength, focalTolerance, focusDistance, focusTolerance)
+            distortionMode, focalLength, focalTolerance, focusDistance, focusTolerance,
+            rollingShutterSkew, rollingShutterTolerance)
     }
 
     private inline fun <reified T : Enum<T>> enumValue(ordinal: Int): T =

@@ -1,0 +1,344 @@
+package ai.arena.arkernel
+
+import java.nio.ByteBuffer
+import java.nio.ReadOnlyBufferException
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+private fun verifiedTestExecutionIdentity(version: String = "1") =
+    InferenceExecutionIdentity("adapter", "1", InferenceDriverIdentity(
+        api = InferenceDriverApi.VULKAN, providerId = "test-vendor",
+        driverVersion = version,
+        acceleratorNameSha256 = InferenceDriverIdentity.hashObservedAcceleratorName("test-gpu"),
+        featureLevel = 13))
+
+class VerifiedInferenceBackendAdmissionTest {
+    private val artifactBytes = "one-verified-artifact".toByteArray()
+    private val manifest = manifest()
+
+    @Test
+    fun factoriesReceiveFreshReadOnlyViewsAndConformingDelegateIsSelected() {
+        val frame = frame(10)
+        val source = sourceBuffer()
+        val sourcePosition = source.position()
+        val cpu = FakeBackend(manifest) { output(frame, 0.90) }
+        val delegate = FakeBackend(manifest) { output(frame, 0.905) }
+        val cpuCalls = AtomicInteger()
+        val delegateCalls = AtomicInteger()
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelect(manifest, source,
+            cpuFactory = VerifiedInferenceBackendFactory { suppliedManifest, bytes ->
+                assertSame(manifest, suppliedManifest)
+                assertReadOnlyArtifact(bytes)
+                bytes.position(bytes.limit())
+                cpuCalls.incrementAndGet()
+                cpu
+            },
+            delegateFactory = VerifiedInferenceBackendFactory { _, bytes ->
+                assertEquals(0, bytes.position())
+                assertReadOnlyArtifact(bytes)
+                delegateCalls.incrementAndGet()
+                delegate
+            },
+            cases = listOf(InferenceSemanticGoldenCase("admission", frame)))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED,
+            result.status)
+        assertTrue(result.usingDelegate)
+        assertSame(delegate, result.backend)
+        assertEquals(sourcePosition, source.position())
+        assertEquals(1, cpuCalls.get())
+        assertEquals(1, delegateCalls.get())
+        assertEquals(1, cpu.closeCount)
+        assertEquals(0, delegate.closeCount)
+    }
+
+    @Test
+    fun absentDelegateFactoryReturnsExplicitCpuOnlyOwner() {
+        val cpu = FakeBackend(manifest) { error("not executed") }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelect(manifest, sourceBuffer(),
+            cpuFactory = VerifiedInferenceBackendFactory { _, _ -> cpu })
+
+        assertEquals(InferenceBackendAdmissionStatus.CPU_ONLY, result.status)
+        assertFalse(result.usingDelegate)
+        assertSame(cpu, result.backend)
+        assertTrue(result.conformanceReport == null)
+        assertEquals(0, cpu.closeCount)
+    }
+
+    @Test
+    fun delegateCreationFailureRetainsVerifiedCpu() {
+        val source = sourceBuffer()
+        val cpu = FakeBackend(manifest) { error("not executed") }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelect(manifest, source,
+            cpuFactory = VerifiedInferenceBackendFactory { _, _ -> cpu },
+            delegateFactory = VerifiedInferenceBackendFactory { _, _ ->
+                throw IllegalStateException("delegate unavailable")
+            })
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CREATION_FAILED, result.status)
+        assertFalse(result.usingDelegate)
+        assertSame(cpu, result.backend)
+        assertEquals(0, cpu.closeCount)
+    }
+
+    @Test
+    fun semanticRejectionClosesDelegateAndRetainsCpu() {
+        val frame = frame(20)
+        val cpu = FakeBackend(manifest) { output(frame, 0.9) }
+        val delegate = FakeBackend(manifest) { output(frame, 0.1) }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelect(manifest, sourceBuffer(),
+            cpuFactory = VerifiedInferenceBackendFactory { _, _ -> cpu },
+            delegateFactory = VerifiedInferenceBackendFactory { _, _ -> delegate },
+            cases = listOf(InferenceSemanticGoldenCase("reject", frame)))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED,
+            result.status)
+        assertSame(cpu, result.backend)
+        assertEquals(InferenceSemanticConformanceFailure.DETECTION_VALUE_MISMATCH,
+            result.conformanceReport?.failure)
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
+    }
+
+    @Test
+    fun exactCachedEvidenceRunsOneStartupSentinelAndRechecksBothBackendIdentities() {
+        val frame = frame(25)
+        val calls = AtomicInteger()
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
+        val delegate = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.905) }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", driverIdentity(), "software", 3, 1_500,
+            InferenceSemanticGoldenCase("startup-sentinel", frame))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CACHED_EVIDENCE_ACCEPTED,
+            result.status)
+        assertTrue(result.usingDelegate)
+        assertSame(delegate, result.backend)
+        assertTrue(result.cachedEvidence != null)
+        assertEquals(2, calls.get())
+        assertEquals(1, result.conformanceReport?.evaluatedCases)
+        assertEquals(1, cpu.closeCount)
+        assertEquals(0, delegate.closeCount)
+    }
+
+    @Test
+    fun cachedEvidenceIsRejectedWhenStartupSentinelRegresses() {
+        val frame = frame(27)
+        val cpu = FakeBackend(manifest) { output(frame, 0.9) }
+        val delegate = FakeBackend(manifest) { output(frame, 0.1) }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", driverIdentity(), "software", 3, 1_500,
+            InferenceSemanticGoldenCase("regression-sentinel", frame))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED,
+            result.status)
+        assertSame(cpu, result.backend)
+        assertFalse(result.usingDelegate)
+        assertTrue(result.cachedEvidence == null)
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
+    }
+
+    @Test
+    fun driverFingerprintMismatchRunsFullGoldenConformance() {
+        val frame = frame(30)
+        val calls = AtomicInteger()
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
+        val delegate = FakeBackend(manifest, verifiedTestExecutionIdentity(version = "2")) {
+            calls.incrementAndGet(); output(frame, 0.905)
+        }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1",
+            driverIdentity(version = "2"), "software", 3, 1_500,
+            InferenceSemanticGoldenCase("unused-sentinel", frame),
+            listOf(InferenceSemanticGoldenCase("cache-miss", frame)))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED,
+            result.status)
+        assertEquals(2, calls.get())
+        assertTrue(result.cachedEvidence == null)
+    }
+
+    @Test
+    fun delegateReportedExecutionIdentityMustMatchEvidenceKey() {
+        val frame = frame(35)
+        val calls = AtomicInteger()
+        val cpu = FakeBackend(manifest) { calls.incrementAndGet(); output(frame, 0.9) }
+        val wrongIdentity = verifiedTestExecutionIdentity().copy(adapterVersion = "wrong")
+        val delegate = FakeBackend(manifest, wrongIdentity) {
+            calls.incrementAndGet(); output(frame, 0.9)
+        }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", driverIdentity(),
+            "software", 3, 1_500, InferenceSemanticGoldenCase("unused", frame),
+            listOf(InferenceSemanticGoldenCase("also-unused", frame)))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_EXECUTION_IDENTITY_REJECTED,
+            result.status)
+        assertSame(cpu, result.backend)
+        assertFalse(result.usingDelegate)
+        assertEquals(0, calls.get())
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
+    }
+
+    @Test
+    fun cachedEvidenceCannotAdmitDelegateWithMismatchedManifest() {
+        val frame = frame(40)
+        val cpu = FakeBackend(manifest) { error("must not execute") }
+        val delegate = FakeBackend(manifest(version = "wrong")) { error("must not execute") }
+
+        val result = VerifiedInferenceBackendAdmission.createAndSelectWithEvidence(manifest,
+            sourceBuffer(), VerifiedInferenceBackendFactory { _, _ -> cpu },
+            VerifiedInferenceBackendFactory { _, _ -> delegate }, acceptedEvidence(), signature(),
+            "b".repeat(64), "d".repeat(64), "adapter", "1", driverIdentity(), "software", 3, 1_500,
+            InferenceSemanticGoldenCase("identity-sentinel", frame))
+
+        assertEquals(InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_REJECTED, result.status)
+        assertFalse(result.usingDelegate)
+        assertSame(cpu, result.backend)
+        assertEquals(0, cpu.closeCount)
+        assertEquals(1, delegate.closeCount)
+    }
+
+    @Test
+    fun mismatchedCpuFactoryResultClosesCpuWithoutCreatingDelegate() {
+        val cpu = FakeBackend(manifest(version = "wrong")) { error("not executed") }
+        val delegateCalls = AtomicInteger()
+
+        try {
+            VerifiedInferenceBackendAdmission.createAndSelect(manifest, sourceBuffer(),
+                cpuFactory = VerifiedInferenceBackendFactory { _, _ -> cpu },
+                delegateFactory = VerifiedInferenceBackendFactory { _, _ ->
+                    delegateCalls.incrementAndGet()
+                    error("must not be created")
+                })
+            fail("Expected CPU identity rejection")
+        } catch (_: IllegalArgumentException) {
+            assertEquals(1, cpu.closeCount)
+            assertEquals(0, delegateCalls.get())
+        }
+    }
+
+    @Test
+    fun invalidSemanticArgumentsCloseEachTransferredBackendOnce() {
+        val cpu = FakeBackend(manifest) { error("not executed") }
+        val delegate = FakeBackend(manifest) { error("not executed") }
+
+        try {
+            VerifiedInferenceBackendAdmission.createAndSelect(manifest, sourceBuffer(),
+                cpuFactory = VerifiedInferenceBackendFactory { _, _ -> cpu },
+                delegateFactory = VerifiedInferenceBackendFactory { _, _ -> delegate })
+            fail("Expected missing golden cases rejection")
+        } catch (_: IllegalArgumentException) {
+            assertEquals(1, cpu.closeCount)
+            assertEquals(1, delegate.closeCount)
+        }
+    }
+
+    private fun assertReadOnlyArtifact(bytes: ByteBuffer) {
+        assertTrue(bytes.isReadOnly)
+        assertEquals(artifactBytes.size, bytes.remaining())
+        val copy = ByteArray(bytes.remaining())
+        bytes.duplicate().get(copy)
+        assertTrue(copy.contentEquals(artifactBytes))
+        try {
+            bytes.put(0, 1.toByte())
+            fail("Expected read-only model view")
+        } catch (_: ReadOnlyBufferException) { }
+    }
+
+    private fun acceptedEvidence(): PersistedInferenceAdmissionEvidence {
+        val identity = VerifiedInferenceIdentity.create(manifest, ByteBuffer.wrap(artifactBytes))
+        val report = InferenceSemanticConformanceReport(true, 1, 1, 0,
+            0.0, 0.0, 0.0, 0.0, 0.0, null, null)
+        val accepted = VerifiedInferenceBackendAdmissionResult(FakeBackend(manifest) {
+            error("unused")
+        }, true, InferenceBackendAdmissionStatus.DELEGATE_CONFORMANCE_ACCEPTED, report)
+        return PersistedInferenceAdmissionEvidence.fromAccepted(identity, signature(),
+            "b".repeat(64), "d".repeat(64), InferenceSemanticConformanceOptions(),
+            "adapter", "1", driverIdentity(), "software", 3, accepted, 1_000, 1_000)
+    }
+
+    private fun driverIdentity(version: String = "1") = InferenceDriverIdentity(
+        api = InferenceDriverApi.VULKAN, providerId = "test-vendor",
+        driverVersion = version,
+        acceleratorNameSha256 = InferenceDriverIdentity.hashObservedAcceleratorName("test-gpu"),
+        featureLevel = 13)
+
+    private fun signature() = DeviceCapabilitySignature(apiLevel = 35,
+        supportedAbis = listOf("arm64-v8a"), lowRamDevice = false, memoryClassMb = 512,
+        buildFingerprintSha256 = "a".repeat(64), camera = null,
+        imu = ImuCapabilityFacts(true, true, 5_000, 5_000, 0, 0, 0.001f, 0.001f))
+
+    private fun sourceBuffer(): ByteBuffer = ByteBuffer.allocate(artifactBytes.size + 3).apply {
+        put(byteArrayOf(7, 8, 9))
+        put(artifactBytes)
+        flip()
+        position(3)
+    }
+
+    private fun output(frame: PerceptionFrame, confidence: Double) =
+        OnDeviceInferenceOutput(frame.timestampNs, frame.worldFromCamera,
+            detections = listOf(SemanticDetection2d(0, confidence = confidence,
+                left = 1.0, top = 1.0, right = 2.0, bottom = 2.0)))
+
+    private fun frame(timestampNs: Long): PerceptionFrame {
+        val calibration = CameraCalibration(4, 4, 2.0, 2.0, 2.0, 2.0)
+        val pose = WorldPose(timestampNs, Rotation(1.0, 0.0, 0.0, 0.0),
+            Vector3(0.0, 0.0, 0.0))
+        return PerceptionFrame.wrap(timestampNs, calibration, pose,
+            InferencePixelFormat.GRAY8, 4, ByteBuffer.allocateDirect(16))
+    }
+
+    private fun manifest(version: String = "1") = ModelManifest(
+        modelId = "admission-test",
+        modelVersion = version,
+        sha256 = MessageDigest.getInstance("SHA-256").digest(artifactBytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) },
+        licenseSpdx = "Apache-2.0",
+        sourceUrl = "https://example.com/admission-model",
+        tasks = setOf(InferenceTask.SEMANTIC_DETECTION),
+        inputWidth = 4,
+        inputHeight = 4,
+        inputChannels = 1,
+        inputMean = listOf(0.0),
+        inputStd = listOf(1.0),
+        quantization = TensorQuantization.FLOAT32,
+        labels = mapOf(0L to "Unknown"),
+        modelByteSize = artifactBytes.size.toLong(),
+    )
+
+    private class FakeBackend(
+        override val manifest: ModelManifest,
+        override val executionIdentity: InferenceExecutionIdentity? =
+            verifiedTestExecutionIdentity(),
+        private val inference: (PerceptionFrame) -> OnDeviceInferenceOutput,
+    ) : OnDeviceInferenceBackend {
+        var closeCount = 0
+        override fun infer(frame: PerceptionFrame) = inference(frame)
+        override fun close() { ++closeCount }
+    }
+}

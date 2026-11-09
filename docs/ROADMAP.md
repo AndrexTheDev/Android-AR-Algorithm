@@ -61,7 +61,7 @@
 
 ## Phase 3 – Tiefe, Mesh, Occlusion
 
-- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; TSDF bleibt offen;
+- [x] modellunabhängiges, voxelbegrenztes Surfel-Backend mit Konfidenz-/Normalenfusion, begrenztem Nächster-Treffer-Raycast und Android-Mapping-Gate; block-sparser Narrow-Band-TSDF, Marching Tetrahedra, Komponentenfilter, konservative Vereinfachung und begrenzte Android-Fusions-/GLB-Orchestrierung sind implementiert; hochwertiger Quadric-Error-/LOD-Pfad bleibt offen;
 - optional Depth Anything V2 Small quantisiert als Prior;
 - [x] konservative pose-kompensierte temporale metrische Tiefenfilterung ohne Hole-Filling einschließlich eines Backend-Decorators vor Scheduler/Session;
 - [x] begrenzte dynamische Box-Maskierung sowie generisches Class-Index-Segmentmasken-Postprocessing für direkte FLOAT32-/INT8-/UINT8-Ausgaben; modellspezifisches Logit-/Instanzmasken-Decoding, Skalenfusion und Mesh-LOD bleiben offen;
@@ -84,9 +84,10 @@
 - GNSS/Barometer-Faktoren und robuste Georeferenzierung;
 - OpenXR- und optionaler ARCore-/Geospatial-Adapter hinter `OptionalExternalArRuntimeFactory`; Standalone bleibt zwingender Default-Fallback;
 - Privacy Threat Model, Fuzzing, SBOM, API-Stabilität;
-- [ ] versionierte verhaltensbasierte Gerätekompatibilität: statische Signatur/Reason Codes sowie begrenzte aktive Kamera-/CaptureResult-/IMU-Messung für Monotonie, Rate, Jitter, Lücken, Paarung, Überlappung und Realtime/Uptime-Klassifikation sind implementiert; ein automatischer terminaler Testzeitraum und nicht-extrapolierende Accelerometer-/Gyro-Synchronisierung sind ebenfalls implementiert; sessionkonstantes Uptime→Realtime-Alignment mit robuster Domänenentscheidung ist implementiert; sessioninterne Offset-/Residual-Sprungüberwachung mit sofortigem Mapping-Stopp ist implementiert; begrenzte robuste native affine Langzeitdrift-/Residualüberwachung mit ppm-Gate ist implementiert; geführte visuell-inertiale Bewegungsobservierbarkeit bleibt offen;
-- [ ] synthetische Camera2-/IMU-Fehlerinjektion, paarweise Hochrisiko-Konfigurationen und signierte disable-only Quirk-Policy mit Offline-Fallback;
-- [ ] nach Capability-Set-Cover ausgewählte reale Geräte statt reiner Modellliste, Mobly-Sensorfusionsrig, thermische 30-Minuten-Läufe sowie Tag/Nacht/Weather-Szenen;
+- [ ] CPU-/Delegate-Golden-Conformance: begrenzte adapterneutrale Single-/Multi-Output-Gates, verifizierte exakte Modell-/Manifest-/Task-Identität, kanonische Detection-/Metric-Depth-Semantikprüfung, read-only Factory-Admission und integrierte atomare einschließlich kanonischer typisierter und vom Delegate selbst gemeldeter Ausführungs-/Treiberidentität exaktsignaturgebundene Erfolgsevidenz mit verpflichtendem Startup-Sentinel mit deterministischem CPU-Fallback sind implementiert; modellnamenfreie exakte Capability-/Backend-/Treiber-Profile sind im Manifest gebunden; konkrete separat paketierte Runtime-Adapter und Device-Farm-Korpora bleiben offen;
+- [ ] versionierte verhaltensbasierte Gerätekompatibilität: statische Signatur/Reason Codes sowie begrenzte aktive Kamera-/CaptureResult-/IMU-Messung für Monotonie, Rate, Jitter, Lücken, Paarung, Überlappung und Realtime/Uptime-Klassifikation sind implementiert; ein automatischer terminaler Testzeitraum und nicht-extrapolierende Accelerometer-/Gyro-Synchronisierung sind ebenfalls implementiert; sessionkonstantes Uptime→Realtime-Alignment mit robuster Domänenentscheidung ist implementiert; sessioninterne Offset-/Residual-Sprungüberwachung mit sofortigem Mapping-Stopp ist implementiert; begrenzte robuste native affine Langzeitdrift-/Residualüberwachung mit ppm-Gate ist implementiert; signierte physische Kameraauswahl hinter logischen Multi-Kameras wird ab API 28 am Output gepinnt und gegen physische Capture-Metadaten überwacht; optional signierter Rolling-Shutter-Skew wird mit expliziter Nanosekunden-Toleranz terminal überwacht; ein opt-in terminaler geführter Bewegungs-Admission-Gate kombiniert aktive Streamprüfung, signierte Kamera-/Gyro-Rotation, beobachtbaren Zeitversatz und metrische Laufzeitkonsistenz, ohne daraus selbst Zentimetervalidierung abzuleiten; eine begrenzte UI-neutrale Ablaufsteuerung liefert stabile Stillhalte-/Rotations-/Translations-/optionale Referenzziel-Anweisungen und einen automatischen terminalen Abschluss; lokalisierte App-UX und physische Rig-Evidenz bleiben offen;
+- [ ] synthetische Camera2-/IMU-Fehlerinjektion: skalare Timing-, Gap-, Dropout-, Latenz-, Clock- und Überlappungsfehler, alle 45 Fehlerpaare sowie ein produktiv verdrahteter generationssicherer Camera2-Lifecycle-Automat mit exhaustiven kurzen Callback-Sequenzen sind implementiert; Framework-Service-Death-Instrumentierung und breiteres Zufalls-Fuzzing bleiben offen; [x] signierte disable-only Quirk-Policy mit atomarer lokaler Installation und Offline-Fallback;
+- [ ] reale Geräte nach Capability-Set-Cover statt Modellliste: deterministische gewichtete Single-/Pairwise-Inventarauswahl ist implementiert; Cloud-/Lab-Provider-Anbindung, Mobly-Sensorfusionsrig, thermische 30-Minuten-Läufe sowie Tag/Nacht/Weather-Szenen bleiben offen;
 - [ ] optionales Feld-Diagnosepaket ohne Bilder/Trajektorien als Default; Zentimetervalidierung bleibt an unabhängige Targets und exakte Capability-/Kalibriersignatur gebunden.
 
 ## Qualitätsgates je Pull Request
@@ -95,7 +96,7 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 
 ## Metric reconstruction, object mode and portable assets
 
-- [x] Add evidence-based `unverified` / `approximate` / `centimeter-validated` quality contract.
+- [x] Add evidence-based `unverified` / `approximate` / `centimeter-validated` quality contract and assessed glTF/GLB/OBJ/PLY export paths that recompute and embed the held-out report; legacy geometry-only exports remain `unverified`.
 - [x] Add bounded canonical indexed mesh with normals, UVs and base-colour texture reference.
 - [x] Add dependency-free glTF 2.0, OBJ/MTL and PLY exporters.
 - [x] Add offline WebGL 2 viewer for exported textured glTF assets.
@@ -111,10 +112,27 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
-- [ ] Add coarse-to-fine/census refinement, forward-backward depth consistency, tiled sparse TSDF fusion, meshing and simplification.
-- [ ] Add UV atlas generation, visibility-aware multi-view selection, exposure compensation and seam optimization.
+- [ ] Add dense reconstruction refinement and fusion: bounded inverse-depth refinement, uncertainty, matching/consistency, sparse TSDF fusion, meshing, filtering, conservative clustering, Android orchestration, view selection, coherent labels, UV layout, relative per-view RGB normalization, local seam blending and canonical RGBA/I420 pixel baking are implemented; global seam optimization, measured quadric-error LOD and persisted reconstruction sessions remain.
+- [x] Add deterministic bounded visibility-aware per-triangle multi-view selection with calibrated projection and optional uncertainty-aware depth checks.
+- [x] Add bounded deterministic coherent patch labeling over visibility-approved alternatives while preserving sharp/non-manifold boundaries.
+- [x] Add bounded UV-island extraction, patch provenance, seam-aware vertex duplication and deterministic single-page atlas layout.
+- [x] Add bounded Gray/RGB/RGBA/canonical-I420 atlas rasterization and patch-local padding dilation with raw RGBA8 output.
+- [x] Add bounded robust cross-view seam sampling and deterministic per-view linear RGB exposure normalization.
+- [x] Add deterministic bounded local RGB blending across paired manifold atlas seams.
+- [x] Add bounded Android RGBA8-to-PNG encoding and portable PNG/JPEG embedding in canonical GLB output.
+- [x] Add bounded crash-safe Android publication of canonical GLB assets with opaque references and deterministic eviction.
+- [x] Add bounded Android decoding of archived JPEG/PNG sources to provenance-preserving canonical RGBA8.
+- [x] Add bounded JNI/Android finalization from seam-aware mesh plus RGBA atlas through PNG, embedded GLB and atomic publication.
+- [x] Add fail-closed portable orchestration across view selection, coherent labels, atlas, photometry, baking and local seam blending.
+- [x] Add bounded fail-closed Android resolution of the unique core view table from opaque archived-frame references to owned canonical pixels.
+- [x] Expose the complete portable graph through bounded JNI using loaded canonical sources, preserve exact stage failures, and feed successful output directly to the final publisher.
+- [x] Add timestamp-bound calibrated visibility depth/confidence/uncertainty to the Android/JNI texture graph and verify occlusion fail-closed on API 35.
+- [x] Add CRC-framed, budgeted, frame-provenance-bound visibility-depth companions under the existing opaque archive reference.
+- [x] Expose the filtered metric source mesh directly from Android fusion as bounded native-order buffers and feed it to the texture graph without GLB reparsing.
+- [x] Add one bounded session-level transaction from archived colour/depth frames through direct complete fused source mesh, calibrated texture construction, embedded GLB and atomic publication, preserving exact provenance, uncertainty, stage telemetry and explicit `unverified` quality.
+- [ ] Add optional global seam optimization, measured quadric-error LOD and durable multi-session reconstruction state.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
-- [ ] Add held-out scale-target and dimensional-error evaluator; never claim centimetre accuracy without it.
+- [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
-- [ ] Embed texture image chunks/data URIs where true single-file GLB is required.
+- [x] Embed bounded encoded PNG/JPEG image buffer views for true single-file textured GLB output.
 - [ ] Add optional Android Filament viewer module; then USDZ and survey-format adapters.

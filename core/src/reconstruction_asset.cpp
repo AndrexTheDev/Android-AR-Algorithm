@@ -1,17 +1,33 @@
 #include "arkernel/reconstruction_asset.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace arkernel {
 namespace {
+constexpr std::size_t kMaxDimensionalObservations = 64;
 bool finite(float value) { return std::isfinite(value); }
 bool finite(double value) { return std::isfinite(value); }
+bool validEvidenceId(const std::string& value) {
+  if (value.empty() || value.size() > 128) return false;
+  return std::all_of(value.begin(), value.end(), [](unsigned char c) {
+    return std::isalnum(c) != 0 || c == '.' || c == '_' || c == ':' || c == '-';
+  });
+}
+bool validReferenceKind(DimensionalReferenceKind kind) {
+  return kind == DimensionalReferenceKind::kHeldOutScaleBar ||
+      kind == DimensionalReferenceKind::kSurveyedDistance ||
+      kind == DimensionalReferenceKind::kSensorGroundTruth;
+}
 std::string escapeJson(const std::string& text) {
   std::ostringstream out;
   for (const unsigned char c : text) {
@@ -56,7 +72,173 @@ const char* gradeName(MetricAccuracyGrade grade) {
     default: return "unverified";
   }
 }
+void appendQualityJson(std::ostream& out, const AccuracyAssessment* assessment) {
+  const MetricAccuracyGrade grade = assessment ? assessment->grade :
+      MetricAccuracyGrade::kUnverified;
+  out << "\"units\":\"meter\",\"accuracy\":\"" << gradeName(grade) << "\"";
+  if (!assessment) return;
+  const auto& dimensional = assessment->dimensional_validation;
+  out << ",\"exportAllowed\":" << (assessment->export_allowed ? "true" : "false")
+      << ",\"heldOutDimensions\":{\"passed\":"
+      << (dimensional.passed ? "true" : "false")
+      << ",\"acceptedObservations\":" << dimensional.accepted_observations
+      << ",\"dimensionBins\":" << dimensional.dimension_bins
+      << ",\"meanAbsoluteErrorMeters\":" << dimensional.mean_absolute_error_m
+      << ",\"maximumEffectiveAbsoluteErrorMeters\":"
+      << dimensional.maximum_effective_absolute_error_m
+      << ",\"maximumEffectiveRelativeError\":"
+      << dimensional.maximum_effective_relative_error
+      << ",\"maximumValidatedDimensionMeters\":"
+      << dimensional.maximum_validated_dimension_m << "},\"qualityFailures\":[";
+  for (std::size_t i = 0; i < assessment->failures.size(); ++i) {
+    if (i) out << ',';
+    out << '"' << escapeJson(assessment->failures[i]) << '"';
+  }
+  out << ']';
+}
+void appendQualityComments(std::ostream& out, const AccuracyAssessment& assessment,
+                           const char* prefix) {
+  const auto& dimensional = assessment.dimensional_validation;
+  out << prefix << "accuracy " << gradeName(assessment.grade) << '\n'
+      << prefix << "held_out_passed " << (dimensional.passed ? 1 : 0) << '\n'
+      << prefix << "held_out_observations " << dimensional.accepted_observations << '\n'
+      << prefix << "held_out_dimension_bins " << dimensional.dimension_bins << '\n'
+      << prefix << "held_out_mean_absolute_error_m " << dimensional.mean_absolute_error_m << '\n'
+      << prefix << "held_out_maximum_effective_absolute_error_m "
+      << dimensional.maximum_effective_absolute_error_m << '\n'
+      << prefix << "held_out_maximum_effective_relative_error "
+      << dimensional.maximum_effective_relative_error << '\n'
+      << prefix << "held_out_maximum_validated_dimension_m "
+      << dimensional.maximum_validated_dimension_m << '\n';
+  for (const auto& failure : assessment.failures)
+    out << prefix << "quality_failure " << failure << '\n';
+}
+struct EncodedTextureView {
+  const std::vector<std::uint8_t>* bytes{nullptr};
+  std::string mime_type;
+};
+bool validEncodedTexture(const EncodedTextureView& texture,
+                         std::size_t max_encoded_image_bytes) {
+  if (!texture.bytes || texture.bytes->empty() || max_encoded_image_bytes == 0 ||
+      texture.bytes->size() > max_encoded_image_bytes) return false;
+  const auto& bytes=*texture.bytes;
+  if (texture.mime_type=="image/png") {
+    static constexpr std::array<std::uint8_t,8> signature{{137,80,78,71,13,10,26,10}};
+    if(bytes.size()<45||!std::equal(signature.begin(),signature.end(),bytes.begin()))return false;
+    const auto read_be=[&](std::size_t offset){return
+      static_cast<std::uint32_t>(bytes[offset])<<24U|
+      static_cast<std::uint32_t>(bytes[offset+1])<<16U|
+      static_cast<std::uint32_t>(bytes[offset+2])<<8U|bytes[offset+3];};
+    if(read_be(8)!=13||!std::equal(bytes.begin()+12,bytes.begin()+16,"IHDR")||
+       read_be(16)==0||read_be(20)==0)return false;
+    std::size_t offset=8;
+    while(offset+12<=bytes.size()) {
+      const std::size_t payload=read_be(offset);
+      if(payload>bytes.size()-offset-12)return false;
+      const bool iend=payload==0&&std::equal(bytes.begin()+static_cast<std::ptrdiff_t>(offset+4),
+                                             bytes.begin()+static_cast<std::ptrdiff_t>(offset+8),"IEND");
+      offset+=payload+12;
+      if(iend)return offset==bytes.size();
+    }
+    return false;
+  }
+  return texture.mime_type=="image/jpeg"&&bytes.size()>=4&&bytes[0]==0xFF&&bytes[1]==0xD8&&
+      bytes[bytes.size()-2]==0xFF&&bytes.back()==0xD9;
+}
+AccuracyAssessment requireExportableAssessment(const ReconstructionQuality& quality,
+                                               ScanMode mode,
+                                               const AccuracyPolicy& policy) {
+  auto assessment = assessReconstructionQuality(quality, mode, policy);
+  if (!assessment.export_allowed)
+    throw std::invalid_argument("Reconstruction quality does not permit export");
+  return assessment;
+}
 }  // namespace
+
+DimensionalValidationReport evaluateHeldOutDimensions(
+    const std::vector<HeldOutDimensionObservation>& observations,
+    const DimensionalValidationPolicy& p) {
+  DimensionalValidationReport result;
+  const bool policy_valid = p.max_observations > 0 &&
+      p.max_observations <= kMaxDimensionalObservations && p.min_observations > 0 && p.min_observations <= p.max_observations &&
+      p.min_dimension_bins > 0 && p.min_dimension_bins <= p.min_observations &&
+      finite(p.dimension_bin_width_m) && p.dimension_bin_width_m > 0.0 &&
+      finite(p.max_reference_uncertainty_m) && p.max_reference_uncertainty_m >= 0.0 &&
+      finite(p.max_mean_absolute_error_m) && p.max_mean_absolute_error_m > 0.0 &&
+      finite(p.max_absolute_error_m) && p.max_absolute_error_m > 0.0 &&
+      finite(p.max_relative_error) && p.max_relative_error > 0.0 &&
+      p.max_relative_error <= 1.0;
+  if (!policy_valid) {
+    result.failures.push_back("invalid dimensional validation policy");
+    return result;
+  }
+  if (observations.size() > p.max_observations)
+    result.failures.push_back("dimensional observation budget exceeded");
+
+  std::unordered_set<std::string> evidence_ids;
+  std::set<std::int64_t> dimension_bins;
+  double absolute_error_sum = 0.0;
+  const std::size_t count = std::min(observations.size(), p.max_observations);
+  for (std::size_t i = 0; i < count; ++i) {
+    const auto& observation = observations[i];
+    const Vec3 delta = observation.reconstructed_b_m - observation.reconstructed_a_m;
+    const double reconstructed_distance = delta.norm();
+    const bool id_valid = validEvidenceId(observation.evidence_id);
+    const bool unique_id = id_valid && evidence_ids.insert(observation.evidence_id).second;
+    const bool finite_points = finite(observation.reconstructed_a_m.x) &&
+        finite(observation.reconstructed_a_m.y) &&
+        finite(observation.reconstructed_a_m.z) &&
+        finite(observation.reconstructed_b_m.x) &&
+        finite(observation.reconstructed_b_m.y) &&
+        finite(observation.reconstructed_b_m.z);
+    const bool valid = id_valid && unique_id && finite_points &&
+        finite(reconstructed_distance) && reconstructed_distance > 0.0 &&
+        finite(observation.reference_distance_m) && observation.reference_distance_m > 0.0 &&
+        finite(observation.reference_uncertainty_m) &&
+        observation.reference_uncertainty_m >= 0.0 &&
+        observation.reference_uncertainty_m <= p.max_reference_uncertainty_m &&
+        observation.reference_uncertainty_m < observation.reference_distance_m &&
+        validReferenceKind(observation.reference_kind) &&
+        observation.held_out_from_calibration_and_optimization;
+    if (!valid) {
+      if (std::find(result.failures.begin(), result.failures.end(),
+                    "invalid or non-independent dimensional observation") ==
+          result.failures.end())
+        result.failures.push_back("invalid or non-independent dimensional observation");
+      continue;
+    }
+    const double absolute_error = std::abs(reconstructed_distance -
+                                           observation.reference_distance_m);
+    const double effective_error = std::max(0.0, absolute_error -
+                                                  observation.reference_uncertainty_m);
+    absolute_error_sum += absolute_error;
+    result.maximum_effective_absolute_error_m = std::max(
+        result.maximum_effective_absolute_error_m, effective_error);
+    result.maximum_effective_relative_error = std::max(
+        result.maximum_effective_relative_error,
+        effective_error / observation.reference_distance_m);
+    result.maximum_validated_dimension_m = std::max(
+        result.maximum_validated_dimension_m, observation.reference_distance_m);
+    dimension_bins.insert(static_cast<std::int64_t>(std::floor(
+        observation.reference_distance_m / p.dimension_bin_width_m)));
+    ++result.accepted_observations;
+  }
+  result.dimension_bins = dimension_bins.size();
+  if (result.accepted_observations > 0)
+    result.mean_absolute_error_m = absolute_error_sum / result.accepted_observations;
+  if (result.accepted_observations < p.min_observations)
+    result.failures.push_back("insufficient held-out dimensional observations");
+  if (result.dimension_bins < p.min_dimension_bins)
+    result.failures.push_back("insufficient held-out dimension diversity");
+  if (result.mean_absolute_error_m > p.max_mean_absolute_error_m)
+    result.failures.push_back("mean dimensional error exceeds policy");
+  if (result.maximum_effective_absolute_error_m > p.max_absolute_error_m)
+    result.failures.push_back("maximum dimensional error exceeds policy");
+  if (result.maximum_effective_relative_error > p.max_relative_error)
+    result.failures.push_back("relative dimensional error exceeds policy");
+  result.passed = result.failures.empty();
+  return result;
+}
 
 AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
                                                 ScanMode mode,
@@ -71,6 +253,14 @@ AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
       p.min_environment_coverage_ratio <= 1.0 && p.min_object_coverage_ratio >= 0.0 &&
       p.min_object_coverage_ratio <= 1.0;
   if (!policy_valid) { result.failures.push_back("invalid accuracy policy"); return result; }
+  result.dimensional_validation = evaluateHeldOutDimensions(
+      q.held_out_dimensions, p.dimensional_validation);
+  if (!result.dimensional_validation.failures.empty() &&
+      result.dimensional_validation.failures.front() ==
+          "invalid dimensional validation policy") {
+    result.failures.push_back("invalid accuracy policy");
+    return result;
+  }
   if (!q.calibrated_intrinsics) result.failures.push_back("camera intrinsics are not calibrated");
   if (!q.calibrated_camera_imu) result.failures.push_back("camera-to-IMU calibration is missing");
   if (!q.metric_scale_observed) result.failures.push_back("metric scale has no independent observation");
@@ -88,6 +278,11 @@ AccuracyAssessment assessReconstructionQuality(const ReconstructionQuality& q,
   else if (finite(q.scale_stddev_ratio) && q.scale_stddev_ratio >= 0.0 &&
            q.assessed_extent_m * q.scale_stddev_ratio > p.max_absolute_scale_error_m)
     result.failures.push_back("absolute scale error exceeds one centimeter policy");
+  if (!result.dimensional_validation.passed)
+    result.failures.push_back("held-out dimensional validation failed");
+  else if (finite(q.assessed_extent_m) && q.assessed_extent_m > 0.0 &&
+           result.dimensional_validation.maximum_validated_dimension_m < q.assessed_extent_m)
+    result.failures.push_back("held-out dimensions do not cover assessed extent");
   const double required_coverage = mode == ScanMode::kObject
       ? p.min_object_coverage_ratio : p.min_environment_coverage_ratio;
   if (!finite(q.surface_coverage_ratio) || q.surface_coverage_ratio < required_coverage ||
@@ -134,7 +329,9 @@ MeshValidationResult validateMesh(const ReconstructionMesh& mesh,
   return {true, {}};
 }
 
-GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name) {
+static GltfAsset exportGltfInternal(const ReconstructionMesh& mesh, const std::string& bin_name,
+                             const AccuracyAssessment* assessment,
+                             const EncodedTextureView* embedded_texture = nullptr) {
   const auto validation = validateMesh(mesh);
   if (!validation.valid) throw std::invalid_argument(validation.error);
   if (bin_name.empty()) throw std::invalid_argument("glTF binary file name is empty");
@@ -144,6 +341,15 @@ GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name
   const std::size_t normal_offset = mesh.normals.empty() ? 0 : append(asset.binary, mesh.normals);
   const std::size_t uv_offset = mesh.texcoords.empty() ? 0 : append(asset.binary, mesh.texcoords);
   const std::size_t index_offset = append(asset.binary, mesh.triangle_indices);
+  std::size_t image_offset=0,image_bytes=0;
+  if (embedded_texture) {
+    while ((asset.binary.size() & 3U) != 0U) asset.binary.push_back(0);
+    image_offset=asset.binary.size();image_bytes=embedded_texture->bytes->size();
+    if (image_bytes>std::numeric_limits<std::size_t>::max()-asset.binary.size())
+      throw std::length_error("Embedded texture exceeds addressable memory");
+    asset.binary.insert(asset.binary.end(),embedded_texture->bytes->begin(),
+                        embedded_texture->bytes->end());
+  }
   Vec3f minimum = mesh.positions_m.front(), maximum = minimum;
   for (const auto& p : mesh.positions_m) {
     minimum.x = std::min(minimum.x, p.x); minimum.y = std::min(minimum.y, p.y);
@@ -164,6 +370,12 @@ GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name
   const auto normal_view = mesh.normals.empty() ? 0 : view(normal_offset, normal_bytes, 34962);
   const auto uv_view = mesh.texcoords.empty() ? 0 : view(uv_offset, uv_bytes, 34962);
   const auto index_view = view(index_offset, index_bytes, 34963);
+  std::size_t image_view=0;
+  if (embedded_texture) {
+    std::ostringstream s;s<<"{\"buffer\":0,\"byteOffset\":"<<image_offset
+      <<",\"byteLength\":"<<image_bytes<<"}";
+    views.push_back(s.str());image_view=views.size()-1;
+  }
   std::vector<std::string> accessors;
   std::ostringstream pos; pos << "{\"bufferView\":" << pos_view
     << ",\"componentType\":5126,\"count\":" << mesh.positions_m.size()
@@ -192,21 +404,37 @@ GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name
   if (!mesh.normals.empty()) json << ",\"NORMAL\":" << normal_accessor;
   if (!mesh.texcoords.empty()) json << ",\"TEXCOORD_0\":" << uv_accessor;
   json << "},\"indices\":" << index_accessor;
-  if (!mesh.base_color_texture.uri.empty()) json << ",\"material\":0";
+  const bool has_texture=embedded_texture||!mesh.base_color_texture.uri.empty();
+  if (has_texture) json << ",\"material\":0";
   json << "}]}]";
-  if (!mesh.base_color_texture.uri.empty()) json <<
-    ",\"images\":[{\"uri\":\"" << escapeJson(mesh.base_color_texture.uri) <<
-    "\",\"mimeType\":\"" << escapeJson(mesh.base_color_texture.mime_type) <<
-    "\"}],\"textures\":[{\"source\":0}],\"materials\":[{\"pbrMetallicRoughness\":{"
-    "\"baseColorTexture\":{\"index\":0},\"metallicFactor\":0,\"roughnessFactor\":1}}]";
-  json << ",\"extras\":{\"units\":\"meter\",\"accuracy\":\""
-       << gradeName(MetricAccuracyGrade::kUnverified) << "\"}}";
+  if (has_texture) {
+    json << ",\"images\":[{";
+    if (embedded_texture) json << "\"bufferView\":" << image_view;
+    else json << "\"uri\":\"" << escapeJson(mesh.base_color_texture.uri) << "\"";
+    json << ",\"mimeType\":\"" << escapeJson(embedded_texture?
+        embedded_texture->mime_type:mesh.base_color_texture.mime_type) <<
+      "\"}],\"textures\":[{\"source\":0}],\"materials\":[{\"pbrMetallicRoughness\":{"
+      "\"baseColorTexture\":{\"index\":0},\"metallicFactor\":0,\"roughnessFactor\":1}}]";
+  }
+  json << ",\"extras\":{";
+  appendQualityJson(json, assessment);
+  json << "}}";
   asset.json = json.str(); return asset;
 }
 
-std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
+GltfAsset exportGltf(const ReconstructionMesh& mesh, const std::string& bin_name) {
+  return exportGltfInternal(mesh, bin_name, nullptr);
+}
+
+GltfAsset exportAssessedGltf(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy,
+    const std::string& bin_name) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return exportGltfInternal(mesh, bin_name, &assessment);
+}
+
+static std::vector<std::uint8_t> packageGlb(GltfAsset asset) {
   constexpr const char* internal_name="__arkernel_internal.bin";
-  GltfAsset asset=exportGltf(mesh,internal_name);
   const std::string uri="\"uri\":\""+std::string(internal_name)+"\",";
   const std::size_t position=asset.json.find(uri);
   if(position==std::string::npos)throw std::runtime_error("Internal glTF buffer URI missing");
@@ -232,9 +460,44 @@ std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
   return output;
 }
 
-std::string exportObj(const ReconstructionMesh& mesh, const std::string& material_name) {
+std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh) {
+  return packageGlb(exportGltfInternal(mesh, "__arkernel_internal.bin", nullptr));
+}
+
+std::vector<std::uint8_t> exportAssessedGlb(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return packageGlb(exportGltfInternal(mesh, "__arkernel_internal.bin", &assessment));
+}
+
+std::vector<std::uint8_t> exportGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type,std::size_t max_encoded_image_bytes) {
+  const EncodedTextureView texture{&encoded_image,mime_type};
+  if(!mesh.base_color_texture.uri.empty()||mesh.texcoords.size()!=mesh.positions_m.size()||
+     !validEncodedTexture(texture,max_encoded_image_bytes))
+    throw std::invalid_argument("Invalid embedded GLB texture");
+  return packageGlb(exportGltfInternal(mesh,"__arkernel_internal.bin",nullptr,&texture));
+}
+
+std::vector<std::uint8_t> exportAssessedGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type,const ReconstructionQuality& quality,ScanMode mode,
+    const AccuracyPolicy& policy,std::size_t max_encoded_image_bytes) {
+  const EncodedTextureView texture{&encoded_image,mime_type};
+  if(!mesh.base_color_texture.uri.empty()||mesh.texcoords.size()!=mesh.positions_m.size()||
+     !validEncodedTexture(texture,max_encoded_image_bytes))
+    throw std::invalid_argument("Invalid embedded GLB texture");
+  const auto assessment=requireExportableAssessment(quality,mode,policy);
+  return packageGlb(exportGltfInternal(mesh,"__arkernel_internal.bin",&assessment,&texture));
+}
+
+static std::string exportObjInternal(const ReconstructionMesh& mesh, const std::string& material_name,
+                              const AccuracyAssessment* assessment) {
   const auto validation = validateMesh(mesh); if (!validation.valid) throw std::invalid_argument(validation.error);
   std::ostringstream out; out << std::setprecision(9) << "# AR Kernel; units: meters\n";
+  if (assessment) appendQualityComments(out, *assessment, "# arkernel ");
+  else out << "# arkernel accuracy unverified\n";
   if (!mesh.base_color_texture.uri.empty()) out << "mtllib " << material_name << "\nusemtl material0\n";
   for (const auto& p : mesh.positions_m) out << "v " << p.x << ' ' << p.y << ' ' << p.z << "\n";
   for (const auto& uv : mesh.texcoords) out << "vt " << uv.x << ' ' << 1.0F-uv.y << "\n";
@@ -248,16 +511,30 @@ std::string exportObj(const ReconstructionMesh& mesh, const std::string& materia
   } return out.str();
 }
 
+std::string exportObj(const ReconstructionMesh& mesh, const std::string& material_name) {
+  return exportObjInternal(mesh, material_name, nullptr);
+}
+
+std::string exportAssessedObj(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy,
+    const std::string& material_name) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return exportObjInternal(mesh, material_name, &assessment);
+}
+
 std::string exportMtl(const ReconstructionMesh& mesh) {
   std::ostringstream out; out << "newmtl material0\nKd 1 1 1\nKa 0 0 0\nKs 0 0 0\nillum 1\n";
   if (!mesh.base_color_texture.uri.empty()) out << "map_Kd " << mesh.base_color_texture.uri << "\n";
   return out.str();
 }
 
-std::string exportPly(const ReconstructionMesh& mesh) {
+static std::string exportPlyInternal(const ReconstructionMesh& mesh,
+                              const AccuracyAssessment* assessment) {
   const auto validation = validateMesh(mesh); if (!validation.valid) throw std::invalid_argument(validation.error);
-  std::ostringstream out; out << std::setprecision(9) << "ply\nformat ascii 1.0\ncomment units meter\nelement vertex "
-    << mesh.positions_m.size() << "\nproperty float x\nproperty float y\nproperty float z\n";
+  std::ostringstream out; out << std::setprecision(9) << "ply\nformat ascii 1.0\ncomment units meter\n";
+  if (assessment) appendQualityComments(out, *assessment, "comment arkernel ");
+  else out << "comment arkernel accuracy unverified\n";
+  out << "element vertex " << mesh.positions_m.size() << "\nproperty float x\nproperty float y\nproperty float z\n";
   if (!mesh.normals.empty()) out << "property float nx\nproperty float ny\nproperty float nz\n";
   out << "element face " << mesh.triangle_indices.size()/3
       << "\nproperty list uchar uint vertex_indices\nend_header\n";
@@ -265,6 +542,16 @@ std::string exportPly(const ReconstructionMesh& mesh) {
     if(!mesh.normals.empty()){const auto& n=mesh.normals[i];out<<' '<<n.x<<' '<<n.y<<' '<<n.z;} out<<'\n'; }
   for(std::size_t i=0;i<mesh.triangle_indices.size();i+=3) out<<"3 "<<mesh.triangle_indices[i]<<' '<<mesh.triangle_indices[i+1]<<' '<<mesh.triangle_indices[i+2]<<'\n';
   return out.str();
+}
+
+std::string exportPly(const ReconstructionMesh& mesh) {
+  return exportPlyInternal(mesh, nullptr);
+}
+
+std::string exportAssessedPly(const ReconstructionMesh& mesh,
+    const ReconstructionQuality& quality, ScanMode mode, const AccuracyPolicy& policy) {
+  const auto assessment = requireExportableAssessment(quality, mode, policy);
+  return exportPlyInternal(mesh, &assessment);
 }
 
 }  // namespace arkernel

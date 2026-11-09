@@ -1,0 +1,151 @@
+#include "arkernel/reconstruction_pipeline.h"
+
+#include <limits>
+#include <stdexcept>
+#include <utility>
+
+namespace arkernel {
+namespace {
+
+bool checkedAdd(std::size_t value, std::size_t* total) {
+  if (value > std::numeric_limits<std::size_t>::max() - *total) return false;
+  *total += value;
+  return true;
+}
+
+}  // namespace
+
+ReconstructionFusionPipeline::ReconstructionFusionPipeline(
+    ReconstructionPipelineConfig config)
+    : config_(std::move(config)), volume_(config_.fusion) {
+  if (config_.max_integrated_frames == 0 ||
+      config_.max_integrated_frames > 1000000) {
+    throw std::invalid_argument("Invalid reconstruction frame budget");
+  }
+  // Reuse each independent stage's validation at construction, before a long
+  // capture can end with a configuration error. Empty-input results are ignored.
+  const ReconstructionMesh empty_mesh;
+  (void)extractTsdfMesh(volume_, config_.meshing);
+  (void)filterMeshComponents(empty_mesh, config_.component_filter);
+  (void)simplifyMeshConservative(empty_mesh, config_.simplification);
+}
+
+ReconstructionIntegrationResult ReconstructionFusionPipeline::status(
+    ReconstructionIntegrationRejection rejection,
+    const SparseTsdfUpdate& update) const {
+  ReconstructionIntegrationResult result;
+  result.update = update;
+  result.rejection = rejection;
+  result.accepted = rejection == ReconstructionIntegrationRejection::kNone &&
+                    update.input_valid;
+  result.accepted_frames = accepted_frames_;
+  result.rejected_frames = rejected_frames_;
+  result.cumulative_integrated_pixels = cumulative_integrated_pixels_;
+  result.cumulative_voxel_updates = cumulative_voxel_updates_;
+  result.fusion_truncated = fusion_truncated_;
+  return result;
+}
+
+ReconstructionIntegrationResult ReconstructionFusionPipeline::integrate(
+    std::int64_t timestamp_ns, const TsdfDepthImageView& depth,
+    const PinholeRadTanCamera& camera, const Pose& world_from_camera) {
+  if (timestamp_ns <= 0) {
+    ++rejected_frames_;
+    return status(ReconstructionIntegrationRejection::kInvalidTimestamp);
+  }
+  if (last_timestamp_ns_ > 0 && timestamp_ns <= last_timestamp_ns_) {
+    ++rejected_frames_;
+    return status(ReconstructionIntegrationRejection::kNonMonotonicTimestamp);
+  }
+  if (accepted_frames_ >= config_.max_integrated_frames) {
+    ++rejected_frames_;
+    return status(ReconstructionIntegrationRejection::kFrameBudgetExceeded);
+  }
+
+  const SparseTsdfUpdate update = volume_.integrate(
+      depth, camera, world_from_camera);
+  if (!update.input_valid) {
+    ++rejected_frames_;
+    return status(ReconstructionIntegrationRejection::kInvalidDepthInput, update);
+  }
+
+  // A valid frame consumes its timestamp and frame budget even if no pixel
+  // passed confidence/depth gates. Replaying it later must not mutate state.
+  last_timestamp_ns_ = timestamp_ns;
+  ++accepted_frames_;
+  fusion_truncated_ = fusion_truncated_ || update.truncated;
+  if (!checkedAdd(update.integrated_pixels, &cumulative_integrated_pixels_) ||
+      !checkedAdd(update.voxel_updates, &cumulative_voxel_updates_)) {
+    fusion_truncated_ = true;
+  }
+  return status(ReconstructionIntegrationRejection::kNone, update);
+}
+
+ReconstructionBuildResult ReconstructionFusionPipeline::build() const {
+  ReconstructionBuildResult result;
+  result.telemetry.fused_frames = accepted_frames_;
+  result.telemetry.fused_blocks = volume_.blockCount();
+  result.telemetry.fused_voxels = volume_.voxelCount();
+  result.telemetry.fusion_truncated = fusion_truncated_;
+
+  TsdfMeshingResult meshing = extractTsdfMesh(volume_, config_.meshing);
+  result.telemetry.meshing_input_voxels = meshing.input_voxels;
+  result.telemetry.meshing_examined_cells = meshing.examined_cells;
+  result.telemetry.meshing_complete_cells = meshing.complete_cells;
+  result.telemetry.meshing_surface_cells = meshing.surface_cells;
+  result.telemetry.meshing_skipped_incomplete_cells =
+      meshing.skipped_incomplete_cells;
+  result.telemetry.meshing_truncated = meshing.truncated;
+  if (!meshing.input_valid) {
+    result.error = "TSDF meshing input is invalid";
+    return result;
+  }
+
+  MeshComponentFilterResult filtered = filterMeshComponents(
+      meshing.mesh, config_.component_filter);
+  result.telemetry.source_components = filtered.components;
+  result.telemetry.retained_components = filtered.retained_components;
+  result.telemetry.filtering_truncated = filtered.truncated;
+  if (!filtered.input_valid || !filtered.error.empty()) {
+    result.error = filtered.error.empty() ?
+        "Extracted mesh is invalid" : filtered.error;
+    return result;
+  }
+  result.source_mesh = std::move(filtered.mesh);
+  result.telemetry.source_vertices = result.source_mesh.positions_m.size();
+  result.telemetry.source_triangles =
+      result.source_mesh.triangle_indices.size() / 3;
+
+  MeshSimplificationResult simplified = simplifyMeshConservative(
+      result.source_mesh, config_.simplification);
+  result.telemetry.simplification_truncated = simplified.truncated;
+  result.telemetry.max_simplification_displacement_m =
+      simplified.max_observed_displacement_m;
+  if (!simplified.input_valid || !simplified.error.empty()) {
+    result.error = simplified.error.empty() ?
+        "Filtered source mesh is invalid" : simplified.error;
+    return result;
+  }
+  result.simplified_mesh = std::move(simplified.mesh);
+  result.telemetry.simplified_vertices =
+      result.simplified_mesh.positions_m.size();
+  result.telemetry.simplified_triangles =
+      result.simplified_mesh.triangle_indices.size() / 3;
+  result.telemetry.complete = !result.telemetry.fusion_truncated &&
+      !result.telemetry.meshing_truncated &&
+      !result.telemetry.filtering_truncated &&
+      !result.telemetry.simplification_truncated;
+  return result;
+}
+
+void ReconstructionFusionPipeline::reset() {
+  volume_.reset();
+  last_timestamp_ns_ = 0;
+  accepted_frames_ = 0;
+  rejected_frames_ = 0;
+  cumulative_integrated_pixels_ = 0;
+  cumulative_voxel_updates_ = 0;
+  fusion_truncated_ = false;
+}
+
+}  // namespace arkernel

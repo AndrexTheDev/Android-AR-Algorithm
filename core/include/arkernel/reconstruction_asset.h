@@ -11,6 +11,49 @@ namespace arkernel {
 
 enum class ScanMode { kEnvironment, kObject };
 enum class MetricAccuracyGrade { kUnverified, kApproximate, kCentimeterValidated };
+enum class DimensionalReferenceKind {
+  kUnknown,
+  kHeldOutScaleBar,
+  kSurveyedDistance,
+  kSensorGroundTruth,
+};
+
+struct HeldOutDimensionObservation {
+  std::string evidence_id;
+  Vec3 reconstructed_a_m{};
+  Vec3 reconstructed_b_m{};
+  double reference_distance_m{0.0};
+  double reference_uncertainty_m{0.0};
+  DimensionalReferenceKind reference_kind{DimensionalReferenceKind::kUnknown};
+  // Must be true only when this target/pair influenced neither calibration nor optimization.
+  bool held_out_from_calibration_and_optimization{false};
+};
+
+struct DimensionalValidationPolicy {
+  std::size_t max_observations{64};
+  std::size_t min_observations{3};
+  std::size_t min_dimension_bins{2};
+  double dimension_bin_width_m{0.25};
+  double max_reference_uncertainty_m{0.002};
+  double max_mean_absolute_error_m{0.01};
+  double max_absolute_error_m{0.01};
+  double max_relative_error{0.02};
+};
+
+struct DimensionalValidationReport {
+  bool passed{false};
+  std::size_t accepted_observations{0};
+  std::size_t dimension_bins{0};
+  double mean_absolute_error_m{0.0};
+  double maximum_effective_absolute_error_m{0.0};
+  double maximum_effective_relative_error{0.0};
+  double maximum_validated_dimension_m{0.0};
+  std::vector<std::string> failures;
+};
+
+DimensionalValidationReport evaluateHeldOutDimensions(
+    const std::vector<HeldOutDimensionObservation>& observations,
+    const DimensionalValidationPolicy& policy = {});
 
 struct ReconstructionQuality {
   bool calibrated_intrinsics{false};
@@ -24,6 +67,7 @@ struct ReconstructionQuality {
   // scale uncertainty, this bounds absolute dimensional error.
   double assessed_extent_m{0.0};
   double surface_coverage_ratio{0.0};
+  std::vector<HeldOutDimensionObservation> held_out_dimensions;
 };
 
 struct AccuracyPolicy {
@@ -33,11 +77,13 @@ struct AccuracyPolicy {
   double max_absolute_scale_error_m{0.01};
   double min_environment_coverage_ratio{0.70};
   double min_object_coverage_ratio{0.85};
+  DimensionalValidationPolicy dimensional_validation{};
 };
 
 struct AccuracyAssessment {
   MetricAccuracyGrade grade{MetricAccuracyGrade::kUnverified};
   bool export_allowed{false};
+  DimensionalValidationReport dimensional_validation{};
   std::vector<std::string> failures;
 };
 
@@ -87,13 +133,43 @@ struct GltfAsset {
 
 GltfAsset exportGltf(const ReconstructionMesh& mesh,
                      const std::string& bin_file_name = "scene.bin");
+GltfAsset exportAssessedGltf(const ReconstructionMesh& mesh,
+                            const ReconstructionQuality& quality, ScanMode mode,
+                            const AccuracyPolicy& policy = {},
+                            const std::string& bin_file_name = "scene.bin");
 // glTF Binary 2.0 container. External texture URIs remain external; callers
 // can use data URIs or a later image-embedding adapter when one-file textures
 // are required.
 std::vector<std::uint8_t> exportGlb(const ReconstructionMesh& mesh);
+std::vector<std::uint8_t> exportAssessedGlb(
+    const ReconstructionMesh& mesh, const ReconstructionQuality& quality,
+    ScanMode mode, const AccuracyPolicy& policy = {});
+// Embeds one already encoded PNG or JPEG in the GLB binary chunk. The mesh URI
+// must still be empty: successful embedding, not raw atlas availability, is
+// what creates the glTF image/material relationship.
+std::vector<std::uint8_t> exportGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,
+    const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type = "image/png",
+    std::size_t max_encoded_image_bytes = 134217728);
+std::vector<std::uint8_t> exportAssessedGlbWithEmbeddedTexture(
+    const ReconstructionMesh& mesh,
+    const std::vector<std::uint8_t>& encoded_image,
+    const std::string& mime_type,
+    const ReconstructionQuality& quality,
+    ScanMode mode,
+    const AccuracyPolicy& policy = {},
+    std::size_t max_encoded_image_bytes = 134217728);
 std::string exportObj(const ReconstructionMesh& mesh,
                       const std::string& material_file_name = "scene.mtl");
+std::string exportAssessedObj(const ReconstructionMesh& mesh,
+                             const ReconstructionQuality& quality, ScanMode mode,
+                             const AccuracyPolicy& policy = {},
+                             const std::string& material_file_name = "scene.mtl");
 std::string exportMtl(const ReconstructionMesh& mesh);
 std::string exportPly(const ReconstructionMesh& mesh);
+std::string exportAssessedPly(const ReconstructionMesh& mesh,
+                             const ReconstructionQuality& quality, ScanMode mode,
+                             const AccuracyPolicy& policy = {});
 
 }  // namespace arkernel

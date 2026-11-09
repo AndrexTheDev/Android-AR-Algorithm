@@ -18,7 +18,7 @@ enum class MappingPauseReason {
     NONE, POSE_UNINITIALIZED, POSE_LIMITED, VISUAL_NOT_TRACKING,
     TOO_FEW_TRACKS, IMU_OVERFLOW, RECOVERING,
     DEVICE_COMPATIBILITY_PENDING, DEVICE_COMPATIBILITY_REJECTED,
-    CAMERA_CLOCK_DISCONTINUITY, CALIBRATION_CHANGED
+    CAMERA_CLOCK_DISCONTINUITY, CALIBRATION_CHANGED, RESOURCE_RESTART_REQUIRED
 }
 data class MappingGateDecision(
     val state: MappingGateState,
@@ -103,6 +103,9 @@ data class MetricDepthBuffer(
     val confidence: FloatBuffer? = null,
     val confidenceRowStrideElements: Int = if (confidence == null) 0 else rowStrideElements,
     val timestampNs: Long,
+    val uncertaintyMeters: FloatBuffer? = null,
+    val uncertaintyRowStrideElements: Int =
+        if (uncertaintyMeters == null) 0 else rowStrideElements,
 )
 data class DepthSamplingOptions(
     val pixelStride: Int = 4,

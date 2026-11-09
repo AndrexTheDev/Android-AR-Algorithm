@@ -2,10 +2,12 @@ package ai.arena.arkernel
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.annotation.TargetApi
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.graphics.Rect
+import android.util.Range
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -13,6 +15,8 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
 import android.media.ImageReader
 import java.util.TreeMap
 import android.os.Build
@@ -31,7 +35,14 @@ data class CameraReconstructionFrame(
 
 private data class CameraExposure(val exposureTimeNs: Long, val sensitivityIso: Int)
 private data class PendingCameraReconstructionFrame(
-    val timestampNs: Long, val width: Int, val height: Int, val i420Bytes: ByteArray)
+    val timestampNs: Long,
+    val width: Int,
+    val height: Int,
+    val i420Bytes: ByteArray,
+    val quality: CameraFrameQuality,
+    val emitCaptureFrame: Boolean,
+    val emitReconstructionFrame: Boolean,
+)
 
 private class CameraCaptureMetadataMatcher(private val capacity: Int = 32) {
     private val values = TreeMap<Long, CameraExposure>()
@@ -50,18 +61,22 @@ private class CameraCaptureMetadataMatcher(private val capacity: Int = 32) {
 }
 
 /**
- * Lifecycle owner for a calibrated Camera2 YUV stream. The Y plane is consumed
- * synchronously by native code before Image.close(), so no dangling buffer can
- * cross the JNI boundary.
+ * Lifecycle owner for a calibrated Camera2 YUV stream. When a visual frontend
+ * is attached, the Y plane is consumed synchronously by native code before
+ * Image.close(); camera-only capture skips that frontend and copies accepted
+ * YUV frames into bounded owned I420 output.
  */
 class Camera2FrameSource(
     context: Context,
     private val calibration: CameraCalibration,
-    private val frontend: ArKernelVisualFrontend,
+    private val frontend: ArKernelVisualFrontend?,
     private val rotationPrediction: (timestampNs: Long) -> Rotation? = { null },
-    private val onResult: (VisualFrontendSnapshot) -> Unit,
+    private val onResult: ((VisualFrontendSnapshot) -> Unit)? = null,
     private val onError: (Throwable) -> Unit = {},
+    private val onLifecycleFailure: ((Camera2LifecycleFailure) -> Unit)? = null,
     private val onReconstructionFrame: ((CameraReconstructionFrame) -> Unit)? = null,
+    private val onCaptureFrame:
+        ((CameraReconstructionFrame, CameraFrameQuality) -> Unit)? = null,
     private val reconstructionQualityGate:
         ((VisualFrontendSnapshot, CameraFrameQuality) -> Boolean)? = null,
     private val compatibilityTimingSink: ((CameraTimingSample) -> Unit)? = null,
@@ -70,6 +85,8 @@ class Camera2FrameSource(
     private val calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
     private val onCalibrationRuntimeFailure:
         ((CameraCalibrationRuntimeFailure) -> Unit)? = null,
+    private val maximumOutputFramesPerSecond: Int = 30,
+    private val maximumPendingFrames: Int = 2,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -88,6 +105,13 @@ class Camera2FrameSource(
     private val timestampNormalizer = CameraTimestampNormalizer()
     private val captureMetadata = CameraCaptureMetadataMatcher()
     private val pendingReconstructionFrames = TreeMap<Long, PendingCameraReconstructionFrame>()
+    private val frameRateLimiter = CameraFrameRateLimiter(maximumOutputFramesPerSecond)
+    private val lifecycle = Camera2LifecycleStateMachine()
+
+    init {
+        require(maximumOutputFramesPerSecond in 1..240)
+        require(maximumPendingFrames in 1..8)
+    }
 
     @SuppressLint("MissingPermission")
     @Synchronized
@@ -96,8 +120,9 @@ class Camera2FrameSource(
         check(appContext.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             "CAMERA permission must be granted by the host app"
         }
-        frontend.reset()
+        frontend?.reset()
         lastTimestampNs = 0L
+        frameRateLimiter.reset()
         timestampFailureReported = false
         calibrationFailureReported = false
         calibrationRuntimeMonitor?.reset()
@@ -112,6 +137,7 @@ class Camera2FrameSource(
         val imageReader = ImageReader.newInstance(
             calibration.width, calibration.height, ImageFormat.YUV_420_888, 3)
         imageReader.setOnImageAvailableListener({ source -> consumeLatest(source) }, cameraHandler)
+        val lifecycleGeneration = lifecycle.beginStart()
         thread = cameraThread; handler = cameraHandler; reader = imageReader; running = true
         try {
             val binding = calibrationRuntimeMonitor?.binding
@@ -119,21 +145,43 @@ class Camera2FrameSource(
             require(cameraId == null || cameraId == selectedCameraId) {
                 "Requested camera ID does not match calibration binding"
             }
-            val physicalCameraId = binding?.physicalCameraId
-            require(physicalCameraId == null || physicalCameraId == selectedCameraId) {
-                "Direct Camera2 source cannot silently switch to a different physical camera"
+            val characteristics = manager.getCameraCharacteristics(selectedCameraId)
+            val advertisedPhysicalIds = if (Build.VERSION.SDK_INT >= 28)
+                Api28CameraRouting.physicalCameraIds(characteristics) else emptySet()
+            val route = when (val decision = CameraPhysicalRoutingPolicy.decide(
+                selectedCameraId, binding?.physicalCameraId, advertisedPhysicalIds,
+                Build.VERSION.SDK_INT)) {
+                is CameraPhysicalRoutingDecision.Accepted -> decision.route
+                is CameraPhysicalRoutingDecision.Rejected ->
+                    error("Calibrated camera routing rejected: ${decision.reason}")
             }
-            manager.openCamera(selectedCameraId, object : CameraDevice.StateCallback() {
+            manager.openCamera(route.logicalCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!running) { camera.close(); return }
+                    val transition = lifecycle.deviceOpened(lifecycleGeneration)
+                    if (!transition.accepted || !running) { camera.close(); return }
                     device = camera
-                    createSession(camera, imageReader, cameraHandler)
+                    try {
+                        createSession(camera, imageReader, cameraHandler, lifecycleGeneration,
+                            route.outputPhysicalCameraId)
+                    } catch (error: Throwable) {
+                        camera.close()
+                        reportLifecycleFailure(lifecycle.fail(lifecycleGeneration,
+                            Camera2LifecycleFailure.SESSION_START_FAILED), error)
+                    }
                 }
                 override fun onDisconnected(camera: CameraDevice) {
-                    camera.close(); if (running) onError(IllegalStateException("Camera disconnected"))
+                    val transition = lifecycle.fail(lifecycleGeneration,
+                        Camera2LifecycleFailure.DEVICE_DISCONNECTED)
+                    camera.close()
+                    reportLifecycleFailure(transition,
+                        IllegalStateException("Camera disconnected"))
                 }
                 override fun onError(camera: CameraDevice, error: Int) {
-                    camera.close(); if (running) onError(IllegalStateException("Camera2 error $error"))
+                    val transition = lifecycle.fail(lifecycleGeneration,
+                        Camera2LifecycleFailure.DEVICE_ERROR)
+                    camera.close()
+                    reportLifecycleFailure(transition,
+                        IllegalStateException("Camera2 error $error"))
                 }
             }, cameraHandler)
         } catch (error: Throwable) {
@@ -146,14 +194,20 @@ class Camera2FrameSource(
             CameraCharacteristics.LENS_FACING_BACK
     } ?: error("No back-facing Camera2 device")
 
-    private fun createSession(camera: CameraDevice, imageReader: ImageReader, handler: Handler) {
-        camera.createCaptureSession(listOf(imageReader.surface),
-            object : CameraCaptureSession.StateCallback() {
+    private fun createSession(camera: CameraDevice, imageReader: ImageReader, handler: Handler,
+        lifecycleGeneration: Long, outputPhysicalCameraId: String?) {
+        val stateCallback = object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(captureSession: CameraCaptureSession) {
-                    if (!running) { captureSession.close(); return }
-                    session = captureSession
-                    val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                    val transition = lifecycle.sessionConfigured(lifecycleGeneration)
+                    if (!transition.accepted || !running) { captureSession.close(); return }
+                    try {
+                        session = captureSession
+                        val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                         addTarget(imageReader.surface)
+                        selectBoundedFpsRange(selectedCameraRanges(camera.id),
+                            maximumOutputFramesPerSecond)?.let {
+                            set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+                        }
                         val binding = calibrationRuntimeMonitor?.binding
                         if (binding == null) set(CaptureRequest.CONTROL_AF_MODE,
                             CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
@@ -183,26 +237,63 @@ class Camera2FrameSource(
                                 request: CaptureRequest,
                                 result: TotalCaptureResult,
                             ) {
-                                if (!monitorCalibration(result)) return
-                                val rawTimestamp = result.get(CaptureResult.SENSOR_TIMESTAMP) ?: return
+                                val metadataResult = if (outputPhysicalCameraId == null) result
+                                    else if (Build.VERSION.SDK_INT >= 28)
+                                        Api28CameraRouting.physicalResult(result,
+                                            outputPhysicalCameraId)
+                                    else null
+                                if (metadataResult == null) {
+                                    reportCalibrationFailure(
+                                        CameraCalibrationRuntimeFailure.PHYSICAL_CAPTURE_RESULT_MISSING)
+                                    return
+                                }
+                                if (!monitorCalibration(metadataResult)) return
+                                val rawTimestamp = metadataResult.get(
+                                    CaptureResult.SENSOR_TIMESTAMP) ?: return
                                 emitCompatibilityTiming(CameraTimingSampleKind.CAPTURE_RESULT,
                                     rawTimestamp)
                                 val timestamp = timestampNormalizer.normalize(rawTimestamp)
                                     ?.normalizedTimestampNs ?: return
                                 handleCaptureMetadata(timestamp,
-                                    result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
-                                    result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
+                                    metadataResult.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 0L,
+                                    metadataResult.get(CaptureResult.SENSOR_SENSITIVITY) ?: 0)
                             }
                         }, handler)
+                    } catch (error: Throwable) {
+                        captureSession.close()
+                        reportLifecycleFailure(lifecycle.fail(lifecycleGeneration,
+                            Camera2LifecycleFailure.SESSION_START_FAILED), error)
+                    }
                 }
                 override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+                    val transition = lifecycle.fail(lifecycleGeneration,
+                        Camera2LifecycleFailure.SESSION_CONFIGURE_FAILED)
                     captureSession.close()
-                    if (running) onError(IllegalStateException("Camera capture session failed"))
+                    reportLifecycleFailure(transition,
+                        IllegalStateException("Camera capture session failed"))
                 }
-            }, handler)
+            }
+        if (outputPhysicalCameraId == null) {
+            camera.createCaptureSession(listOf(imageReader.surface), stateCallback, handler)
+        } else {
+            check(Build.VERSION.SDK_INT >= 28)
+            Api28CameraRouting.createPhysicalSession(camera, imageReader, handler,
+                outputPhysicalCameraId, stateCallback)
+        }
     }
 
-    private fun monitorCalibration(result: TotalCaptureResult): Boolean {
+    private fun selectedCameraRanges(cameraId: String): Array<out Range<Int>> =
+        manager.getCameraCharacteristics(cameraId)
+            .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
+
+    private fun selectBoundedFpsRange(
+        ranges: Array<out Range<Int>>,
+        maximumFramesPerSecond: Int,
+    ): Range<Int>? = ranges
+        .filter { it.upper <= maximumFramesPerSecond }
+        .maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
+
+    private fun monitorCalibration(result: CaptureResult): Boolean {
         val monitor = calibrationRuntimeMonitor ?: return true
         if (calibrationFailureReported) return false
         val crop = result.get(CaptureResult.SCALER_CROP_REGION)
@@ -213,11 +304,17 @@ class Camera2FrameSource(
             if (Build.VERSION.SDK_INT >= 28)
                 result.get(CaptureResult.DISTORTION_CORRECTION_MODE) else null,
             result.get(CaptureResult.LENS_FOCAL_LENGTH)?.toDouble(),
-            result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.toDouble()))
+            result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.toDouble(),
+            result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)))
         if (failure == null) return true
-        calibrationFailureReported = true
-        onCalibrationRuntimeFailure?.invoke(failure)
+        reportCalibrationFailure(failure)
         return false
+    }
+
+    private fun reportCalibrationFailure(reason: CameraCalibrationRuntimeFailure) {
+        if (calibrationFailureReported) return
+        calibrationFailureReported = true
+        onCalibrationRuntimeFailure?.invoke(reason)
     }
 
     private fun handleCaptureMetadata(timestampNs: Long, exposureTimeNs: Long, sensitivityIso: Int) {
@@ -225,9 +322,12 @@ class Camera2FrameSource(
         val pending = pendingReconstructionFrames.remove(timestampNs) ?: return
         val exposure = captureMetadata.take(timestampNs) ?: return
         try {
-            if (running) onReconstructionFrame?.invoke(CameraReconstructionFrame(timestampNs,
-                pending.width, pending.height, pending.i420Bytes,
-                exposure.exposureTimeNs, exposure.sensitivityIso))
+            if (running) {
+                val frame = CameraReconstructionFrame(timestampNs, pending.width, pending.height,
+                    pending.i420Bytes, exposure.exposureTimeNs, exposure.sensitivityIso)
+                if (pending.emitCaptureFrame) onCaptureFrame?.invoke(frame, pending.quality)
+                if (pending.emitReconstructionFrame) onReconstructionFrame?.invoke(frame)
+            }
         } catch (error: Throwable) {
             if (running) onError(error)
         }
@@ -266,17 +366,22 @@ class Camera2FrameSource(
             }
             val timestamp = normalization.normalizedTimestampNs
             if (timestamp <= lastTimestampNs) return
+            lastTimestampNs = timestamp
+            if (!frameRateLimiter.accept(timestamp)) return
             val y = image.planes[0]
             check(y.pixelStride == 1) { "Unsupported Camera2 Y-plane pixel stride ${y.pixelStride}" }
-            lastTimestampNs = timestamp
-            val snapshot = frontend.processGray(
+            val snapshot = frontend?.processGray(
                 y.buffer, timestamp, y.rowStride, rotationPrediction(timestamp))
-            onResult(snapshot)
-            val reconstructionCallback = onReconstructionFrame
-            if (snapshot.keyframe && reconstructionCallback != null) {
-                val quality = CameraFrameQualityEvaluator.evaluate(y.buffer, image.width, image.height,
-                    y.rowStride, y.pixelStride)
-                if (reconstructionQualityGate?.invoke(snapshot, quality) == false) return
+            if (snapshot != null) onResult?.invoke(snapshot)
+            val emitCapture = onCaptureFrame != null
+            val quality = if (emitCapture || (snapshot?.keyframe == true &&
+                    onReconstructionFrame != null))
+                CameraFrameQualityEvaluator.evaluate(y.buffer, image.width, image.height,
+                    y.rowStride, y.pixelStride) else null
+            val emitReconstruction = quality != null && snapshot != null && snapshot.keyframe &&
+                onReconstructionFrame != null &&
+                reconstructionQualityGate?.invoke(snapshot, quality) != false
+            if (quality != null && (emitCapture || emitReconstruction)) {
                 val exposure = captureMetadata.take(timestamp)
                 val planes = image.planes
                 check(planes.size == 3) { "YUV_420_888 image must expose three planes" }
@@ -287,14 +392,17 @@ class Camera2FrameSource(
                         planes[1].pixelStride),
                     ReconstructionYuvPlane(planes[2].buffer, planes[2].rowStride,
                         planes[2].pixelStride))
-                if (exposure != null) reconstructionCallback(CameraReconstructionFrame(
-                    timestamp, image.width, image.height, i420,
-                    exposure.exposureTimeNs, exposure.sensitivityIso))
-                else {
+                if (exposure != null) {
+                    val frame = CameraReconstructionFrame(timestamp, image.width, image.height,
+                        i420, exposure.exposureTimeNs, exposure.sensitivityIso)
+                    if (emitCapture) onCaptureFrame?.invoke(frame, quality)
+                    if (emitReconstruction) onReconstructionFrame?.invoke(frame)
+                } else {
                     pendingReconstructionFrames[timestamp] = PendingCameraReconstructionFrame(
-                        timestamp, image.width, image.height, i420)
+                        timestamp, image.width, image.height, i420, quality,
+                        emitCapture, emitReconstruction)
                     // Captured image data is already owned, but memory remains strictly bounded.
-                    while (pendingReconstructionFrames.size > MAX_PENDING_RECONSTRUCTION_FRAMES)
+                    while (pendingReconstructionFrames.size > maximumPendingFrames)
                         pendingReconstructionFrames.pollFirstEntry()
                 }
             }
@@ -325,15 +433,25 @@ class Camera2FrameSource(
         return sample
     }
 
+    private fun reportLifecycleFailure(transition: Camera2LifecycleTransition,
+        error: Throwable) {
+        if (!transition.shouldReportFailure) return
+        stop()
+        transition.failure?.let { failure -> runCatching { onLifecycleFailure?.invoke(failure) } }
+        onError(error)
+    }
+
     @Synchronized
     fun stop() {
         running = false
+        lifecycle.stop()
         session?.close(); session = null
         device?.close(); device = null
         reader?.close(); reader = null
         handler = null
         thread?.quitSafely(); thread = null
         lastTimestampNs = 0L
+        frameRateLimiter.reset()
         timestampFailureReported = false
         calibrationFailureReported = false
         calibrationRuntimeMonitor?.reset()
@@ -343,13 +461,41 @@ class Camera2FrameSource(
         timestampNormalizer.reset()
         captureMetadata.clear()
         pendingReconstructionFrames.clear()
-        frontend.reset()
+        frontend?.reset()
     }
 
     override fun close() = stop()
 
+    @TargetApi(28)
+    private object Api28CameraRouting {
+        fun physicalCameraIds(characteristics: CameraCharacteristics): Set<String> =
+            characteristics.physicalCameraIds
+
+        fun createPhysicalSession(
+            camera: CameraDevice,
+            imageReader: ImageReader,
+            handler: Handler,
+            physicalCameraId: String,
+            callback: CameraCaptureSession.StateCallback,
+        ) {
+            val output = OutputConfiguration(imageReader.surface).apply {
+                setPhysicalCameraId(physicalCameraId)
+            }
+            val configuration = SessionConfiguration(
+                SessionConfiguration.SESSION_REGULAR,
+                listOf(output),
+                java.util.concurrent.Executor { command -> handler.post(command) },
+                callback)
+            camera.createCaptureSession(configuration)
+        }
+
+        fun physicalResult(
+            result: TotalCaptureResult,
+            physicalCameraId: String,
+        ): CaptureResult? = result.physicalCameraResults[physicalCameraId]
+    }
+
     private companion object {
-        const val MAX_PENDING_RECONSTRUCTION_FRAMES = 2
         const val AFFINE_SAMPLE_INTERVAL = 15L
     }
 }

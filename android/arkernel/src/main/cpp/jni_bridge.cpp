@@ -1,14 +1,21 @@
 #include <jni.h>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <limits>
+#include <optional>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 #include "arkernel/c_api.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/detection_tracker.h"
+#include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
+#include "arkernel/reconstruction_pipeline.h"
 #include "arkernel/temporal_depth_filter.h"
+#include "arkernel/texture_pipeline.h"
 
 namespace {
 ark_vio_handle* fromVioHandle(jlong value) {
@@ -22,6 +29,25 @@ arkernel::ReconstructionCapturePlanner* fromReconstructionPlannerHandle(jlong va
 }
 arkernel::ClockAligner* fromClockAlignerHandle(jlong value) {
   return reinterpret_cast<arkernel::ClockAligner*>(static_cast<intptr_t>(value));
+}
+struct AndroidReconstructionPipeline {
+  explicit AndroidReconstructionPipeline(arkernel::ReconstructionPipelineConfig config,
+                                         std::size_t output_budget)
+      : pipeline(std::move(config)), max_glb_bytes(output_budget) {}
+  arkernel::ReconstructionFusionPipeline pipeline;
+  std::size_t max_glb_bytes;
+};
+AndroidReconstructionPipeline* fromFusionPipelineHandle(jlong value) {
+  return reinterpret_cast<AndroidReconstructionPipeline*>(static_cast<intptr_t>(value));
+}
+bool meshFitsGlbBudget(const arkernel::ReconstructionMesh& mesh, std::size_t budget) {
+  constexpr std::size_t kJsonAllowance = 65536;
+  const std::size_t vertices = mesh.positions_m.size();
+  const std::size_t indices = mesh.triangle_indices.size();
+  if (vertices > (std::numeric_limits<std::size_t>::max() - kJsonAllowance) / 32 ||
+      indices > (std::numeric_limits<std::size_t>::max() - kJsonAllowance - vertices * 32) / 4)
+    return false;
+  return kJsonAllowance + vertices * 32 + indices * 4 <= budget;
 }
 jlong toHandle(const void* value) {
   return static_cast<jlong>(reinterpret_cast<intptr_t>(value));
@@ -907,6 +933,251 @@ Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeUpdate(JNIEnv* env,jobjec
 }
 
 extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
+    JNIEnv* env,jobject,jlongArray integer_options,jdoubleArray scalar_options) {
+  if(!integer_options||!scalar_options||env->GetArrayLength(integer_options)<13||
+     env->GetArrayLength(scalar_options)<11)return 0;
+  std::array<jlong,13> integers{};
+  std::array<jdouble,11> scalars{};
+  env->GetLongArrayRegion(integer_options,0,integers.size(),integers.data());
+  env->GetDoubleArrayRegion(scalar_options,0,scalars.size(),scalars.data());
+  if(env->ExceptionCheck())return 0;
+  const auto bounded_size=[](jlong value,std::size_t maximum)->std::optional<std::size_t>{
+    if(value<=0||static_cast<unsigned long long>(value)>
+        static_cast<unsigned long long>(maximum))return std::nullopt;
+    return static_cast<std::size_t>(value);
+  };
+  const auto pixel_stride=bounded_size(integers[0],64);
+  const auto max_blocks=bounded_size(integers[1],1000000);
+  const auto max_frames=bounded_size(integers[2],1000000);
+  const auto max_depth_pixels=bounded_size(integers[3],4194304);
+  const auto max_voxel_visits=bounded_size(integers[4],16777216);
+  const auto max_snapshot_voxels=bounded_size(integers[5],5000000);
+  const auto max_cells=bounded_size(integers[6],5000000);
+  const auto max_vertices=bounded_size(integers[7],5000000);
+  const auto max_triangles=bounded_size(integers[8],5000000);
+  const auto min_component_triangles=bounded_size(integers[9],5000000);
+  const auto max_edges=bounded_size(integers[10],6000000);
+  const auto max_clusters=bounded_size(integers[11],5000000);
+  const auto max_glb_bytes=bounded_size(integers[12],512ULL*1024ULL*1024ULL);
+  if(!pixel_stride||!max_blocks||!max_frames||!max_depth_pixels||!max_voxel_visits||
+     !max_snapshot_voxels||!max_cells||!max_vertices||!max_triangles||
+     !min_component_triangles||!max_edges||!max_clusters||!max_glb_bytes||
+     *max_glb_bytes<1024)return 0;
+  try{
+    arkernel::ReconstructionPipelineConfig config;
+    config.fusion.voxel_size_m=scalars[0];
+    config.fusion.truncation_distance_m=scalars[1];
+    config.fusion.min_depth_m=scalars[2];config.fusion.max_depth_m=scalars[3];
+    config.fusion.min_confidence=scalars[4];
+    config.fusion.default_uncertainty_m=scalars[5];
+    config.fusion.pixel_stride=static_cast<int>(*pixel_stride);
+    config.fusion.max_blocks=*max_blocks;
+    config.fusion.max_depth_pixels_per_update=*max_depth_pixels;
+    config.fusion.max_voxel_visits_per_update=*max_voxel_visits;
+    config.fusion.max_snapshot_voxels=*max_snapshot_voxels;
+    config.max_integrated_frames=*max_frames;
+    config.meshing.max_input_voxels=*max_snapshot_voxels;
+    config.meshing.max_cells=*max_cells;config.meshing.max_vertices=*max_vertices;
+    config.meshing.max_triangles=*max_triangles;
+    config.component_filter.min_component_triangles=*min_component_triangles;
+    config.component_filter.min_component_area_m2=scalars[6];
+    config.component_filter.max_input_vertices=*max_vertices;
+    config.component_filter.max_input_triangles=*max_triangles;
+    config.component_filter.max_unique_edges=*max_edges;
+    config.simplification.cluster_cell_size_m=scalars[7];
+    config.simplification.max_position_error_m=scalars[8];
+    config.simplification.sharp_edge_angle_degrees=scalars[9];
+    config.simplification.max_uv_error=scalars[10];
+    config.simplification.max_input_vertices=*max_vertices;
+    config.simplification.max_input_triangles=*max_triangles;
+    config.simplification.max_unique_edges=*max_edges;
+    config.simplification.max_clusters=*max_clusters;
+    return toHandle(new AndroidReconstructionPipeline(std::move(config),*max_glb_bytes));
+  }catch(...){return 0;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeIntegrate(
+    JNIEnv* env,jobject,jlong handle,jlong timestamp,jobject depth,jint depth_offset,
+    jint depth_remaining,jobject confidence,jint confidence_offset,jint confidence_remaining,
+    jobject uncertainty,jint uncertainty_offset,jint uncertainty_remaining,
+    jint width,jint height,jint depth_stride,jint confidence_stride,jint uncertainty_stride,
+    jdouble fx,jdouble fy,
+    jdouble cx,jdouble cy,jdouble k1,jdouble k2,jdouble p1,jdouble p2,jdouble k3,
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,jdouble tx,jdouble ty,jdouble tz,
+    jlongArray metadata) {
+  auto* owner=fromFusionPipelineHandle(handle);
+  auto* depth_data=depth?static_cast<float*>(env->GetDirectBufferAddress(depth)):nullptr;
+  auto* confidence_data=confidence?
+      static_cast<float*>(env->GetDirectBufferAddress(confidence)):nullptr;
+  auto* uncertainty_data=uncertainty?
+      static_cast<float*>(env->GetDirectBufferAddress(uncertainty)):nullptr;
+  if(!owner||!depth_data||!metadata||env->GetArrayLength(metadata)<14||width<=0||height<=0||
+     depth_offset<0||depth_remaining<0||confidence_offset<0||confidence_remaining<0||
+     uncertainty_offset<0||uncertainty_remaining<0)return ARK_RESULT_INVALID_ARGUMENT;
+  const jlong depth_capacity=env->GetDirectBufferCapacity(depth);
+  const jlong confidence_capacity=confidence?env->GetDirectBufferCapacity(confidence):0;
+  const jlong uncertainty_capacity=uncertainty?env->GetDirectBufferCapacity(uncertainty):0;
+  if(depth_capacity<0||static_cast<jlong>(depth_offset)+depth_remaining>depth_capacity||
+     (confidence&&(!confidence_data||confidence_capacity<0||
+      static_cast<jlong>(confidence_offset)+confidence_remaining>confidence_capacity))||
+     (uncertainty&&(!uncertainty_data||uncertainty_capacity<0||
+      static_cast<jlong>(uncertainty_offset)+uncertainty_remaining>uncertainty_capacity)))
+    return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    arkernel::TsdfDepthImageView view;view.width=width;view.height=height;
+    view.depth_row_stride_elements=depth_stride;view.depth_z_m=depth_data+depth_offset;
+    view.depth_element_count=static_cast<std::size_t>(depth_remaining);
+    view.confidence=confidence_data?confidence_data+confidence_offset:nullptr;
+    view.confidence_row_stride_elements=confidence_stride;
+    view.confidence_element_count=static_cast<std::size_t>(confidence_remaining);
+    view.uncertainty_m=uncertainty_data?uncertainty_data+uncertainty_offset:nullptr;
+    view.uncertainty_row_stride_elements=uncertainty_stride;
+    view.uncertainty_element_count=static_cast<std::size_t>(uncertainty_remaining);
+    const arkernel::PinholeRadTanCamera camera({width,height,fx,fy,cx,cy},{k1,k2,p1,p2,k3});
+    arkernel::Pose pose;pose.rotation={rw,rx,ry,rz};pose.translation={tx,ty,tz};
+    const auto result=owner->pipeline.integrate(timestamp,view,camera,pose);
+    const jlong values[14]={result.accepted?1:0,static_cast<jlong>(result.rejection),
+      static_cast<jlong>(result.accepted_frames),static_cast<jlong>(result.rejected_frames),
+      static_cast<jlong>(result.cumulative_integrated_pixels),
+      static_cast<jlong>(result.cumulative_voxel_updates),
+      static_cast<jlong>(result.update.visited_pixels),
+      static_cast<jlong>(result.update.integrated_pixels),
+      static_cast<jlong>(result.update.rejected_pixels),
+      static_cast<jlong>(result.update.voxel_visits),
+      static_cast<jlong>(result.update.voxel_updates),
+      static_cast<jlong>(result.update.allocated_blocks),
+      static_cast<jlong>(result.update.capacity_rejections),
+      result.fusion_truncated?1:0};
+    env->SetLongArrayRegion(metadata,0,14,values);
+    return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
+  }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(const std::length_error&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
+    JNIEnv* env,jobject,jlong handle,jlongArray metadata,jdoubleArray scalar_values) {
+  auto* owner=fromFusionPipelineHandle(handle);
+  if(!owner||!metadata||!scalar_values||env->GetArrayLength(metadata)<19||
+     env->GetArrayLength(scalar_values)<1)return nullptr;
+  try{
+    const auto result=owner->pipeline.build();
+    if(!result.error.empty()||!meshFitsGlbBudget(result.source_mesh,owner->max_glb_bytes)||
+       !meshFitsGlbBudget(result.simplified_mesh,owner->max_glb_bytes))return nullptr;
+    const auto& t=result.telemetry;
+    const jlong values[19]={t.complete?1:0,t.fusion_truncated?1:0,
+      t.meshing_truncated?1:0,t.filtering_truncated?1:0,t.simplification_truncated?1:0,
+      static_cast<jlong>(t.fused_frames),static_cast<jlong>(t.fused_blocks),
+      static_cast<jlong>(t.fused_voxels),static_cast<jlong>(t.meshing_input_voxels),
+      static_cast<jlong>(t.meshing_examined_cells),static_cast<jlong>(t.meshing_complete_cells),
+      static_cast<jlong>(t.meshing_surface_cells),
+      static_cast<jlong>(t.meshing_skipped_incomplete_cells),
+      static_cast<jlong>(t.source_components),static_cast<jlong>(t.retained_components),
+      static_cast<jlong>(t.source_vertices),static_cast<jlong>(t.source_triangles),
+      static_cast<jlong>(t.simplified_vertices),static_cast<jlong>(t.simplified_triangles)};
+    const jdouble displacement=t.max_simplification_displacement_m;
+    env->SetLongArrayRegion(metadata,0,19,values);
+    env->SetDoubleArrayRegion(scalar_values,0,1,&displacement);
+    jclass byte_array_class=env->FindClass("[B");
+    if(!byte_array_class||env->ExceptionCheck())return nullptr;
+    jobjectArray output=env->NewObjectArray(2,byte_array_class,nullptr);
+    env->DeleteLocalRef(byte_array_class);
+    if(!output)return nullptr;
+    const auto append_mesh=[&](const arkernel::ReconstructionMesh& mesh,jsize index){
+      const auto glb=arkernel::exportGlb(mesh);
+      if(glb.size()>owner->max_glb_bytes||
+         glb.size()>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return false;
+      jbyteArray bytes=env->NewByteArray(static_cast<jsize>(glb.size()));
+      if(!bytes)return false;
+      env->SetByteArrayRegion(bytes,0,static_cast<jsize>(glb.size()),
+                              reinterpret_cast<const jbyte*>(glb.data()));
+      env->SetObjectArrayElement(output,index,bytes);
+      env->DeleteLocalRef(bytes);
+      return !env->ExceptionCheck();
+    };
+    // Export/copy one mesh at a time so two large native GLB vectors never
+    // coexist in addition to the two bounded Java byte arrays.
+    if(!append_mesh(result.source_mesh,0)||!append_mesh(result.simplified_mesh,1)){
+      env->DeleteLocalRef(output);return nullptr;
+    }
+    return output;
+  }catch(...){return nullptr;}
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuildSourceMesh(
+    JNIEnv* env,jobject,jlong handle,jlongArray metadata,jint max_result_bytes) {
+  auto* owner=fromFusionPipelineHandle(handle);
+  if(!owner||!metadata||env->GetArrayLength(metadata)<7||max_result_bytes<=0||
+     max_result_bytes>512*1024*1024)return nullptr;
+  try {
+    const auto result=owner->pipeline.build();
+    const auto& t=result.telemetry;
+    const bool complete=t.complete&&result.error.empty()&&
+      !result.source_mesh.positions_m.empty()&&!result.source_mesh.triangle_indices.empty();
+    const std::string error=complete?std::string{}:(result.error.empty()?
+      "reconstruction build incomplete":result.error);
+    const jlong values[7]={complete?1:0,t.fusion_truncated?1:0,
+      t.meshing_truncated?1:0,t.filtering_truncated?1:0,
+      t.simplification_truncated?1:0,static_cast<jlong>(t.source_vertices),
+      static_cast<jlong>(t.source_triangles)};
+    env->SetLongArrayRegion(metadata,0,7,values);
+    if(env->ExceptionCheck())return nullptr;
+    const auto& mesh=result.source_mesh;
+    const std::size_t vertices=complete?mesh.positions_m.size():0;
+    const std::size_t normals=complete?mesh.normals.size():0;
+    const std::size_t indices=complete?mesh.triangle_indices.size():0;
+    if(vertices>std::numeric_limits<std::uint32_t>::max()||
+       normals>std::numeric_limits<std::uint32_t>::max()||
+       indices>std::numeric_limits<std::uint32_t>::max()||
+       error.size()>std::numeric_limits<std::uint32_t>::max())return nullptr;
+    constexpr std::size_t kHeaderBytes=6U*4U;
+    std::size_t bytes=kHeaderBytes;
+    const auto add=[&bytes](std::size_t count,std::size_t width){
+      if(count>std::numeric_limits<std::size_t>::max()/width)return false;
+      const std::size_t value=count*width;
+      if(value>std::numeric_limits<std::size_t>::max()-bytes)return false;
+      bytes+=value;return true;};
+    if(!add(error.size(),1U)||!add(vertices,12U)||!add(normals,12U)||!add(indices,4U))
+      return nullptr;
+    if(bytes>static_cast<std::size_t>(max_result_bytes)||
+       bytes>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return nullptr;
+    std::vector<std::uint8_t> out;out.reserve(bytes);
+    const auto u32=[&out](std::uint32_t value){
+      for(int i=0;i<4;++i)out.push_back(static_cast<std::uint8_t>(value>>(i*8)));};
+    const auto f32=[&out,&u32](float value){std::uint32_t bits=0;
+      std::memcpy(&bits,&value,sizeof(bits));u32(bits);};
+    u32(0x4d4b5241U);u32(1U);u32(static_cast<std::uint32_t>(vertices));
+    u32(static_cast<std::uint32_t>(normals));u32(static_cast<std::uint32_t>(indices));
+    u32(static_cast<std::uint32_t>(error.size()));
+    out.insert(out.end(),error.begin(),error.end());
+    if(complete){
+      for(const auto& position:mesh.positions_m){f32(position.x);f32(position.y);f32(position.z);}
+      for(const auto& normal:mesh.normals){f32(normal.x);f32(normal.y);f32(normal.z);}
+      for(const auto index:mesh.triangle_indices)u32(index);
+    }
+    if(out.size()!=bytes)return nullptr;
+    auto output=env->NewByteArray(static_cast<jsize>(out.size()));if(!output)return nullptr;
+    env->SetByteArrayRegion(output,0,static_cast<jsize>(out.size()),
+      reinterpret_cast<const jbyte*>(out.data()));
+    return env->ExceptionCheck()?nullptr:output;
+  }catch(...){return nullptr;}
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeReset(
+    JNIEnv*,jobject,jlong handle) {
+  auto* owner=fromFusionPipelineHandle(handle);if(owner)owner->pipeline.reset();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeDestroy(
+    JNIEnv*,jobject,jlong handle) {delete fromFusionPipelineHandle(handle);}
+
+extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeCreate(JNIEnv*,jobject,
     jdouble min_iou,jint max_tracks,jint max_missed,jlong max_gap){
   try{arkernel::DetectionTrackerConfig config;config.min_iou=min_iou;
@@ -950,6 +1221,78 @@ Java_ai_arena_arkernel_BoundedSemanticDetectionTracker_nativeUpdate(JNIEnv* env,
     return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
   }catch(const std::invalid_argument&){return ARK_RESULT_INVALID_ARGUMENT;}
   catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelDimensionalValidator_nativeEvaluate(
+    JNIEnv* env,jobject,jobjectArray evidence_ids,jdoubleArray observation_values,
+    jlongArray observation_metadata,jlongArray policy_counts,jdoubleArray policy_values,
+    jlongArray output_metadata,jdoubleArray output_values) {
+  if(!evidence_ids||!observation_values||!observation_metadata||!policy_counts||
+     !policy_values||!output_metadata||!output_values)return ARK_RESULT_INVALID_ARGUMENT;
+  const jsize count=env->GetArrayLength(evidence_ids);
+  if(count<0||count>64||env->GetArrayLength(observation_values)!=count*8||
+     env->GetArrayLength(observation_metadata)!=count*2||
+     env->GetArrayLength(policy_counts)<3||env->GetArrayLength(policy_values)<5||
+     env->GetArrayLength(output_metadata)<4||env->GetArrayLength(output_values)<4)
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::array<jdouble,64*8> values{};std::array<jlong,64*2> metadata{};
+  jlong counts[3]{};jdouble policy_data[5]{};
+  env->GetDoubleArrayRegion(observation_values,0,count*8,values.data());
+  env->GetLongArrayRegion(observation_metadata,0,count*2,metadata.data());
+  env->GetLongArrayRegion(policy_counts,0,3,counts);
+  env->GetDoubleArrayRegion(policy_values,0,5,policy_data);
+  if(env->ExceptionCheck()||counts[0]<=0||counts[0]>64||counts[1]<=0||
+     counts[1]>counts[0]||counts[2]<=0||counts[2]>counts[1])
+    return ARK_RESULT_INVALID_ARGUMENT;
+  std::vector<std::string> ids;ids.reserve(static_cast<size_t>(count));
+  for(jsize i=0;i<count;++i){
+    auto* java_id=static_cast<jstring>(env->GetObjectArrayElement(evidence_ids,i));
+    if(!java_id)return ARK_RESULT_INVALID_ARGUMENT;
+    const jsize length=env->GetStringUTFLength(java_id);
+    const char* chars=env->GetStringUTFChars(java_id,nullptr);
+    if(!chars){env->DeleteLocalRef(java_id);return ARK_RESULT_INTERNAL_ERROR;}
+    if(length<=0||length>128){
+      env->ReleaseStringUTFChars(java_id,chars);env->DeleteLocalRef(java_id);
+      return ARK_RESULT_INVALID_ARGUMENT;
+    }
+    ids.emplace_back(chars,static_cast<size_t>(length));
+    env->ReleaseStringUTFChars(java_id,chars);env->DeleteLocalRef(java_id);
+  }
+  std::vector<ark_held_out_dimension_v1> observations(static_cast<size_t>(count));
+  for(jsize i=0;i<count;++i){
+    auto& output=observations[static_cast<size_t>(i)];const size_t offset=static_cast<size_t>(i)*8;
+    output.struct_size=sizeof(output);output.evidence_id=ids[static_cast<size_t>(i)].data();
+    output.evidence_id_length=ids[static_cast<size_t>(i)].size();
+    output.reconstructed_a_x_m=values[offset];output.reconstructed_a_y_m=values[offset+1];
+    output.reconstructed_a_z_m=values[offset+2];output.reconstructed_b_x_m=values[offset+3];
+    output.reconstructed_b_y_m=values[offset+4];output.reconstructed_b_z_m=values[offset+5];
+    output.reference_distance_m=values[offset+6];output.reference_uncertainty_m=values[offset+7];
+    output.reference_kind=static_cast<uint32_t>(metadata[static_cast<size_t>(i)*2]);
+    output.held_out_from_calibration_and_optimization=
+      metadata[static_cast<size_t>(i)*2+1]!=0?1u:0u;
+  }
+  ark_dimensional_validation_policy_v1 policy{};policy.struct_size=sizeof(policy);
+  policy.max_observations=static_cast<size_t>(counts[0]);
+  policy.min_observations=static_cast<size_t>(counts[1]);
+  policy.min_dimension_bins=static_cast<size_t>(counts[2]);
+  policy.dimension_bin_width_m=policy_data[0];
+  policy.max_reference_uncertainty_m=policy_data[1];
+  policy.max_mean_absolute_error_m=policy_data[2];
+  policy.max_absolute_error_m=policy_data[3];policy.max_relative_error=policy_data[4];
+  ark_dimensional_validation_report_v1 report{};report.struct_size=sizeof(report);
+  const auto status=ark_evaluate_held_out_dimensions(observations.data(),
+    observations.size(),&policy,&report);
+  if(status!=ARK_RESULT_OK)return status;
+  const jlong report_metadata[4]={report.passed?1L:0L,
+    static_cast<jlong>(report.failure_flags),static_cast<jlong>(report.accepted_observations),
+    static_cast<jlong>(report.dimension_bins)};
+  const jdouble report_values[4]={report.mean_absolute_error_m,
+    report.maximum_effective_absolute_error_m,report.maximum_effective_relative_error,
+    report.maximum_validated_dimension_m};
+  env->SetLongArrayRegion(output_metadata,0,4,report_metadata);
+  env->SetDoubleArrayRegion(output_values,0,4,report_values);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -1047,4 +1390,291 @@ extern "C" JNIEXPORT void JNICALL
 Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeDestroy(
     JNIEnv*,jobject,jlong handle) {
   delete fromReconstructionPlannerHandle(handle);
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ReconstructionTexturedAssetPublisher_nativeExportEmbeddedGlb(
+    JNIEnv* env,jobject,jobject positions,jint positions_offset,jint positions_remaining,
+    jobject normals,jint normals_offset,jint normals_remaining,
+    jobject texcoords,jint texcoords_offset,jint texcoords_remaining,
+    jobject indices,jint indices_offset,jint indices_remaining,jbyteArray png,
+    jint max_vertices,jint max_triangles,jint max_glb_bytes) {
+  if(!positions||!texcoords||!indices||!png||positions_offset<0||positions_remaining<=0||
+     normals_offset<0||normals_remaining<0||texcoords_offset<0||texcoords_remaining<=0||
+     indices_offset<0||indices_remaining<=0||max_vertices<=0||max_vertices>5000000||
+     max_triangles<=0||max_triangles>10000000||max_glb_bytes<=0||
+     positions_remaining%3!=0||texcoords_remaining%2!=0||indices_remaining%3!=0||
+     positions_remaining/3>max_vertices||indices_remaining/3>max_triangles||
+     texcoords_remaining/2!=positions_remaining/3||
+     (normals&&normals_remaining!=positions_remaining)||(!normals&&normals_remaining!=0))return nullptr;
+  auto* position_data=static_cast<float*>(env->GetDirectBufferAddress(positions));
+  auto* normal_data=normals?static_cast<float*>(env->GetDirectBufferAddress(normals)):nullptr;
+  auto* texcoord_data=static_cast<float*>(env->GetDirectBufferAddress(texcoords));
+  auto* index_data=static_cast<std::int32_t*>(env->GetDirectBufferAddress(indices));
+  const jlong position_capacity=env->GetDirectBufferCapacity(positions);
+  const jlong normal_capacity=normals?env->GetDirectBufferCapacity(normals):0;
+  const jlong texcoord_capacity=env->GetDirectBufferCapacity(texcoords);
+  const jlong index_capacity=env->GetDirectBufferCapacity(indices);
+  if(!position_data||!texcoord_data||!index_data||position_capacity<0||texcoord_capacity<0||
+     index_capacity<0||static_cast<jlong>(positions_offset)+positions_remaining>position_capacity||
+     static_cast<jlong>(texcoords_offset)+texcoords_remaining>texcoord_capacity||
+     static_cast<jlong>(indices_offset)+indices_remaining>index_capacity||
+     (normals&&(!normal_data||normal_capacity<0||
+      static_cast<jlong>(normals_offset)+normals_remaining>normal_capacity)))return nullptr;
+  const jsize png_size=env->GetArrayLength(png);
+  if(png_size<=0||png_size>max_glb_bytes)return nullptr;
+  try{
+    arkernel::ReconstructionMesh mesh;mesh.name="AR textured reconstruction";
+    const std::size_t vertex_count=static_cast<std::size_t>(positions_remaining/3);
+    mesh.positions_m.reserve(vertex_count);mesh.texcoords.reserve(vertex_count);
+    if(normal_data)mesh.normals.reserve(vertex_count);
+    for(std::size_t vertex=0;vertex<vertex_count;++vertex) {
+      const std::size_t p=static_cast<std::size_t>(positions_offset)+vertex*3;
+      const std::size_t uv=static_cast<std::size_t>(texcoords_offset)+vertex*2;
+      mesh.positions_m.push_back({position_data[p],position_data[p+1],position_data[p+2]});
+      mesh.texcoords.push_back({texcoord_data[uv],texcoord_data[uv+1]});
+      if(normal_data) {
+        const std::size_t n=static_cast<std::size_t>(normals_offset)+vertex*3;
+        mesh.normals.push_back({normal_data[n],normal_data[n+1],normal_data[n+2]});
+      }
+    }
+    mesh.triangle_indices.reserve(static_cast<std::size_t>(indices_remaining));
+    for(jint i=0;i<indices_remaining;++i) {
+      const std::int32_t value=index_data[static_cast<std::size_t>(indices_offset)+i];
+      if(value<0)return nullptr;
+      mesh.triangle_indices.push_back(static_cast<std::uint32_t>(value));
+    }
+    const std::size_t budget=static_cast<std::size_t>(max_glb_bytes);
+    if(static_cast<std::size_t>(png_size)>=budget||
+       !meshFitsGlbBudget(mesh,budget-static_cast<std::size_t>(png_size)))return nullptr;
+    std::vector<std::uint8_t> encoded(static_cast<std::size_t>(png_size));
+    env->GetByteArrayRegion(png,0,png_size,reinterpret_cast<jbyte*>(encoded.data()));
+    if(env->ExceptionCheck())return nullptr;
+    const auto glb=arkernel::exportGlbWithEmbeddedTexture(mesh,encoded,"image/png",
+                                                          static_cast<std::size_t>(png_size));
+    if(glb.size()>budget||glb.size()>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))
+      return nullptr;
+    jbyteArray output=env->NewByteArray(static_cast<jsize>(glb.size()));
+    if(!output)return nullptr;
+    env->SetByteArrayRegion(output,0,static_cast<jsize>(glb.size()),
+                            reinterpret_cast<const jbyte*>(glb.data()));
+    return env->ExceptionCheck()?nullptr:output;
+  }catch(...){return nullptr;}
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ReconstructionTexturePipeline_nativeBuild(
+    JNIEnv* env,jobject,jobject positions,jint positions_offset,jint positions_remaining,
+    jobject normals,jint normals_offset,jint normals_remaining,jobject indices,
+    jint indices_offset,jint indices_remaining,jlongArray frame_ids,jobjectArray references,
+    jdoubleArray camera_data,jintArray formats,jintArray widths,jintArray heights,
+    jintArray strides,jobjectArray images,jobjectArray depth_buffers,
+    jobjectArray confidence_buffers,jobjectArray uncertainty_buffers,jintArray depth_data,
+    jint max_vertices,jint max_triangles,jint max_result_bytes,jint atlas_width,
+    jint atlas_height,jboolean require_visibility_depth,jboolean enable_photometry,
+    jboolean enable_seam_blending) {
+  constexpr jsize kCameraValues=17;
+  constexpr jsize kDepthValues=9;
+  constexpr std::uint32_t kMagic=0x54584B41U;
+  constexpr std::uint32_t kVersion=1U;
+  if(!positions||!indices||!frame_ids||!references||!camera_data||!formats||!widths||
+     !heights||!strides||!images||!depth_buffers||!confidence_buffers||
+     !uncertainty_buffers||!depth_data||positions_offset<0||positions_remaining<=0||
+     normals_offset<0||normals_remaining<0||indices_offset<0||indices_remaining<=0||
+     positions_remaining%3||indices_remaining%3||max_vertices<=0||max_vertices>5000000||
+     max_triangles<=0||max_triangles>10000000||max_result_bytes<=0||atlas_width<16||
+     atlas_width>4096||atlas_height<16||atlas_height>4096||positions_remaining/3>max_vertices||indices_remaining/3>max_triangles||
+     (normals&&normals_remaining!=positions_remaining)||(!normals&&normals_remaining))return nullptr;
+  const jsize count=env->GetArrayLength(frame_ids);
+  if(count<=0||count>4096||env->GetArrayLength(references)!=count||
+     env->GetArrayLength(camera_data)!=count*kCameraValues||env->GetArrayLength(formats)!=count||
+     env->GetArrayLength(widths)!=count||env->GetArrayLength(heights)!=count||
+     env->GetArrayLength(strides)!=count||env->GetArrayLength(images)!=count||
+     env->GetArrayLength(depth_buffers)!=count||env->GetArrayLength(confidence_buffers)!=count||
+     env->GetArrayLength(uncertainty_buffers)!=count||
+     env->GetArrayLength(depth_data)!=count*kDepthValues)return nullptr;
+  auto* position_data=static_cast<float*>(env->GetDirectBufferAddress(positions));
+  auto* normal_data=normals?static_cast<float*>(env->GetDirectBufferAddress(normals)):nullptr;
+  auto* index_data=static_cast<std::int32_t*>(env->GetDirectBufferAddress(indices));
+  const jlong position_capacity=env->GetDirectBufferCapacity(positions);
+  const jlong normal_capacity=normals?env->GetDirectBufferCapacity(normals):0;
+  const jlong index_capacity=env->GetDirectBufferCapacity(indices);
+  if(!position_data||!index_data||position_capacity<0||index_capacity<0||
+     static_cast<jlong>(positions_offset)+positions_remaining>position_capacity||
+     static_cast<jlong>(indices_offset)+indices_remaining>index_capacity||
+     (normals&&(!normal_data||normal_capacity<0||
+      static_cast<jlong>(normals_offset)+normals_remaining>normal_capacity)))return nullptr;
+  try {
+    std::vector<jlong> ids(static_cast<std::size_t>(count));
+    std::vector<jdouble> cameras_raw(static_cast<std::size_t>(count*kCameraValues));
+    std::vector<jint> format_raw(static_cast<std::size_t>(count));
+    std::vector<jint> width_raw(static_cast<std::size_t>(count));
+    std::vector<jint> height_raw(static_cast<std::size_t>(count));
+    std::vector<jint> stride_raw(static_cast<std::size_t>(count));
+    std::vector<jint> depth_raw(static_cast<std::size_t>(count*kDepthValues));
+    env->GetLongArrayRegion(frame_ids,0,count,ids.data());
+    env->GetDoubleArrayRegion(camera_data,0,count*kCameraValues,cameras_raw.data());
+    env->GetIntArrayRegion(formats,0,count,format_raw.data());
+    env->GetIntArrayRegion(widths,0,count,width_raw.data());
+    env->GetIntArrayRegion(heights,0,count,height_raw.data());
+    env->GetIntArrayRegion(strides,0,count,stride_raw.data());
+    env->GetIntArrayRegion(depth_data,0,count*kDepthValues,depth_raw.data());
+    if(env->ExceptionCheck())return nullptr;
+    arkernel::ReconstructionMesh mesh;mesh.name="AR reconstruction texture source";
+    const std::size_t vertex_count=static_cast<std::size_t>(positions_remaining/3);
+    mesh.positions_m.reserve(vertex_count);if(normal_data)mesh.normals.reserve(vertex_count);
+    for(std::size_t v=0;v<vertex_count;++v){
+      const std::size_t p=static_cast<std::size_t>(positions_offset)+v*3;
+      mesh.positions_m.push_back({position_data[p],position_data[p+1],position_data[p+2]});
+      if(normal_data){const std::size_t n=static_cast<std::size_t>(normals_offset)+v*3;
+        mesh.normals.push_back({normal_data[n],normal_data[n+1],normal_data[n+2]});}
+    }
+    mesh.triangle_indices.reserve(static_cast<std::size_t>(indices_remaining));
+    for(jint i=0;i<indices_remaining;++i){
+      const auto value=index_data[static_cast<std::size_t>(indices_offset)+i];
+      if(value<0)return nullptr;
+      mesh.triangle_indices.push_back(static_cast<std::uint32_t>(value));
+    }
+    std::vector<arkernel::PinholeRadTanCamera> cameras;cameras.reserve(static_cast<std::size_t>(count));
+    std::vector<std::string> refs;refs.reserve(static_cast<std::size_t>(count));
+    std::vector<std::vector<std::uint8_t>> image_storage;image_storage.reserve(static_cast<std::size_t>(count));
+    for(jsize i=0;i<count;++i){
+      if(ids[static_cast<std::size_t>(i)]<=0||width_raw[static_cast<std::size_t>(i)]<=0||
+         height_raw[static_cast<std::size_t>(i)]<=0||stride_raw[static_cast<std::size_t>(i)]<=0||
+         (i>0&&ids[static_cast<std::size_t>(i)]<=ids[static_cast<std::size_t>(i-1)]))return nullptr;
+      auto reference=static_cast<jstring>(env->GetObjectArrayElement(references,i));
+      auto image=static_cast<jbyteArray>(env->GetObjectArrayElement(images,i));
+      if(!reference||!image)return nullptr;
+      const char* chars=env->GetStringUTFChars(reference,nullptr);if(!chars)return nullptr;
+      refs.emplace_back(chars);env->ReleaseStringUTFChars(reference,chars);env->DeleteLocalRef(reference);
+      const jsize image_size=env->GetArrayLength(image);if(image_size<=0)return nullptr;
+      image_storage.emplace_back(static_cast<std::size_t>(image_size));
+      env->GetByteArrayRegion(image,0,image_size,reinterpret_cast<jbyte*>(image_storage.back().data()));
+      env->DeleteLocalRef(image);if(env->ExceptionCheck())return nullptr;
+      const std::size_t b=static_cast<std::size_t>(i*kCameraValues);
+      cameras.emplace_back(arkernel::CameraIntrinsics{width_raw[static_cast<std::size_t>(i)],
+        height_raw[static_cast<std::size_t>(i)],cameras_raw[b],cameras_raw[b+1],
+        cameras_raw[b+2],cameras_raw[b+3]},arkernel::RadTanDistortion{cameras_raw[b+4],
+        cameras_raw[b+5],cameras_raw[b+6],cameras_raw[b+7],cameras_raw[b+8]});
+    }
+    std::vector<arkernel::TsdfDepthImageView> visibility_depths(static_cast<std::size_t>(count));
+    std::vector<bool> has_visibility_depth(static_cast<std::size_t>(count),false);
+    for(jsize i=0;i<count;++i){
+      const std::size_t n=static_cast<std::size_t>(i),d=n*static_cast<std::size_t>(kDepthValues);
+      jobject depth=env->GetObjectArrayElement(depth_buffers,i);
+      jobject confidence=env->GetObjectArrayElement(confidence_buffers,i);
+      jobject uncertainty=env->GetObjectArrayElement(uncertainty_buffers,i);
+      if(!depth){
+        if(confidence||uncertainty||require_visibility_depth==JNI_TRUE)return nullptr;
+        for(jsize j=0;j<kDepthValues;++j)if(depth_raw[d+static_cast<std::size_t>(j)]!=0)return nullptr;
+        continue;
+      }
+      auto* depth_address=static_cast<float*>(env->GetDirectBufferAddress(depth));
+      auto* confidence_address=confidence?static_cast<float*>(env->GetDirectBufferAddress(confidence)):nullptr;
+      auto* uncertainty_address=uncertainty?static_cast<float*>(env->GetDirectBufferAddress(uncertainty)):nullptr;
+      const jlong depth_capacity=env->GetDirectBufferCapacity(depth);
+      const jlong confidence_capacity=confidence?env->GetDirectBufferCapacity(confidence):0;
+      const jlong uncertainty_capacity=uncertainty?env->GetDirectBufferCapacity(uncertainty):0;
+      const jint depth_offset=depth_raw[d],depth_remaining=depth_raw[d+1],depth_stride=depth_raw[d+2];
+      const jint confidence_offset=depth_raw[d+3],confidence_remaining=depth_raw[d+4],
+        confidence_stride=depth_raw[d+5];
+      const jint uncertainty_offset=depth_raw[d+6],uncertainty_remaining=depth_raw[d+7],
+        uncertainty_stride=depth_raw[d+8];
+      if(!depth_address||depth_capacity<0||depth_offset<0||depth_remaining<=0||
+         depth_stride<width_raw[n]||static_cast<jlong>(depth_offset)+depth_remaining>depth_capacity||
+         (confidence&&(!confidence_address||confidence_capacity<0||confidence_offset<0||
+          confidence_remaining<=0||confidence_stride<width_raw[n]||
+          static_cast<jlong>(confidence_offset)+confidence_remaining>confidence_capacity))||
+         (!confidence&&(confidence_offset||confidence_remaining||confidence_stride))||
+         (uncertainty&&(!uncertainty_address||uncertainty_capacity<0||uncertainty_offset<0||
+          uncertainty_remaining<=0||uncertainty_stride<width_raw[n]||
+          static_cast<jlong>(uncertainty_offset)+uncertainty_remaining>uncertainty_capacity))||
+         (!uncertainty&&(uncertainty_offset||uncertainty_remaining||uncertainty_stride)))return nullptr;
+      const auto required=[&](jint stride){return static_cast<jlong>(height_raw[n]-1)*stride+width_raw[n];};
+      if(depth_remaining<required(depth_stride)||(confidence&&confidence_remaining<required(confidence_stride))||
+         (uncertainty&&uncertainty_remaining<required(uncertainty_stride)))return nullptr;
+      visibility_depths[n]={width_raw[n],height_raw[n],depth_stride,depth_address+depth_offset,
+        static_cast<std::size_t>(depth_remaining),confidence?confidence_address+confidence_offset:nullptr,
+        confidence?confidence_stride:0,confidence?static_cast<std::size_t>(confidence_remaining):0,
+        uncertainty?uncertainty_address+uncertainty_offset:nullptr,uncertainty?uncertainty_stride:0,
+        uncertainty?static_cast<std::size_t>(uncertainty_remaining):0};
+      has_visibility_depth[n]=true;
+      env->DeleteLocalRef(depth);if(confidence)env->DeleteLocalRef(confidence);
+      if(uncertainty)env->DeleteLocalRef(uncertainty);
+    }
+    std::vector<arkernel::TextureViewCandidate> candidates;candidates.reserve(static_cast<std::size_t>(count));
+    std::vector<arkernel::TextureSourceImageView> source_images;source_images.reserve(static_cast<std::size_t>(count));
+    for(jsize i=0;i<count;++i){
+      const std::size_t n=static_cast<std::size_t>(i),b=n*static_cast<std::size_t>(kCameraValues);
+      arkernel::TexturePixelFormat format;
+      if(format_raw[n]==1)format=arkernel::TexturePixelFormat::kGray8;
+      else if(format_raw[n]==2)format=arkernel::TexturePixelFormat::kRgba8;
+      else if(format_raw[n]==3)format=arkernel::TexturePixelFormat::kI420;
+      else return nullptr;
+      arkernel::TextureViewCandidate candidate;candidate.frame_id=static_cast<std::uint64_t>(ids[n]);
+      candidate.image_reference=refs[n];candidate.camera=&cameras[n];
+      candidate.world_from_camera.rotation={cameras_raw[b+9],cameras_raw[b+10],cameras_raw[b+11],cameras_raw[b+12]};
+      candidate.world_from_camera.translation={cameras_raw[b+13],cameras_raw[b+14],cameras_raw[b+15]};
+      candidate.quality_score=cameras_raw[b+16];
+      candidate.visibility_depth=has_visibility_depth[n]?&visibility_depths[n]:nullptr;
+      candidates.push_back(std::move(candidate));
+      source_images.push_back({static_cast<std::uint64_t>(ids[n]),width_raw[n],height_raw[n],
+        stride_raw[n],format,image_storage[n].data(),image_storage[n].size()});
+    }
+    arkernel::TexturePipelineConfig config;
+    config.view_selection.require_depth_visibility=require_visibility_depth==JNI_TRUE;
+    config.view_selection.max_vertices=static_cast<std::size_t>(max_vertices);
+    config.view_selection.max_triangles=static_cast<std::size_t>(max_triangles);
+    config.view_selection.max_candidates=static_cast<std::size_t>(count);
+    config.label_optimization.max_triangles=static_cast<std::size_t>(max_triangles);
+    config.atlas_layout.atlas_width=atlas_width;config.atlas_layout.atlas_height=atlas_height;
+    config.atlas_layout.max_input_vertices=static_cast<std::size_t>(max_vertices);
+    config.atlas_layout.max_input_triangles=static_cast<std::size_t>(max_triangles);
+    config.atlas_layout.max_output_vertices=static_cast<std::size_t>(max_vertices);
+    config.enable_photometric_correction=enable_photometry==JNI_TRUE;
+    config.enable_seam_blending=enable_seam_blending==JNI_TRUE;
+    const auto result=arkernel::buildTextureAtlas(mesh,candidates,source_images,config);
+    const bool complete=result.stage==arkernel::TexturePipelineStage::kComplete;
+    if(complete&&(result.mesh.positions_m.size()>static_cast<std::size_t>(max_vertices)||
+       result.mesh.triangle_indices.size()/3>static_cast<std::size_t>(max_triangles)))return nullptr;
+    std::size_t bytes=11U*4U+17U*8U+result.error.size();
+    if(complete){
+      bytes+=result.mesh.positions_m.size()*20U+result.mesh.normals.size()*12U+
+        result.mesh.triangle_indices.size()*4U+result.rgba8.size();
+    }
+    if(bytes>static_cast<std::size_t>(max_result_bytes)||
+       bytes>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return nullptr;
+    std::vector<std::uint8_t> out;out.reserve(bytes);
+    const auto u32=[&out](std::uint32_t v){for(int i=0;i<4;++i)out.push_back(static_cast<std::uint8_t>(v>>(8*i)));};
+    const auto u64=[&out](std::uint64_t v){for(int i=0;i<8;++i)out.push_back(static_cast<std::uint8_t>(v>>(8*i)));};
+    const auto f32=[&out,&u32](float value){std::uint32_t bits=0;std::memcpy(&bits,&value,4);u32(bits);};
+    u32(kMagic);u32(kVersion);u32(static_cast<std::uint32_t>(result.stage));
+    u32((result.input_valid?1U:0U)|(result.truncated?2U:0U));
+    u32(complete?static_cast<std::uint32_t>(result.atlas_width):0U);
+    u32(complete?static_cast<std::uint32_t>(result.atlas_height):0U);
+    u32(complete?static_cast<std::uint32_t>(result.mesh.positions_m.size()):0U);
+    u32(complete?static_cast<std::uint32_t>(result.mesh.normals.size()):0U);
+    u32(complete?static_cast<std::uint32_t>(result.mesh.triangle_indices.size()):0U);
+    u32(static_cast<std::uint32_t>(result.error.size()));
+    u32(complete?static_cast<std::uint32_t>(result.rgba8.size()):0U);
+    const auto& t=result.telemetry;
+    const std::uint64_t telemetry[17]={t.candidate_views,t.projection_tests,t.assigned_triangles,
+      t.unassigned_triangles,t.label_iterations,t.seams_before_labeling,t.seams_after_labeling,
+      t.atlas_patches,t.atlas_vertices,t.atlas_triangles,t.photometry_equations,
+      t.photometry_constrained_views,t.rasterized_pixels,t.padding_pixels,t.raster_pixel_tests,
+      t.blended_seams,t.blended_pixel_updates};
+    for(const auto value:telemetry)u64(value);
+    out.insert(out.end(),result.error.begin(),result.error.end());
+    if(complete){
+      for(const auto& p:result.mesh.positions_m){f32(p.x);f32(p.y);f32(p.z);}
+      for(const auto& n:result.mesh.normals){f32(n.x);f32(n.y);f32(n.z);}
+      for(const auto& uv:result.mesh.texcoords){f32(uv.x);f32(uv.y);}
+      for(const auto index:result.mesh.triangle_indices)u32(index);
+      out.insert(out.end(),result.rgba8.begin(),result.rgba8.end());
+    }
+    if(out.size()!=bytes)return nullptr;
+    auto output=env->NewByteArray(static_cast<jsize>(out.size()));if(!output)return nullptr;
+    env->SetByteArrayRegion(output,0,static_cast<jsize>(out.size()),reinterpret_cast<const jbyte*>(out.data()));
+    return env->ExceptionCheck()?nullptr:output;
+  } catch(...) {return nullptr;}
 }

@@ -13,6 +13,7 @@
 #include "arkernel/depth_postprocessor.h"
 #include "arkernel/depth_sampling.h"
 #include "arkernel/detection_postprocessor.h"
+#include "arkernel/reconstruction_asset.h"
 #include "arkernel/relocalization.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
@@ -144,6 +145,80 @@ bool installSnapshot(ark_visual_handle* handle,arkernel::SpatialSnapshot snapsho
 
 extern "C" {
 uint32_t ark_c_api_version(void){return ARKERNEL_C_API_VERSION;}
+
+ark_result ark_evaluate_held_out_dimensions(
+    const ark_held_out_dimension_v1* observations,size_t count,
+    const ark_dimensional_validation_policy_v1* policy,
+    ark_dimensional_validation_report_v1* out){
+  if(!validStruct(out)||(count>0&&!observations)||count>64||
+     (policy&&!validStruct(policy)))return ARK_RESULT_INVALID_ARGUMENT;
+  try{
+    arkernel::DimensionalValidationPolicy converted_policy;
+    if(policy){
+      converted_policy.max_observations=policy->max_observations;
+      converted_policy.min_observations=policy->min_observations;
+      converted_policy.min_dimension_bins=policy->min_dimension_bins;
+      converted_policy.dimension_bin_width_m=policy->dimension_bin_width_m;
+      converted_policy.max_reference_uncertainty_m=policy->max_reference_uncertainty_m;
+      converted_policy.max_mean_absolute_error_m=policy->max_mean_absolute_error_m;
+      converted_policy.max_absolute_error_m=policy->max_absolute_error_m;
+      converted_policy.max_relative_error=policy->max_relative_error;
+    }
+    std::vector<arkernel::HeldOutDimensionObservation> converted;converted.reserve(count);
+    for(size_t i=0;i<count;++i){
+      const auto& value=observations[i];
+      if(!validStruct(&value)||!value.evidence_id||value.evidence_id_length==0||
+         value.evidence_id_length>128||
+         value.reference_kind>ARK_DIMENSIONAL_REFERENCE_SENSOR_GROUND_TRUTH)
+        return ARK_RESULT_INVALID_ARGUMENT;
+      arkernel::HeldOutDimensionObservation observation;
+      observation.evidence_id.assign(value.evidence_id,value.evidence_id_length);
+      observation.reconstructed_a_m={value.reconstructed_a_x_m,
+        value.reconstructed_a_y_m,value.reconstructed_a_z_m};
+      observation.reconstructed_b_m={value.reconstructed_b_x_m,
+        value.reconstructed_b_y_m,value.reconstructed_b_z_m};
+      observation.reference_distance_m=value.reference_distance_m;
+      observation.reference_uncertainty_m=value.reference_uncertainty_m;
+      observation.reference_kind=static_cast<arkernel::DimensionalReferenceKind>(
+        value.reference_kind);
+      observation.held_out_from_calibration_and_optimization=
+        value.held_out_from_calibration_and_optimization!=0;
+      converted.push_back(std::move(observation));
+    }
+    const auto report=arkernel::evaluateHeldOutDimensions(converted,converted_policy);
+    uint32_t flags=0;
+    for(const auto& failure:report.failures){
+      if(failure=="invalid dimensional validation policy")
+        flags|=ARK_DIMENSIONAL_FAILURE_INVALID_POLICY;
+      else if(failure=="dimensional observation budget exceeded")
+        flags|=ARK_DIMENSIONAL_FAILURE_BUDGET_EXCEEDED;
+      else if(failure=="invalid or non-independent dimensional observation")
+        flags|=ARK_DIMENSIONAL_FAILURE_INVALID_OBSERVATION;
+      else if(failure=="insufficient held-out dimensional observations")
+        flags|=ARK_DIMENSIONAL_FAILURE_INSUFFICIENT_OBSERVATIONS;
+      else if(failure=="insufficient held-out dimension diversity")
+        flags|=ARK_DIMENSIONAL_FAILURE_INSUFFICIENT_DIVERSITY;
+      else if(failure=="mean dimensional error exceeds policy")
+        flags|=ARK_DIMENSIONAL_FAILURE_MEAN_ERROR;
+      else if(failure=="maximum dimensional error exceeds policy")
+        flags|=ARK_DIMENSIONAL_FAILURE_MAXIMUM_ERROR;
+      else if(failure=="relative dimensional error exceeds policy")
+        flags|=ARK_DIMENSIONAL_FAILURE_RELATIVE_ERROR;
+      else return ARK_RESULT_INTERNAL_ERROR;
+    }
+    const uint32_t output_size=out->struct_size;*out={};out->struct_size=output_size;
+    out->passed=report.passed?1u:0u;out->failure_flags=flags;
+    out->accepted_observations=report.accepted_observations;
+    out->dimension_bins=report.dimension_bins;
+    out->mean_absolute_error_m=report.mean_absolute_error_m;
+    out->maximum_effective_absolute_error_m=report.maximum_effective_absolute_error_m;
+    out->maximum_effective_relative_error=report.maximum_effective_relative_error;
+    out->maximum_validated_dimension_m=report.maximum_validated_dimension_m;
+    return ARK_RESULT_OK;
+  }catch(const std::bad_alloc&){return ARK_RESULT_INTERNAL_ERROR;}
+  catch(const std::exception&){return ARK_RESULT_INVALID_ARGUMENT;}
+  catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
 
 ark_result ark_preprocess_tensor(const ark_tensor_image_v1* image,
     const ark_tensor_preprocess_config_v1* config,void* buffer,size_t capacity,

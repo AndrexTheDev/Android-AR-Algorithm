@@ -556,6 +556,64 @@ typedef struct ark_vio_fusion_result_v1 {
   double translation_direction_cosine;
 } ark_vio_fusion_result_v1;
 
+typedef enum ark_dimensional_reference_kind {
+  ARK_DIMENSIONAL_REFERENCE_UNKNOWN = 0,
+  ARK_DIMENSIONAL_REFERENCE_SCALE_BAR = 1,
+  ARK_DIMENSIONAL_REFERENCE_SURVEYED = 2,
+  ARK_DIMENSIONAL_REFERENCE_SENSOR_GROUND_TRUTH = 3
+} ark_dimensional_reference_kind;
+
+typedef enum ark_dimensional_failure_flag {
+  ARK_DIMENSIONAL_FAILURE_INVALID_POLICY = 1u << 0,
+  ARK_DIMENSIONAL_FAILURE_BUDGET_EXCEEDED = 1u << 1,
+  ARK_DIMENSIONAL_FAILURE_INVALID_OBSERVATION = 1u << 2,
+  ARK_DIMENSIONAL_FAILURE_INSUFFICIENT_OBSERVATIONS = 1u << 3,
+  ARK_DIMENSIONAL_FAILURE_INSUFFICIENT_DIVERSITY = 1u << 4,
+  ARK_DIMENSIONAL_FAILURE_MEAN_ERROR = 1u << 5,
+  ARK_DIMENSIONAL_FAILURE_MAXIMUM_ERROR = 1u << 6,
+  ARK_DIMENSIONAL_FAILURE_RELATIVE_ERROR = 1u << 7
+} ark_dimensional_failure_flag;
+
+typedef struct ark_held_out_dimension_v1 {
+  uint32_t struct_size;
+  const char* evidence_id;
+  size_t evidence_id_length;
+  double reconstructed_a_x_m;
+  double reconstructed_a_y_m;
+  double reconstructed_a_z_m;
+  double reconstructed_b_x_m;
+  double reconstructed_b_y_m;
+  double reconstructed_b_z_m;
+  double reference_distance_m;
+  double reference_uncertainty_m;
+  uint32_t reference_kind;
+  uint32_t held_out_from_calibration_and_optimization;
+} ark_held_out_dimension_v1;
+
+typedef struct ark_dimensional_validation_policy_v1 {
+  uint32_t struct_size;
+  size_t max_observations;
+  size_t min_observations;
+  size_t min_dimension_bins;
+  double dimension_bin_width_m;
+  double max_reference_uncertainty_m;
+  double max_mean_absolute_error_m;
+  double max_absolute_error_m;
+  double max_relative_error;
+} ark_dimensional_validation_policy_v1;
+
+typedef struct ark_dimensional_validation_report_v1 {
+  uint32_t struct_size;
+  uint32_t passed;
+  uint32_t failure_flags;
+  size_t accepted_observations;
+  size_t dimension_bins;
+  double mean_absolute_error_m;
+  double maximum_effective_absolute_error_m;
+  double maximum_effective_relative_error;
+  double maximum_validated_dimension_m;
+} ark_dimensional_validation_report_v1;
+
 typedef struct ark_vio_state_v1 {
   uint32_t struct_size;
   int64_t timestamp_ns;
@@ -596,6 +654,10 @@ ark_result ark_postprocess_detection_tensor(
     uint32_t* class_ids, double* confidence_and_boxes,
     size_t output_capacity_detections,
     ark_detection_postprocess_output_v1* out_detections);
+ark_result ark_evaluate_held_out_dimensions(
+    const ark_held_out_dimension_v1* observations, size_t observation_count,
+    const ark_dimensional_validation_policy_v1* policy,
+    ark_dimensional_validation_report_v1* out_report);
 ark_result ark_visual_default_config(int32_t width, int32_t height,
                                      double fx, double fy, double cx, double cy,
                                      ark_visual_config_v1* out_config);

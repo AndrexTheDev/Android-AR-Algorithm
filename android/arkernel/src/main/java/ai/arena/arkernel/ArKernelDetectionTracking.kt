@@ -64,6 +64,7 @@ class TrackedInferenceBackend(
     options: DetectionTrackerOptions = DetectionTrackerOptions(),
 ) : OnDeviceInferenceBackend {
     override val manifest: ModelManifest = delegate.manifest
+    override val executionIdentity: InferenceExecutionIdentity? = delegate.executionIdentity
     private val tracker = BoundedSemanticDetectionTracker(options)
     private var closed = false
     init { require(InferenceTask.SEMANTIC_DETECTION in manifest.tasks) }

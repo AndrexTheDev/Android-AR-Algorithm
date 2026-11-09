@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -22,6 +23,7 @@
 #include "arkernel/imu_preintegrator.h"
 #include "arkernel/landmark_merge.h"
 #include "arkernel/loop_closure.h"
+#include "arkernel/mesh_processing.h"
 #include "arkernel/multi_view_stereo.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
@@ -29,15 +31,24 @@
 #include "arkernel/relocalization.h"
 #include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
+#include "arkernel/reconstruction_pipeline.h"
 #include "arkernel/semantic_map.h"
 #include "arkernel/sparse_map.h"
 #include "arkernel/spatial_snapshot.h"
+#include "arkernel/sparse_tsdf.h"
 #include "arkernel/surfel_map.h"
 #include "arkernel/tensor_preprocessor.h"
 #include "arkernel/temporal_depth_filter.h"
+#include "arkernel/texture_atlas.h"
+#include "arkernel/texture_baking.h"
+#include "arkernel/texture_photometry.h"
+#include "arkernel/texture_pipeline.h"
+#include "arkernel/texture_seam_blending.h"
+#include "arkernel/texture_view_selection.h"
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
+#include "arkernel/tsdf_meshing.h"
 #include "arkernel/visual_frontend.h"
 #include "arkernel/vio_estimator.h"
 
@@ -66,8 +77,19 @@ int main() {
   reconstruction_quality.scale_stddev_ratio=0.003;
   reconstruction_quality.assessed_extent_m=2.0;
   reconstruction_quality.surface_coverage_ratio=0.90;
+  reconstruction_quality.held_out_dimensions={
+      {"held-out-0.5m",{0,0,0},{0.502,0,0},0.5,0.001,
+       DimensionalReferenceKind::kHeldOutScaleBar,true},
+      {"surveyed-1m",{0,0,0},{1.003,0,0},1.0,0.001,
+       DimensionalReferenceKind::kSurveyedDistance,true},
+      {"ground-truth-2m",{0,0,0},{2.004,0,0},2.0,0.001,
+       DimensionalReferenceKind::kSensorGroundTruth,true}};
   auto accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kCentimeterValidated&&accuracy.export_allowed);
+  CHECK(accuracy.dimensional_validation.passed&&
+        accuracy.dimensional_validation.accepted_observations==3&&
+        accuracy.dimensional_validation.dimension_bins>=2);
+  const auto validated_reconstruction_quality=reconstruction_quality;
   reconstruction_quality.assessed_extent_m=4.0;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
@@ -75,6 +97,45 @@ int main() {
   reconstruction_quality.depth_rmse_m=0.02;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed);
+  reconstruction_quality.depth_rmse_m=0.008;
+  const auto held_out_dimensions=reconstruction_quality.held_out_dimensions;
+  reconstruction_quality.held_out_dimensions.clear();
+  accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
+  CHECK(accuracy.grade==MetricAccuracyGrade::kApproximate&&accuracy.export_allowed&&
+        !accuracy.dimensional_validation.passed);
+  auto invalid_dimensions=held_out_dimensions;
+  invalid_dimensions[0].held_out_from_calibration_and_optimization=false;
+  invalid_dimensions[1].evidence_id=invalid_dimensions[2].evidence_id;
+  const auto invalid_validation=evaluateHeldOutDimensions(invalid_dimensions);
+  CHECK(!invalid_validation.passed&&invalid_validation.accepted_observations==1);
+  auto inaccurate_dimensions=held_out_dimensions;
+  inaccurate_dimensions[2].reconstructed_b_m={2.05,0,0};
+  const auto inaccurate_validation=evaluateHeldOutDimensions(inaccurate_dimensions);
+  CHECK(!inaccurate_validation.passed&&
+        inaccurate_validation.maximum_effective_absolute_error_m>0.04);
+  const char* c_dimension_ids[3]={"held-out-0.5m","surveyed-1m","ground-truth-2m"};
+  ark_held_out_dimension_v1 c_dimensions[3]{};
+  for(std::size_t i=0;i<3;++i){
+    c_dimensions[i].struct_size=sizeof(c_dimensions[i]);
+    c_dimensions[i].evidence_id=c_dimension_ids[i];
+    c_dimensions[i].evidence_id_length=std::strlen(c_dimension_ids[i]);
+    c_dimensions[i].reconstructed_b_x_m=held_out_dimensions[i].reconstructed_b_m.x;
+    c_dimensions[i].reference_distance_m=held_out_dimensions[i].reference_distance_m;
+    c_dimensions[i].reference_uncertainty_m=held_out_dimensions[i].reference_uncertainty_m;
+    c_dimensions[i].reference_kind=static_cast<uint32_t>(i+1);
+    c_dimensions[i].held_out_from_calibration_and_optimization=1;
+  }
+  ark_dimensional_validation_report_v1 c_dimension_report{};
+  c_dimension_report.struct_size=sizeof(c_dimension_report);
+  CHECK(ark_evaluate_held_out_dimensions(c_dimensions,3,nullptr,&c_dimension_report)==
+        ARK_RESULT_OK);
+  CHECK(c_dimension_report.passed==1&&c_dimension_report.failure_flags==0&&
+        c_dimension_report.accepted_observations==3);
+  c_dimensions[0].held_out_from_calibration_and_optimization=0;
+  CHECK(ark_evaluate_held_out_dimensions(c_dimensions,3,nullptr,&c_dimension_report)==
+        ARK_RESULT_OK);
+  CHECK(c_dimension_report.passed==0&&
+        (c_dimension_report.failure_flags&ARK_DIMENSIONAL_FAILURE_INVALID_OBSERVATION)!=0);
   reconstruction_quality.metric_scale_observed=false;
   accuracy=assessReconstructionQuality(reconstruction_quality,ScanMode::kObject);
   CHECK(accuracy.grade==MetricAccuracyGrade::kUnverified&&!accuracy.export_allowed);
@@ -146,6 +207,12 @@ int main() {
   CHECK(gltf.binary.size()==3*sizeof(Vec3f)+3*sizeof(Vec3f)+3*sizeof(Vec2f)+3*sizeof(std::uint32_t));
   CHECK(gltf.json.find("\"version\":\"2.0\"")!=std::string::npos);
   CHECK(gltf.json.find("atlas.png")!=std::string::npos);
+  CHECK(gltf.json.find("\"accuracy\":\"unverified\"")!=std::string::npos);
+  const auto assessed_gltf=exportAssessedGltf(mesh,validated_reconstruction_quality,
+    ScanMode::kObject,AccuracyPolicy{},"triangle.bin");
+  CHECK(assessed_gltf.json.find("\"accuracy\":\"centimeter-validated\"")!=
+        std::string::npos);
+  CHECK(assessed_gltf.json.find("\"acceptedObservations\":3")!=std::string::npos);
   const auto glb=exportGlb(mesh);
   CHECK(glb.size()>28&&glb[0]=='g'&&glb[1]=='l'&&glb[2]=='T'&&glb[3]=='F');
   const auto read_u32=[&glb](std::size_t offset){return static_cast<std::uint32_t>(glb[offset])|
@@ -153,9 +220,52 @@ int main() {
     static_cast<std::uint32_t>(glb[offset+2])<<16U|
     static_cast<std::uint32_t>(glb[offset+3])<<24U;};
   CHECK(read_u32(4)==2&&read_u32(8)==glb.size()&&read_u32(16)==0x4E4F534AU);
+  auto embedded_mesh=mesh;embedded_mesh.base_color_texture.uri.clear();
+  const std::vector<std::uint8_t> tiny_png{
+    137,80,78,71,13,10,26,10,
+    0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,0,0,0,0,
+    0,0,0,0,73,69,78,68,0,0,0,0};
+  const auto embedded_glb=exportGlbWithEmbeddedTexture(embedded_mesh,tiny_png);
+  const std::string embedded_glb_text(embedded_glb.begin(),embedded_glb.end());
+  CHECK(embedded_glb.size()>glb.size()&&
+        embedded_glb_text.find("\"mimeType\":\"image/png\"")!=std::string::npos&&
+        embedded_glb_text.find("\"bufferView\":4")!=std::string::npos&&
+        std::search(embedded_glb.begin(),embedded_glb.end(),tiny_png.begin(),tiny_png.end())!=
+          embedded_glb.end());
+  const auto assessed_embedded_glb=exportAssessedGlbWithEmbeddedTexture(embedded_mesh,
+      tiny_png,"image/png",validated_reconstruction_quality,ScanMode::kObject);
+  CHECK(std::string(assessed_embedded_glb.begin(),assessed_embedded_glb.end()).find(
+        "centimeter-validated")!=std::string::npos);
+  bool rejected_fake_png=false;
+  try{exportGlbWithEmbeddedTexture(embedded_mesh,{1,2,3},"image/png");}
+  catch(const std::invalid_argument&){rejected_fake_png=true;}
+  CHECK(rejected_fake_png);
+  bool rejected_embedded_budget=false;
+  try{exportGlbWithEmbeddedTexture(embedded_mesh,tiny_png,"image/png",8);}
+  catch(const std::invalid_argument&){rejected_embedded_budget=true;}
+  CHECK(rejected_embedded_budget);
+  bool rejected_ambiguous_texture=false;
+  try{exportGlbWithEmbeddedTexture(mesh,tiny_png);}
+  catch(const std::invalid_argument&){rejected_ambiguous_texture=true;}
+  CHECK(rejected_ambiguous_texture);
+  const auto assessed_glb=exportAssessedGlb(mesh,validated_reconstruction_quality,
+    ScanMode::kObject);
+  const std::string assessed_glb_text(assessed_glb.begin(),assessed_glb.end());
+  CHECK(assessed_glb_text.find("centimeter-validated")!=std::string::npos);
   CHECK(exportObj(mesh).find("f 1/1/1 2/2/2 3/3/3")!=std::string::npos);
+  const auto assessed_obj=exportAssessedObj(mesh,validated_reconstruction_quality,
+    ScanMode::kObject);
+  CHECK(assessed_obj.find("# arkernel accuracy centimeter-validated")!=std::string::npos);
   CHECK(exportMtl(mesh).find("map_Kd atlas.png")!=std::string::npos);
   CHECK(exportPly(mesh).find("element face 1")!=std::string::npos);
+  const auto assessed_ply=exportAssessedPly(mesh,validated_reconstruction_quality,
+    ScanMode::kObject);
+  CHECK(assessed_ply.find("comment arkernel accuracy centimeter-validated")!=
+        std::string::npos);
+  bool rejected_unverified_export=false;
+  try{exportAssessedGltf(mesh,reconstruction_quality,ScanMode::kObject);}
+  catch(const std::invalid_argument&){rejected_unverified_export=true;}
+  CHECK(rejected_unverified_export);
   mesh.triangle_indices[2]=3;
   CHECK(!validateMesh(mesh).valid);
 
@@ -225,6 +335,708 @@ int main() {
   auto invalid_depth_view=depth_view;invalid_depth_view.row_stride_elements=7;
   CHECK(sampleMetricDepthImage(invalid_depth_view,depth_camera,2000000000LL).empty());
 
+  // Bounded sparse TSDF integrates only a narrow uncertainty-weighted band.
+  std::vector<float> tsdf_uncertainty(8*8,0.01F);
+  const TsdfDepthImageView tsdf_depth_view{8,8,8,metric_depth.data(),metric_depth.size(),
+    depth_confidence.data(),8,depth_confidence.size(),tsdf_uncertainty.data(),8,
+    tsdf_uncertainty.size()};
+  SparseTsdfConfig tsdf_config;tsdf_config.voxel_size_m=0.1;
+  tsdf_config.truncation_distance_m=0.2;tsdf_config.pixel_stride=2;
+  tsdf_config.max_blocks=128;tsdf_config.max_ray_samples=16;
+  SparseTsdfVolume tsdf_volume(tsdf_config);
+  const auto tsdf_update=tsdf_volume.integrate(tsdf_depth_view,depth_camera,{});
+  CHECK(tsdf_update.input_valid&&!tsdf_update.truncated&&
+        tsdf_update.integrated_pixels>0&&tsdf_update.voxel_updates>0&&
+        tsdf_update.voxel_visits>=tsdf_update.voxel_updates&&
+        tsdf_update.allocated_blocks==tsdf_volume.blockCount()&&tsdf_volume.voxelCount()>0);
+  const auto tsdf_snapshot=tsdf_volume.snapshot();
+  CHECK(tsdf_snapshot.size()==tsdf_volume.voxelCount()&&
+        std::any_of(tsdf_snapshot.begin(),tsdf_snapshot.end(),
+                    [](const auto& voxel){return voxel.signed_distance_m>0.0F;})&&
+        std::any_of(tsdf_snapshot.begin(),tsdf_snapshot.end(),
+                    [](const auto& voxel){return voxel.signed_distance_m<0.0F;}));
+  const auto tsdf_before=tsdf_volume.sample(tsdf_snapshot.front().center_world_m);
+  CHECK(tsdf_before.has_value());
+  std::vector<float> high_tsdf_uncertainty(8*8,0.1F);
+  auto high_uncertainty_tsdf_view=tsdf_depth_view;
+  high_uncertainty_tsdf_view.uncertainty_m=high_tsdf_uncertainty.data();
+  SparseTsdfVolume high_uncertainty_tsdf(tsdf_config);
+  CHECK(high_uncertainty_tsdf.integrate(
+    high_uncertainty_tsdf_view,depth_camera,{}).input_valid);
+  const auto high_uncertainty_sample=
+    high_uncertainty_tsdf.sample(tsdf_snapshot.front().center_world_m);
+  CHECK(high_uncertainty_sample.has_value()&&
+        high_uncertainty_sample->weight<tsdf_before->weight);
+  const auto second_tsdf_update=tsdf_volume.integrate(tsdf_depth_view,depth_camera,{});
+  const auto tsdf_after=tsdf_volume.sample(tsdf_snapshot.front().center_world_m);
+  CHECK(second_tsdf_update.input_valid&&tsdf_after.has_value()&&
+        tsdf_after->weight>tsdf_before->weight);
+  auto capacity_tsdf_config=tsdf_config;capacity_tsdf_config.max_blocks=1;
+  SparseTsdfVolume capacity_tsdf(capacity_tsdf_config);
+  const auto capacity_tsdf_update=capacity_tsdf.integrate(tsdf_depth_view,depth_camera,{});
+  CHECK(capacity_tsdf_update.input_valid&&capacity_tsdf_update.truncated&&
+        capacity_tsdf_update.capacity_rejections>0&&capacity_tsdf.blockCount()==1);
+  auto work_limited_tsdf_config=tsdf_config;
+  work_limited_tsdf_config.max_voxel_visits_per_update=1;
+  SparseTsdfVolume work_limited_tsdf(work_limited_tsdf_config);
+  const auto work_limited_update=
+    work_limited_tsdf.integrate(tsdf_depth_view,depth_camera,{});
+  CHECK(work_limited_update.input_valid&&work_limited_update.truncated&&
+        work_limited_update.voxel_visits==1&&work_limited_update.voxel_updates<=1);
+  auto snapshot_limited_tsdf_config=tsdf_config;
+  snapshot_limited_tsdf_config.max_snapshot_voxels=1;
+  SparseTsdfVolume snapshot_limited_tsdf(snapshot_limited_tsdf_config);
+  CHECK(snapshot_limited_tsdf.integrate(tsdf_depth_view,depth_camera,{}).input_valid);
+  bool rejected_tsdf_snapshot=false;
+  try{snapshot_limited_tsdf.snapshot();}
+  catch(const std::length_error&){rejected_tsdf_snapshot=true;}
+  CHECK(rejected_tsdf_snapshot);
+  auto invalid_tsdf_view=tsdf_depth_view;invalid_tsdf_view.depth_row_stride_elements=7;
+  CHECK(!tsdf_volume.integrate(invalid_tsdf_view,depth_camera,{}).input_valid);
+  auto invalid_tsdf_config=tsdf_config;invalid_tsdf_config.max_ray_samples=3;
+  bool rejected_tsdf_config=false;
+  try{SparseTsdfVolume invalid_tsdf(invalid_tsdf_config);}
+  catch(const std::invalid_argument&){rejected_tsdf_config=true;}
+  CHECK(rejected_tsdf_config);
+  tsdf_volume.reset();CHECK(tsdf_volume.blockCount()==0&&tsdf_volume.voxelCount()==0);
+
+  // Deterministic bounded Marching Tetrahedra extracts a metric plane only
+  // where all eight TSDF cell corners are observed with sufficient weight.
+  constexpr int mesh_depth_width=32,mesh_depth_height=32;
+  std::vector<float> mesh_plane_depth(mesh_depth_width*mesh_depth_height,2.0F);
+  std::vector<float> mesh_plane_confidence(mesh_plane_depth.size(),1.0F);
+  std::vector<float> mesh_plane_uncertainty(mesh_plane_depth.size(),0.005F);
+  const PinholeRadTanCamera mesh_depth_camera(
+    {mesh_depth_width,mesh_depth_height,40,40,15.5,15.5});
+  const TsdfDepthImageView mesh_depth_view{mesh_depth_width,mesh_depth_height,
+    mesh_depth_width,mesh_plane_depth.data(),mesh_plane_depth.size(),
+    mesh_plane_confidence.data(),mesh_depth_width,mesh_plane_confidence.size(),
+    mesh_plane_uncertainty.data(),mesh_depth_width,mesh_plane_uncertainty.size()};
+  SparseTsdfConfig mesh_tsdf_config;mesh_tsdf_config.voxel_size_m=0.05;
+  mesh_tsdf_config.truncation_distance_m=0.10;mesh_tsdf_config.pixel_stride=1;
+  mesh_tsdf_config.max_blocks=512;mesh_tsdf_config.max_ray_samples=16;
+  SparseTsdfVolume mesh_tsdf(mesh_tsdf_config);
+  const auto mesh_tsdf_update=mesh_tsdf.integrate(mesh_depth_view,mesh_depth_camera,{});
+  CHECK(mesh_tsdf_update.input_valid&&!mesh_tsdf_update.truncated);
+  TsdfMeshingConfig meshing_config;meshing_config.min_voxel_weight=0.1F;
+  const auto extracted_mesh=extractTsdfMesh(mesh_tsdf,meshing_config);
+  CHECK(extracted_mesh.input_valid&&!extracted_mesh.truncated&&
+        extracted_mesh.complete_cells>0&&extracted_mesh.surface_cells>0&&
+        !extracted_mesh.mesh.positions_m.empty()&&validateMesh(extracted_mesh.mesh).valid);
+  CHECK(std::all_of(extracted_mesh.mesh.positions_m.begin(),
+                    extracted_mesh.mesh.positions_m.end(),[](const auto& position){
+                      return std::abs(position.z-2.0F)<0.001F;}));
+  CHECK(std::all_of(extracted_mesh.mesh.normals.begin(),
+                    extracted_mesh.mesh.normals.end(),[](const auto& normal){
+                      return normal.z< -0.99F;}));
+  const auto repeated_mesh=extractTsdfMesh(mesh_tsdf,meshing_config);
+  CHECK(repeated_mesh.mesh.triangle_indices==extracted_mesh.mesh.triangle_indices&&
+        repeated_mesh.mesh.positions_m.size()==extracted_mesh.mesh.positions_m.size());
+  for(std::size_t i=0;i<extracted_mesh.mesh.positions_m.size();++i){
+    CHECK(repeated_mesh.mesh.positions_m[i].x==extracted_mesh.mesh.positions_m[i].x&&
+          repeated_mesh.mesh.positions_m[i].y==extracted_mesh.mesh.positions_m[i].y&&
+          repeated_mesh.mesh.positions_m[i].z==extracted_mesh.mesh.positions_m[i].z);}
+  std::fill(mesh_plane_depth.begin(),mesh_plane_depth.end(),2.025F);
+  SparseTsdfVolume endpoint_tsdf(mesh_tsdf_config);
+  CHECK(endpoint_tsdf.integrate(mesh_depth_view,mesh_depth_camera,{}).input_valid);
+  const auto endpoint_mesh=extractTsdfMesh(endpoint_tsdf,meshing_config);
+  CHECK(endpoint_mesh.input_valid&&!endpoint_mesh.mesh.positions_m.empty()&&
+        validateMesh(endpoint_mesh.mesh).valid);
+  auto limited_meshing_config=meshing_config;limited_meshing_config.max_triangles=1;
+  const auto limited_mesh=extractTsdfMesh(mesh_tsdf,limited_meshing_config);
+  CHECK(limited_mesh.input_valid&&limited_mesh.truncated&&
+        limited_mesh.mesh.triangle_indices.size()==3&&validateMesh(limited_mesh.mesh).valid);
+  auto strict_weight_meshing_config=meshing_config;
+  strict_weight_meshing_config.min_voxel_weight=1000.0F;
+  const auto strict_weight_mesh=extractTsdfMesh(mesh_tsdf,strict_weight_meshing_config);
+  CHECK(strict_weight_mesh.input_valid&&strict_weight_mesh.mesh.positions_m.empty()&&
+        strict_weight_mesh.skipped_low_weight_cells>0);
+  auto invalid_meshing_config=meshing_config;invalid_meshing_config.max_vertices=2;
+  bool rejected_meshing_config=false;
+  try{extractTsdfMesh(mesh_tsdf,invalid_meshing_config);}
+  catch(const std::invalid_argument&){rejected_meshing_config=true;}
+  CHECK(rejected_meshing_config);
+
+  // Edge-connected component filtering removes a detached one-triangle island
+  // and compacts every indexed attribute without merging point-only contact.
+  auto island_mesh=extracted_mesh.mesh;
+  const auto island_first=static_cast<std::uint32_t>(island_mesh.positions_m.size());
+  island_mesh.positions_m.insert(island_mesh.positions_m.end(),
+    {{10,10,10},{10.1F,10,10},{10,10.1F,10}});
+  island_mesh.normals.insert(island_mesh.normals.end(),{{0,0,-1},{0,0,-1},{0,0,-1}});
+  island_mesh.texcoords.assign(island_mesh.positions_m.size(),{0.5F,0.5F});
+  island_mesh.base_color_texture={"component-atlas.png","image/png"};
+  island_mesh.triangle_indices.insert(island_mesh.triangle_indices.end(),
+    {island_first,island_first+1,island_first+2});
+  MeshComponentFilterConfig component_config;component_config.min_component_triangles=2;
+  component_config.min_component_area_m2=0.0;
+  const auto filtered_mesh=filterMeshComponents(island_mesh,component_config);
+  CHECK(filtered_mesh.input_valid&&!filtered_mesh.truncated&&filtered_mesh.components==2&&
+        filtered_mesh.retained_components==1&&filtered_mesh.removed_triangles==1&&
+        filtered_mesh.removed_vertices==3&&filtered_mesh.boundary_edges>0&&
+        filtered_mesh.manifold_edges>0&&filtered_mesh.non_manifold_edges==0&&
+        validateMesh(filtered_mesh.mesh).valid&&
+        filtered_mesh.mesh.texcoords.size()==filtered_mesh.mesh.positions_m.size()&&
+        filtered_mesh.mesh.base_color_texture.uri=="component-atlas.png");
+  CHECK(std::none_of(filtered_mesh.mesh.positions_m.begin(),filtered_mesh.mesh.positions_m.end(),
+                     [](const auto& position){return position.x>5.0F;}));
+  const auto repeated_filtered_mesh=filterMeshComponents(island_mesh,component_config);
+  CHECK(repeated_filtered_mesh.mesh.triangle_indices==filtered_mesh.mesh.triangle_indices&&
+        repeated_filtered_mesh.mesh.positions_m.size()==filtered_mesh.mesh.positions_m.size());
+  ReconstructionMesh point_touch_mesh;
+  point_touch_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{-1,0,0},{0,-1,0}};
+  point_touch_mesh.triangle_indices={0,1,2,0,3,4};
+  auto point_touch_config=component_config;point_touch_config.min_component_triangles=1;
+  const auto point_touch_result=filterMeshComponents(point_touch_mesh,point_touch_config);
+  CHECK(point_touch_result.input_valid&&point_touch_result.components==2&&
+        point_touch_result.retained_components==2);
+  point_touch_config.keep_largest_only=true;
+  const auto largest_only_mesh=filterMeshComponents(point_touch_mesh,point_touch_config);
+  CHECK(largest_only_mesh.retained_components==1&&
+        largest_only_mesh.mesh.triangle_indices.size()==3&&
+        largest_only_mesh.mesh.positions_m.size()==3);
+  ReconstructionMesh non_manifold_mesh;
+  non_manifold_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{0,-1,0},{0,0,1}};
+  non_manifold_mesh.triangle_indices={0,1,2,1,0,3,0,1,4};
+  point_touch_config.keep_largest_only=false;
+  const auto non_manifold_result=filterMeshComponents(non_manifold_mesh,point_touch_config);
+  CHECK(non_manifold_result.input_valid&&non_manifold_result.components==1&&
+        non_manifold_result.non_manifold_edges==1);
+  auto edge_limited_config=component_config;edge_limited_config.max_unique_edges=1;
+  const auto edge_limited_mesh=filterMeshComponents(island_mesh,edge_limited_config);
+  CHECK(edge_limited_mesh.input_valid&&edge_limited_mesh.truncated&&
+        edge_limited_mesh.error=="mesh edge budget exceeded");
+  auto invalid_component_config=component_config;invalid_component_config.max_input_vertices=0;
+  bool rejected_component_config=false;
+  try{filterMeshComponents(island_mesh,invalid_component_config);}
+  catch(const std::invalid_argument&){rejected_component_config=true;}
+  CHECK(rejected_component_config);
+
+  // Conservative clustering reduces smooth interiors while preserving the
+  // filtered plane's boundary, UV alignment, texture reference and error bound.
+  MeshSimplificationConfig simplification_config;
+  simplification_config.cluster_cell_size_m=0.15;
+  simplification_config.max_position_error_m=0.12;
+  simplification_config.max_uv_error=0.1;
+  const auto simplified_mesh=simplifyMeshConservative(filtered_mesh.mesh,
+                                                       simplification_config);
+  CHECK(simplified_mesh.input_valid&&!simplified_mesh.truncated&&
+        simplified_mesh.error.empty()&&
+        simplified_mesh.output_vertices<simplified_mesh.input_vertices&&
+        simplified_mesh.output_triangles<=simplified_mesh.input_triangles&&
+        simplified_mesh.locked_vertices>0&&simplified_mesh.boundary_edges>0&&
+        simplified_mesh.max_observed_displacement_m<=0.120001&&
+        simplified_mesh.mesh.texcoords.size()==simplified_mesh.mesh.positions_m.size()&&
+        simplified_mesh.mesh.base_color_texture.uri=="component-atlas.png"&&
+        validateMesh(simplified_mesh.mesh).valid);
+  const auto repeated_simplified_mesh=simplifyMeshConservative(
+    filtered_mesh.mesh,simplification_config);
+  CHECK(repeated_simplified_mesh.mesh.triangle_indices==
+          simplified_mesh.mesh.triangle_indices&&
+        repeated_simplified_mesh.mesh.positions_m.size()==
+          simplified_mesh.mesh.positions_m.size());
+  auto strict_error_config=simplification_config;
+  strict_error_config.max_position_error_m=0.01;
+  const auto strict_error_mesh=simplifyMeshConservative(filtered_mesh.mesh,
+                                                         strict_error_config);
+  CHECK(strict_error_mesh.input_valid&&strict_error_mesh.rejected_merges>0&&
+        strict_error_mesh.max_observed_displacement_m<=0.010001);
+  ReconstructionMesh crease_mesh;
+  crease_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{0,0,1}};
+  crease_mesh.triangle_indices={0,1,2,1,0,3};
+  auto crease_config=simplification_config;crease_config.preserve_boundaries=false;
+  const auto crease_result=simplifyMeshConservative(crease_mesh,crease_config);
+  CHECK(crease_result.input_valid&&crease_result.sharp_edges==1&&
+        crease_result.locked_vertices==2&&validateMesh(crease_result.mesh).valid);
+  auto cluster_limited_config=simplification_config;cluster_limited_config.max_clusters=1;
+  const auto cluster_limited_mesh=simplifyMeshConservative(filtered_mesh.mesh,
+                                                            cluster_limited_config);
+  CHECK(cluster_limited_mesh.input_valid&&cluster_limited_mesh.truncated&&
+        cluster_limited_mesh.error=="mesh cluster budget exceeded");
+  auto invalid_simplification_config=simplification_config;
+  invalid_simplification_config.sharp_edge_angle_degrees=180.0;
+  bool rejected_simplification_config=false;
+  try{simplifyMeshConservative(filtered_mesh.mesh,invalid_simplification_config);}
+  catch(const std::invalid_argument&){rejected_simplification_config=true;}
+  CHECK(rejected_simplification_config);
+
+  // The fusion pipeline owns temporal ordering, sticky truncation evidence and
+  // both the filtered source mesh and its independent delivery simplification.
+  ReconstructionPipelineConfig pipeline_config;
+  pipeline_config.fusion=mesh_tsdf_config;
+  pipeline_config.meshing=meshing_config;
+  pipeline_config.component_filter.min_component_triangles=2;
+  pipeline_config.component_filter.min_component_area_m2=0.0;
+  pipeline_config.simplification.cluster_cell_size_m=0.15;
+  pipeline_config.simplification.max_position_error_m=0.12;
+  pipeline_config.max_integrated_frames=2;
+  ReconstructionFusionPipeline reconstruction_pipeline(pipeline_config);
+  const auto pipeline_first=reconstruction_pipeline.integrate(
+      1000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(pipeline_first.accepted&&pipeline_first.accepted_frames==1&&
+        pipeline_first.rejected_frames==0&&!pipeline_first.fusion_truncated);
+  const auto pipeline_repeated=reconstruction_pipeline.integrate(
+      1000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(!pipeline_repeated.accepted&&pipeline_repeated.rejection==
+          ReconstructionIntegrationRejection::kNonMonotonicTimestamp&&
+        pipeline_repeated.accepted_frames==1&&pipeline_repeated.rejected_frames==1);
+  const auto pipeline_second=reconstruction_pipeline.integrate(
+      2000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(pipeline_second.accepted&&pipeline_second.accepted_frames==2);
+  const auto pipeline_over_budget=reconstruction_pipeline.integrate(
+      3000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(!pipeline_over_budget.accepted&&pipeline_over_budget.rejection==
+          ReconstructionIntegrationRejection::kFrameBudgetExceeded);
+  const auto pipeline_mesh=reconstruction_pipeline.build();
+  CHECK(pipeline_mesh.error.empty()&&pipeline_mesh.telemetry.complete&&
+        pipeline_mesh.telemetry.fused_frames==2&&
+        pipeline_mesh.telemetry.source_vertices==pipeline_mesh.source_mesh.positions_m.size()&&
+        pipeline_mesh.telemetry.simplified_vertices==
+          pipeline_mesh.simplified_mesh.positions_m.size()&&
+        !pipeline_mesh.source_mesh.positions_m.empty()&&
+        validateMesh(pipeline_mesh.source_mesh).valid&&
+        validateMesh(pipeline_mesh.simplified_mesh).valid);
+  const auto pipeline_mesh_repeated=reconstruction_pipeline.build();
+  CHECK(pipeline_mesh_repeated.source_mesh.triangle_indices==
+          pipeline_mesh.source_mesh.triangle_indices&&
+        pipeline_mesh_repeated.simplified_mesh.triangle_indices==
+          pipeline_mesh.simplified_mesh.triangle_indices);
+  reconstruction_pipeline.reset();
+  CHECK(reconstruction_pipeline.acceptedFrames()==0&&
+        reconstruction_pipeline.rejectedFrames()==0&&
+        !reconstruction_pipeline.fusionTruncated());
+  auto truncated_pipeline_config=pipeline_config;
+  truncated_pipeline_config.fusion.max_blocks=1;
+  ReconstructionFusionPipeline truncated_pipeline(truncated_pipeline_config);
+  const auto truncated_pipeline_update=truncated_pipeline.integrate(
+      1000,mesh_depth_view,mesh_depth_camera,{});
+  CHECK(truncated_pipeline_update.accepted&&truncated_pipeline_update.fusion_truncated&&
+        truncated_pipeline.build().telemetry.fusion_truncated);
+  auto invalid_pipeline_config=pipeline_config;
+  invalid_pipeline_config.max_integrated_frames=0;
+  bool rejected_pipeline_config=false;
+  try{ReconstructionFusionPipeline invalid_pipeline(invalid_pipeline_config);}
+  catch(const std::invalid_argument&){rejected_pipeline_config=true;}
+  CHECK(rejected_pipeline_config);
+  invalid_pipeline_config=pipeline_config;
+  invalid_pipeline_config.simplification.sharp_edge_angle_degrees=180.0;
+  rejected_pipeline_config=false;
+  try{ReconstructionFusionPipeline invalid_pipeline(invalid_pipeline_config);}
+  catch(const std::invalid_argument&){rejected_pipeline_config=true;}
+  CHECK(rejected_pipeline_config);
+
+  // Texture source selection uses calibrated projection, facing, image support
+  // and measured depth visibility without mutating the source mesh or building an atlas.
+  ReconstructionMesh texture_mesh;
+  texture_mesh.positions_m={{-0.5F,-0.5F,2.0F},{0.5F,-0.5F,2.0F},
+                            {0.5F,0.5F,2.0F},{-0.5F,0.5F,2.0F}};
+  texture_mesh.triangle_indices={0,2,1,0,3,2};
+  const PinholeRadTanCamera texture_camera({100,100,80,80,49.5,49.5});
+  std::vector<float> texture_depth(10000,2.0F);
+  std::vector<float> texture_confidence(10000,1.0F);
+  std::vector<float> texture_uncertainty(10000,0.005F);
+  const TsdfDepthImageView texture_depth_view{100,100,100,texture_depth.data(),
+    texture_depth.size(),texture_confidence.data(),100,texture_confidence.size(),
+    texture_uncertainty.data(),100,texture_uncertainty.size()};
+  std::vector<float> occluding_depth(10000,1.0F);
+  auto occluding_depth_view=texture_depth_view;
+  occluding_depth_view.depth_z_m=occluding_depth.data();
+  Pose outside_texture_pose;outside_texture_pose.translation={5,0,0};
+  Pose back_texture_pose;back_texture_pose.rotation={0,0,1,0};
+  back_texture_pose.translation={0,0,3};
+  std::vector<TextureViewCandidate> texture_candidates{
+    {3,"missing-depth.i420",&texture_camera,{},1.0,nullptr},
+    {2,"occluded.i420",&texture_camera,{},1.0,&occluding_depth_view},
+    {1,"visible.i420",&texture_camera,{},0.8,&texture_depth_view},
+    {5,"back.i420",&texture_camera,back_texture_pose,1.0,&texture_depth_view},
+    {4,"outside.i420",&texture_camera,outside_texture_pose,1.0,&texture_depth_view}};
+  const auto texture_selection=selectTextureViews(texture_mesh,texture_candidates);
+  CHECK(texture_selection.input_valid&&!texture_selection.truncated&&
+        texture_selection.assigned_triangles==2&&
+        texture_selection.unassigned_triangles==0&&
+        texture_selection.rejected_depth_inconsistent>0&&
+        texture_selection.rejected_missing_depth>0&&
+        texture_selection.rejected_back_facing>0&&
+        texture_selection.rejected_outside_image>0&&
+        texture_selection.views.size()==5&&texture_selection.alternatives.size()==2&&
+        !texture_selection.alternatives_truncated&&
+        texture_selection.views[0].image_reference=="visible.i420");
+  CHECK(std::all_of(texture_selection.triangles.begin(),
+                    texture_selection.triangles.end(),[](const auto& triangle){
+    return triangle.assigned&&triangle.frame_id==1&&triangle.view_index==0&&
+      triangle.score>0.0&&
+      std::all_of(triangle.normalized_uv.begin(),triangle.normalized_uv.end(),
+                  [](const auto& uv){return uv.x>=0&&uv.x<=1&&uv.y>=0&&uv.y<=1;});}));
+  std::reverse(texture_candidates.begin(),texture_candidates.end());
+  const auto repeated_texture_selection=selectTextureViews(texture_mesh,texture_candidates);
+  CHECK(repeated_texture_selection.triangles[0].frame_id==
+          texture_selection.triangles[0].frame_id&&
+        repeated_texture_selection.triangles[0].normalized_uv[0].x==
+          texture_selection.triangles[0].normalized_uv[0].x);
+  TextureViewSelectionConfig no_depth_texture_config;
+  no_depth_texture_config.require_depth_visibility=false;
+  const std::vector<TextureViewCandidate> no_depth_candidate{
+    {7,"fallback.i420",&texture_camera,{},0.7,nullptr}};
+  const auto no_depth_texture_selection=selectTextureViews(
+      texture_mesh,no_depth_candidate,no_depth_texture_config);
+  CHECK(no_depth_texture_selection.input_valid&&
+        no_depth_texture_selection.assigned_triangles==2&&
+        no_depth_texture_selection.triangles[0].frame_id==7);
+  std::vector<float> unknown_texture_depth(10000,
+      std::numeric_limits<float>::quiet_NaN());
+  auto unknown_texture_depth_view=texture_depth_view;
+  unknown_texture_depth_view.depth_z_m=unknown_texture_depth.data();
+  const std::vector<TextureViewCandidate> unknown_texture_candidate{
+    {8,"unknown.i420",&texture_camera,{},1.0,&unknown_texture_depth_view}};
+  const auto unknown_texture_selection=selectTextureViews(
+      texture_mesh,unknown_texture_candidate);
+  CHECK(unknown_texture_selection.input_valid&&
+        unknown_texture_selection.assigned_triangles==0&&
+        unknown_texture_selection.rejected_missing_depth==2);
+  TsdfDepthImageView malformed_texture_depth;
+  malformed_texture_depth.width=100;malformed_texture_depth.height=100;
+  const std::vector<TextureViewCandidate> malformed_texture_candidate{
+    {9,"malformed.i420",&texture_camera,{},1.0,&malformed_texture_depth}};
+  const auto malformed_texture_selection=selectTextureViews(
+      texture_mesh,malformed_texture_candidate);
+  CHECK(!malformed_texture_selection.input_valid&&
+        malformed_texture_selection.error=="invalid texture view candidate");
+  auto limited_texture_config=no_depth_texture_config;
+  limited_texture_config.max_projection_tests=1;
+  const auto limited_texture_selection=selectTextureViews(
+      texture_mesh,no_depth_candidate,limited_texture_config);
+  CHECK(limited_texture_selection.input_valid&&limited_texture_selection.truncated&&
+        limited_texture_selection.projection_tests==1&&
+        limited_texture_selection.assigned_triangles==1&&
+        limited_texture_selection.unassigned_triangles==1);
+  auto alternative_limited_config=no_depth_texture_config;
+  alternative_limited_config.max_alternative_records=1;
+  const auto alternative_limited_selection=selectTextureViews(
+      texture_mesh,no_depth_candidate,alternative_limited_config);
+  CHECK(alternative_limited_selection.input_valid&&
+        !alternative_limited_selection.truncated&&
+        alternative_limited_selection.alternatives_truncated&&
+        alternative_limited_selection.assigned_triangles==2&&
+        alternative_limited_selection.alternatives.size()==1);
+  auto duplicate_texture_candidates=no_depth_candidate;
+  duplicate_texture_candidates.push_back(no_depth_candidate.front());
+  const auto duplicate_texture_selection=selectTextureViews(
+      texture_mesh,duplicate_texture_candidates,no_depth_texture_config);
+  CHECK(!duplicate_texture_selection.input_valid&&
+        duplicate_texture_selection.error=="invalid texture view candidate");
+  auto invalid_texture_config=no_depth_texture_config;
+  invalid_texture_config.min_consistent_depth_samples=5;
+  bool rejected_texture_config=false;
+  try{selectTextureViews(texture_mesh,no_depth_candidate,invalid_texture_config);}
+  catch(const std::invalid_argument&){rejected_texture_config=true;}
+  CHECK(rejected_texture_config);
+
+  // Coherent labeling may switch only to visibility-approved alternatives and
+  // reduces shared-edge seams without connecting non-manifold regions.
+  TextureViewSelectionResult manual_texture_selection;
+  manual_texture_selection.input_valid=true;
+  manual_texture_selection.views={{10,"view-a.i420",100,100},
+                                  {20,"view-b.i420",100,100}};
+  manual_texture_selection.alternatives={
+    {0,10,{},0.90,1.0,100.0},{1,20,{},0.85,1.0,100.0},
+    {1,20,{},0.90,1.0,100.0},{0,10,{},0.88,1.0,100.0}};
+  manual_texture_selection.triangles.resize(2);
+  manual_texture_selection.triangles[0].assigned=true;
+  manual_texture_selection.triangles[0].view_index=0;
+  manual_texture_selection.triangles[0].frame_id=10;
+  manual_texture_selection.triangles[0].score=0.90;
+  manual_texture_selection.triangles[0].alternative_offset=0;
+  manual_texture_selection.triangles[0].alternative_count=2;
+  manual_texture_selection.triangles[1].assigned=true;
+  manual_texture_selection.triangles[1].view_index=1;
+  manual_texture_selection.triangles[1].frame_id=20;
+  manual_texture_selection.triangles[1].score=0.90;
+  manual_texture_selection.triangles[1].alternative_offset=2;
+  manual_texture_selection.triangles[1].alternative_count=2;
+  TextureLabelOptimizationConfig label_config;label_config.seam_penalty=0.20;
+  const auto coherent_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,label_config);
+  CHECK(coherent_labels.input_valid&&!coherent_labels.truncated&&
+        coherent_labels.seam_edges_before==1&&coherent_labels.seam_edges_after==0&&
+        coherent_labels.patches_before==2&&coherent_labels.patches_after==1&&
+        coherent_labels.changed_labels==1&&coherent_labels.iterations>=1&&
+        coherent_labels.triangles[0].frame_id==20&&
+        coherent_labels.triangles[1].frame_id==20);
+  auto data_only_label_config=label_config;data_only_label_config.seam_penalty=0.0;
+  const auto data_only_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,data_only_label_config);
+  CHECK(data_only_labels.input_valid&&data_only_labels.changed_labels==0&&
+        data_only_labels.seam_edges_after==1);
+  auto label_budget_config=label_config;label_budget_config.max_label_evaluations=1;
+  const auto limited_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,label_budget_config);
+  CHECK(limited_labels.input_valid&&limited_labels.truncated&&
+        limited_labels.label_evaluations==1);
+  auto edge_limited_label_config=label_config;edge_limited_label_config.max_unique_edges=1;
+  const auto edge_limited_labels=optimizeTextureViewLabels(
+      texture_mesh,manual_texture_selection,edge_limited_label_config);
+  CHECK(edge_limited_labels.input_valid&&edge_limited_labels.truncated&&
+        edge_limited_labels.error=="texture label edge budget exceeded");
+  ReconstructionMesh texture_non_manifold_mesh;
+  texture_non_manifold_mesh.positions_m={{0,0,0},{1,0,0},{0,1,0},{0,-1,0},{0,0,1}};
+  texture_non_manifold_mesh.triangle_indices={0,1,2,1,0,3,0,1,4};
+  auto non_manifold_selection=manual_texture_selection;
+  non_manifold_selection.triangles.push_back(non_manifold_selection.triangles.back());
+  non_manifold_selection.triangles.back().alternative_offset=0;
+  non_manifold_selection.triangles.back().alternative_count=0;
+  const auto non_manifold_labels=optimizeTextureViewLabels(
+      texture_non_manifold_mesh,non_manifold_selection,label_config);
+  CHECK(non_manifold_labels.input_valid&&non_manifold_labels.non_manifold_edges==1);
+  auto sharp_label_config=label_config;sharp_label_config.max_normal_angle_degrees=45.0;
+  const auto sharp_labels=optimizeTextureViewLabels(
+      crease_mesh,manual_texture_selection,sharp_label_config);
+  CHECK(sharp_labels.input_valid&&sharp_labels.sharp_edges==1&&
+        sharp_labels.changed_labels==0&&sharp_labels.patches_after==2);
+  auto invalid_label_config=label_config;invalid_label_config.max_iterations=0;
+  bool rejected_label_config=false;
+  try{optimizeTextureViewLabels(texture_mesh,manual_texture_selection,invalid_label_config);}
+  catch(const std::invalid_argument&){rejected_label_config=true;}
+  CHECK(rejected_label_config);
+
+  // Atlas layout turns same-view connected labels into UV islands, duplicates
+  // vertices only at patch boundaries, and leaves pixel baking as a later stage.
+  TextureAtlasLayoutConfig atlas_config;atlas_config.atlas_width=256;
+  atlas_config.atlas_height=256;
+  const auto atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,atlas_config);
+  CHECK(atlas_layout.input_valid&&!atlas_layout.truncated&&atlas_layout.error.empty()&&
+        atlas_layout.patches.size()==1&&atlas_layout.assigned_triangles==2&&
+        atlas_layout.source_triangle_output_triangle==std::vector<std::size_t>({0,1})&&
+        atlas_layout.omitted_unassigned_triangles==0&&
+        atlas_layout.mesh.positions_m.size()==4&&atlas_layout.duplicated_vertices==0&&
+        atlas_layout.mesh.base_color_texture.uri.empty()&&
+        atlas_layout.mesh.texcoords.size()==atlas_layout.mesh.positions_m.size()&&
+        validateMesh(atlas_layout.mesh).valid);
+  CHECK(std::all_of(atlas_layout.mesh.texcoords.begin(),atlas_layout.mesh.texcoords.end(),
+                    [](const auto& uv){return uv.x>=0&&uv.x<=1&&uv.y>=0&&uv.y<=1;}));
+  const auto repeated_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,atlas_config);
+  CHECK(repeated_atlas_layout.mesh.triangle_indices==atlas_layout.mesh.triangle_indices&&
+        repeated_atlas_layout.mesh.texcoords.size()==atlas_layout.mesh.texcoords.size()&&
+        std::equal(repeated_atlas_layout.mesh.texcoords.begin(),
+          repeated_atlas_layout.mesh.texcoords.end(),atlas_layout.mesh.texcoords.begin(),
+          [](const auto& first,const auto& second){
+            return first.x==second.x&&first.y==second.y;})&&
+        repeated_atlas_layout.patches[0].atlas_x_px==atlas_layout.patches[0].atlas_x_px&&
+        repeated_atlas_layout.patches[0].atlas_y_px==atlas_layout.patches[0].atlas_y_px);
+  const auto split_atlas_layout=layoutTextureAtlas(
+      texture_mesh,manual_texture_selection.views,manual_texture_selection.triangles,
+      atlas_config);
+  CHECK(split_atlas_layout.input_valid&&split_atlas_layout.patches.size()==2&&
+        split_atlas_layout.mesh.positions_m.size()==6&&
+        split_atlas_layout.duplicated_vertices==2&&validateMesh(split_atlas_layout.mesh).valid);
+  auto scaled_atlas_config=atlas_config;scaled_atlas_config.atlas_width=40;
+  scaled_atlas_config.atlas_height=40;
+  const auto scaled_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,scaled_atlas_config);
+  CHECK(scaled_atlas_layout.input_valid&&!scaled_atlas_layout.truncated&&
+        scaled_atlas_layout.uniform_scale<1.0&&
+        scaled_atlas_layout.uniform_scale>=scaled_atlas_config.min_uniform_scale);
+  auto capacity_atlas_config=atlas_config;capacity_atlas_config.atlas_width=16;
+  capacity_atlas_config.atlas_height=16;capacity_atlas_config.min_uniform_scale=0.5;
+  const auto capacity_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,
+      capacity_atlas_config);
+  CHECK(capacity_atlas_layout.input_valid&&capacity_atlas_layout.truncated&&
+        capacity_atlas_layout.error=="texture atlas capacity exceeded");
+  auto unassigned_atlas_labels=texture_selection.triangles;
+  unassigned_atlas_labels[1].assigned=false;
+  unassigned_atlas_labels[1].alternative_count=0;
+  const auto unassigned_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,unassigned_atlas_labels,atlas_config);
+  CHECK(unassigned_atlas_layout.input_valid&&
+        unassigned_atlas_layout.error==
+          "atlas requires every triangle to have a texture label");
+  auto edge_limited_atlas_config=atlas_config;
+  edge_limited_atlas_config.max_unique_edges=1;
+  const auto edge_limited_atlas_layout=layoutTextureAtlas(
+      texture_mesh,texture_selection.views,texture_selection.triangles,
+      edge_limited_atlas_config);
+  CHECK(edge_limited_atlas_layout.input_valid&&edge_limited_atlas_layout.truncated&&
+        edge_limited_atlas_layout.error=="texture atlas edge budget exceeded");
+  auto sharp_atlas_labels=manual_texture_selection.triangles;
+  sharp_atlas_labels[1].view_index=0;sharp_atlas_labels[1].frame_id=10;
+  TextureAtlasLayoutConfig sharp_atlas_config=atlas_config;
+  sharp_atlas_config.max_normal_angle_degrees=45.0;
+  const auto sharp_atlas_layout=layoutTextureAtlas(
+      crease_mesh,manual_texture_selection.views,sharp_atlas_labels,sharp_atlas_config);
+  CHECK(sharp_atlas_layout.input_valid&&sharp_atlas_layout.sharp_edges==1&&
+        sharp_atlas_layout.patches.size()==2&&sharp_atlas_layout.duplicated_vertices==2);
+  auto invalid_atlas_config=atlas_config;invalid_atlas_config.atlas_width=8;
+  bool rejected_atlas_config=false;
+  try{layoutTextureAtlas(texture_mesh,texture_selection.views,
+                         texture_selection.triangles,invalid_atlas_config);}
+  catch(const std::invalid_argument&){rejected_atlas_config=true;}
+  CHECK(rejected_atlas_config);
+
+  // Dependency-free baking rasterizes canonical source pixels into the layout
+  // and dilates colour only inside each patch padding rectangle.
+  std::vector<std::uint8_t> red_texture_image(100*100*3);
+  for(std::size_t pixel=0;pixel<10000;++pixel) {
+    red_texture_image[pixel*3]=220;red_texture_image[pixel*3+1]=20;
+    red_texture_image[pixel*3+2]=10;
+  }
+  const TextureSourceImageView red_texture_view{1,100,100,300,
+    TexturePixelFormat::kRgb8,red_texture_image.data(),red_texture_image.size()};
+  const auto baked_texture=bakeTextureAtlas(
+      atlas_layout,texture_selection.views,texture_selection.triangles,{red_texture_view});
+  CHECK(baked_texture.input_valid&&!baked_texture.truncated&&baked_texture.error.empty()&&
+        baked_texture.width==256&&baked_texture.height==256&&
+        baked_texture.rgba8.size()==256*256*4&&baked_texture.rasterized_pixels>0&&
+        baked_texture.padding_pixels>0&&
+        std::any_of(baked_texture.rgba8.begin(),baked_texture.rgba8.end(),
+                    [](std::uint8_t value){return value==220;}));
+  std::vector<std::uint8_t> i420_texture_image(100*100*3/2,82);
+  std::fill(i420_texture_image.begin()+10000,i420_texture_image.begin()+12500,90);
+  std::fill(i420_texture_image.begin()+12500,i420_texture_image.end(),240);
+  const TextureSourceImageView i420_texture_view{1,100,100,100,
+    TexturePixelFormat::kI420,i420_texture_image.data(),i420_texture_image.size()};
+  const auto baked_i420_texture=bakeTextureAtlas(
+      atlas_layout,texture_selection.views,texture_selection.triangles,{i420_texture_view});
+  CHECK(baked_i420_texture.input_valid&&!baked_i420_texture.truncated&&
+        baked_i420_texture.rasterized_pixels==baked_texture.rasterized_pixels&&
+        *std::max_element(baked_i420_texture.rgba8.begin(),
+                          baked_i420_texture.rgba8.end())==255);
+  TextureBakingConfig limited_baking_config;limited_baking_config.max_pixel_tests=1;
+  const auto limited_baking=bakeTextureAtlas(atlas_layout,texture_selection.views,
+      texture_selection.triangles,{red_texture_view},limited_baking_config);
+  CHECK(limited_baking.input_valid&&limited_baking.truncated&&
+        limited_baking.pixel_tests==1);
+  const auto missing_baking=bakeTextureAtlas(
+      atlas_layout,texture_selection.views,texture_selection.triangles,{});
+  CHECK(!missing_baking.input_valid&&
+        missing_baking.error=="invalid texture source image count");
+  TextureBakingConfig invalid_baking_config;invalid_baking_config.max_atlas_pixels=0;
+  bool rejected_baking_config=false;
+  try{bakeTextureAtlas(atlas_layout,texture_selection.views,
+                       texture_selection.triangles,{red_texture_view},invalid_baking_config);}
+  catch(const std::invalid_argument&){rejected_baking_config=true;}
+  CHECK(rejected_baking_config);
+
+  // Robust seam correspondences estimate bounded per-view RGB gains. The
+  // lowest-index view anchors each connected component; unsupported views are
+  // left at identity instead of receiving guessed exposure corrections.
+  auto photometry_labels=manual_texture_selection.triangles;
+  const std::array<Vec2f,4> photometry_uv{{{0.25F,0.25F},{0.75F,0.25F},
+                                           {0.75F,0.75F},{0.25F,0.75F}}};
+  for(std::size_t triangle=0;triangle<photometry_labels.size();++triangle)
+    for(std::size_t corner=0;corner<3;++corner)
+      photometry_labels[triangle].normalized_uv[corner]=
+        photometry_uv[texture_mesh.triangle_indices[triangle*3+corner]];
+  std::vector<std::uint8_t> exposure_a(100*100*3,100);
+  std::vector<std::uint8_t> exposure_b(100*100*3,200);
+  const std::vector<TextureSourceImageView> exposure_images{
+    {10,100,100,300,TexturePixelFormat::kRgb8,exposure_a.data(),exposure_a.size()},
+    {20,100,100,300,TexturePixelFormat::kRgb8,exposure_b.data(),exposure_b.size()}};
+  const auto photometry=estimateTexturePhotometry(texture_mesh,
+      manual_texture_selection.views,photometry_labels,exposure_images);
+  CHECK(photometry.input_valid&&!photometry.truncated&&photometry.error.empty()&&
+        photometry.unique_edges==5&&photometry.seam_edges==1&&
+        photometry.equations==1&&photometry.sample_tests==9&&
+        photometry.connected_components==1&&photometry.constrained_views==2&&
+        photometry.corrections.size()==2&&photometry.corrections[0].constrained&&
+        photometry.corrections[0].rgb_gain[0]==1.0&&
+        std::abs(photometry.corrections[1].rgb_gain[0]-0.5)<1e-12);
+  const auto photometry_layout=layoutTextureAtlas(texture_mesh,
+      manual_texture_selection.views,photometry_labels,atlas_config);
+  const auto corrected_texture=bakeTextureAtlasWithCorrections(photometry_layout,
+      manual_texture_selection.views,photometry_labels,exposure_images,
+      photometry.corrections);
+  CHECK(corrected_texture.input_valid&&!corrected_texture.truncated&&
+        corrected_texture.rasterized_pixels>0&&
+        std::none_of(corrected_texture.rgba8.begin(),corrected_texture.rgba8.end(),
+          [](std::uint8_t value){return value==200;}));
+  auto invalid_corrections=photometry.corrections;
+  invalid_corrections[1].frame_id=999;
+  const auto rejected_correction=bakeTextureAtlasWithCorrections(photometry_layout,
+      manual_texture_selection.views,photometry_labels,exposure_images,
+      invalid_corrections);
+  CHECK(!rejected_correction.input_valid&&
+        rejected_correction.error=="invalid texture color correction");
+
+  // Local seam blending changes only bounded RGB pixels inside the two owning
+  // patch rectangles and preserves the baked alpha channel.
+  const auto uneven_texture=bakeTextureAtlas(photometry_layout,
+      manual_texture_selection.views,photometry_labels,exposure_images);
+  const auto blended_texture=blendTextureAtlasSeams(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture);
+  CHECK(blended_texture.input_valid&&!blended_texture.truncated&&
+        blended_texture.error.empty()&&blended_texture.unique_edges==5&&
+        blended_texture.seam_edges==1&&blended_texture.pixel_tests>0&&
+        blended_texture.pixel_updates>0&&
+        blended_texture.rgba8!=uneven_texture.rgba8&&
+        std::any_of(blended_texture.rgba8.begin(),blended_texture.rgba8.end(),
+                    [](std::uint8_t value){return value>100&&value<200;}));
+  for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
+    CHECK(blended_texture.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  TextureSeamBlendingConfig limited_seam_config;
+  limited_seam_config.max_pixel_tests=1;
+  const auto limited_seam_blending=blendTextureAtlasSeams(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture,limited_seam_config);
+  CHECK(limited_seam_blending.input_valid&&limited_seam_blending.truncated&&
+        limited_seam_blending.pixel_tests==1&&
+        limited_seam_blending.error=="texture seam pixel-test budget exceeded");
+  auto invalid_seam_config=TextureSeamBlendingConfig{};
+  invalid_seam_config.blend_radius_px=0;
+  bool rejected_seam_config=false;
+  try{blendTextureAtlasSeams(texture_mesh,photometry_layout,photometry_labels,
+                             uneven_texture,invalid_seam_config);}
+  catch(const std::invalid_argument&){rejected_seam_config=true;}
+  CHECK(rejected_seam_config);
+
+  auto clipped_images=exposure_images;
+  std::fill(exposure_b.begin(),exposure_b.end(),255);
+  const auto unconstrained_photometry=estimateTexturePhotometry(texture_mesh,
+      manual_texture_selection.views,photometry_labels,clipped_images);
+  CHECK(unconstrained_photometry.input_valid&&
+        unconstrained_photometry.equations==0&&
+        unconstrained_photometry.constrained_views==0&&
+        !unconstrained_photometry.corrections[0].constrained&&
+        unconstrained_photometry.corrections[1].rgb_gain[0]==1.0);
+  std::fill(exposure_b.begin(),exposure_b.end(),200);
+  auto limited_photometry_config=TexturePhotometryConfig{};
+  limited_photometry_config.max_sample_tests=1;
+  const auto limited_photometry=estimateTexturePhotometry(texture_mesh,
+      manual_texture_selection.views,photometry_labels,exposure_images,
+      limited_photometry_config);
+  CHECK(limited_photometry.input_valid&&limited_photometry.truncated&&
+        limited_photometry.sample_tests==1&&
+        limited_photometry.error=="texture photometry sample budget exceeded");
+
+  // The transaction-level texture graph stops on any truncated stage and only
+  // exposes final mesh/pixels after selection, labels, layout, photometry,
+  // baking and seam blending have all completed.
+  TexturePipelineConfig texture_pipeline_config;
+  texture_pipeline_config.view_selection.require_depth_visibility=false;
+  texture_pipeline_config.atlas_layout=atlas_config;
+  const TextureSourceImageView pipeline_image{7,100,100,300,
+    TexturePixelFormat::kRgb8,red_texture_image.data(),red_texture_image.size()};
+  const auto texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},texture_pipeline_config);
+  CHECK(texture_pipeline.input_valid&&!texture_pipeline.truncated&&
+        texture_pipeline.error.empty()&&
+        texture_pipeline.stage==TexturePipelineStage::kComplete&&
+        texture_pipeline.atlas_width==256&&texture_pipeline.atlas_height==256&&
+        texture_pipeline.mesh.base_color_texture.uri.empty()&&
+        texture_pipeline.mesh.texcoords.size()==texture_pipeline.mesh.positions_m.size()&&
+        texture_pipeline.rgba8.size()==256*256*4&&
+        texture_pipeline.telemetry.assigned_triangles==2&&
+        texture_pipeline.telemetry.atlas_patches==1&&
+        texture_pipeline.telemetry.rasterized_pixels>0);
+  auto limited_texture_pipeline_config=texture_pipeline_config;
+  limited_texture_pipeline_config.baking.max_pixel_tests=1;
+  const auto limited_texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},limited_texture_pipeline_config);
+  CHECK(limited_texture_pipeline.input_valid&&limited_texture_pipeline.truncated&&
+        limited_texture_pipeline.stage==TexturePipelineStage::kBaking&&
+        limited_texture_pipeline.rgba8.empty()&&
+        limited_texture_pipeline.mesh.positions_m.empty());
+
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;
   auto mvs_texture=[](double x,double y){return static_cast<std::uint8_t>(std::max(0.0,
@@ -247,13 +1059,127 @@ int main() {
   MultiViewStereoConfig mvs_config;mvs_config.min_depth_m=1;mvs_config.max_depth_m=4;
   mvs_config.depth_hypotheses=31;mvs_config.pixel_stride=4;mvs_config.min_zncc=0.85;
   mvs_config.min_winner_margin=0.005;
+  auto coarse_mvs_config=mvs_config;coarse_mvs_config.refinement_levels=0;
+  const auto coarse_mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_sources,
+    coarse_mvs_config);
   const auto mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_sources,mvs_config);
-  CHECK(mvs_depth.valid&&mvs_depth.valid_pixels>40);
+  CHECK(coarse_mvs_depth.valid&&mvs_depth.valid&&mvs_depth.valid_pixels>40);
   const std::size_t mvs_center=23*mvs_width+31;
   CHECK(std::isfinite(mvs_depth.depth_m[mvs_center])&&
         std::abs(mvs_depth.depth_m[mvs_center]-2.0F)<0.12F&&
         mvs_depth.confidence[mvs_center]>0.5F&&mvs_depth.uncertainty_m[mvs_center]>0);
+  CHECK(std::isfinite(coarse_mvs_depth.uncertainty_m[mvs_center])&&
+        mvs_depth.uncertainty_m[mvs_center]<coarse_mvs_depth.uncertainty_m[mvs_center]);
+
+  // Census ordering remains usable under a strong monotonic response change
+  // that a deliberately strict linear-correlation gate rejects.
+  auto gamma_response=[](std::uint8_t value){const double normalized=value/255.0;
+    const double squared=normalized*normalized;
+    return static_cast<std::uint8_t>(std::lround(255.0*squared*squared*normalized));};
+  std::vector<std::uint8_t> mvs_left_gamma(mvs_left.size()),mvs_right_gamma(mvs_right.size());
+  std::transform(mvs_left.begin(),mvs_left.end(),mvs_left_gamma.begin(),gamma_response);
+  std::transform(mvs_right.begin(),mvs_right.end(),mvs_right_gamma.begin(),gamma_response);
+  const GrayImageView mvs_left_gamma_view{mvs_width,mvs_height,mvs_width,
+    mvs_left_gamma.data(),mvs_left_gamma.size()};
+  const GrayImageView mvs_right_gamma_view{mvs_width,mvs_height,mvs_width,
+    mvs_right_gamma.data(),mvs_right_gamma.size()};
+  const std::vector<MultiViewStereoFrame> mvs_gamma_sources{
+    {mvs_left_gamma_view,&mvs_camera,{{},{0.1,0,0}}},
+    {mvs_right_gamma_view,&mvs_camera,{{},{-0.1,0,0}}}};
+  auto census_mvs_config=mvs_config;
+  census_mvs_config.matching_cost=MultiViewStereoMatchingCost::kCensus;
+  census_mvs_config.census_intensity_tolerance=0.0;census_mvs_config.min_census_bits=6;
+  census_mvs_config.min_zncc=0.90;
+  const auto census_mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_gamma_sources,
+    census_mvs_config);
+  const std::size_t census_probe=31*mvs_width+35;
+  CHECK(census_mvs_depth.valid&&census_mvs_depth.valid_pixels>40&&
+        std::isfinite(census_mvs_depth.depth_m[census_probe])&&
+        std::abs(census_mvs_depth.depth_m[census_probe]-2.0F)<0.12F);
+  auto strict_zncc_mvs_config=census_mvs_config;
+  strict_zncc_mvs_config.matching_cost=MultiViewStereoMatchingCost::kZncc;
+  strict_zncc_mvs_config.min_zncc=0.90;
+  const auto strict_zncc_mvs_depth=estimateMultiViewDepth(mvs_reference_frame,mvs_gamma_sources,
+    strict_zncc_mvs_config);
+  CHECK(strict_zncc_mvs_depth.valid&&
+        !std::isfinite(strict_zncc_mvs_depth.depth_m[census_probe]));
+
+  // Cached source-view depth must agree metrically and survive a geometric
+  // source-to-reference round trip. One inconsistent view reduces confidence;
+  // requiring both views rejects the same reference sample.
+  MultiViewStereoDepth consistent_source_depth;
+  consistent_source_depth.width=mvs_width;consistent_source_depth.height=mvs_height;
+  consistent_source_depth.depth_m.assign(mvs_width*mvs_height,2.0F);
+  consistent_source_depth.confidence.assign(mvs_width*mvs_height,1.0F);
+  consistent_source_depth.uncertainty_m.assign(mvs_width*mvs_height,0.01F);
+  consistent_source_depth.valid_pixels=mvs_width*mvs_height;
+  consistent_source_depth.valid=true;
+  auto inconsistent_source_depth=consistent_source_depth;
+  inconsistent_source_depth.depth_m.assign(mvs_width*mvs_height,3.0F);
+  const std::vector<MultiViewStereoDepthFrame> consistency_sources{
+    {mvs_sources[0],&consistent_source_depth},
+    {mvs_sources[1],&inconsistent_source_depth}};
+  MultiViewStereoConsistencyConfig consistency_config;
+  consistency_config.search_radius_px=1;consistency_config.min_source_confidence=0.5;
+  const auto consistency_depth=filterMultiViewDepthConsistency(
+    mvs_reference_frame,mvs_depth,consistency_sources,consistency_config);
+  CHECK(consistency_depth.valid&&
+        consistency_depth.consistency_tested_pixels==mvs_depth.valid_pixels&&
+        consistency_depth.consistency_rejected_pixels<consistency_depth.consistency_tested_pixels&&
+        std::isfinite(consistency_depth.depth_m[mvs_center])&&
+        consistency_depth.confidence[mvs_center]<mvs_depth.confidence[mvs_center]);
+  auto strict_consistency_config=consistency_config;
+  strict_consistency_config.min_consistent_views=2;
+  const auto strict_consistency_depth=filterMultiViewDepthConsistency(
+    mvs_reference_frame,mvs_depth,consistency_sources,strict_consistency_config);
+  CHECK(strict_consistency_depth.valid&&strict_consistency_depth.valid_pixels==0&&
+        strict_consistency_depth.consistency_rejected_pixels==
+          strict_consistency_depth.consistency_tested_pixels&&
+        !std::isfinite(strict_consistency_depth.depth_m[mvs_center]));
+
+  auto shifted_source_depth=consistent_source_depth;
+  const float mvs_nan=std::numeric_limits<float>::quiet_NaN();
+  shifted_source_depth.depth_m.assign(mvs_width*mvs_height,mvs_nan);
+  shifted_source_depth.confidence.assign(mvs_width*mvs_height,0.0F);
+  shifted_source_depth.uncertainty_m.assign(mvs_width*mvs_height,mvs_nan);
+  shifted_source_depth.valid_pixels=1;
+  const auto center_ray=mvs_camera.unproject({31.0,23.0});
+  CHECK(center_ray.has_value());
+  const Vec3 center_point=*center_ray*(mvs_depth.depth_m[mvs_center]/center_ray->z);
+  const Vec3 left_camera_point=center_point-Vec3{0.1,0,0};
+  const auto left_projection=mvs_camera.project(left_camera_point);
+  CHECK(left_projection.has_value());
+  const int shifted_x=static_cast<int>(std::lround(left_projection->x))+1;
+  const int shifted_y=static_cast<int>(std::lround(left_projection->y));
+  const std::size_t shifted_index=shifted_y*mvs_width+shifted_x;
+  shifted_source_depth.depth_m[shifted_index]=static_cast<float>(left_camera_point.z);
+  shifted_source_depth.confidence[shifted_index]=1.0F;
+  shifted_source_depth.uncertainty_m[shifted_index]=0.01F;
+  auto round_trip_config=consistency_config;
+  round_trip_config.search_radius_px=2;round_trip_config.max_round_trip_error_px=0.25;
+  const auto round_trip_depth=filterMultiViewDepthConsistency(mvs_reference_frame,mvs_depth,
+    {{mvs_sources[0],&shifted_source_depth}},round_trip_config);
+  CHECK(round_trip_depth.valid&&!std::isfinite(round_trip_depth.depth_m[mvs_center]));
+
+  auto invalid_consistency_config=consistency_config;
+  invalid_consistency_config.search_radius_px=9;
+  bool rejected_consistency_config=false;
+  try{filterMultiViewDepthConsistency(mvs_reference_frame,mvs_depth,consistency_sources,
+                                      invalid_consistency_config);}
+  catch(const std::invalid_argument&){rejected_consistency_config=true;}
+  CHECK(rejected_consistency_config);
+
   CHECK(!estimateMultiViewDepth(mvs_reference_frame,{mvs_sources.front()},mvs_config).valid);
+  auto invalid_census=mvs_config;invalid_census.min_census_bits=25;
+  bool rejected_census=false;
+  try{estimateMultiViewDepth(mvs_reference_frame,mvs_sources,invalid_census);}
+  catch(const std::invalid_argument&){rejected_census=true;}
+  CHECK(rejected_census);
+  auto invalid_refinement=mvs_config;invalid_refinement.refinement_hypotheses=2;
+  bool rejected_refinement=false;
+  try{estimateMultiViewDepth(mvs_reference_frame,mvs_sources,invalid_refinement);}
+  catch(const std::invalid_argument&){rejected_refinement=true;}
+  CHECK(rejected_refinement);
 
   TemporalDepthFilterConfig temporal_config;temporal_config.max_absolute_difference_m=0.5;
   temporal_config.max_relative_difference=0.5;temporal_config.history_weight=0.5;

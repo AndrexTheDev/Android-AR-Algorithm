@@ -301,6 +301,56 @@ class ReconstructionFrameArchive(
         return ReconstructionFrameCodec.decode(bytes)
     }
 
+    /**
+     * Atomically publishes tightly packed visibility depth beside an existing
+     * archived frame. The public frame reference remains the sole lookup key.
+     */
+    @Synchronized
+    fun saveVisibilityDepth(reference: String, depth: MetricDepthBuffer) {
+        val name = validatedFrameName(reference)
+        val frame = load(reference) ?: throw IllegalArgumentException("Archived colour frame is missing")
+        require(depth.timestampNs == frame.metadata.timestampNs &&
+            depth.width == frame.metadata.width && depth.height == frame.metadata.height) {
+            "Visibility depth provenance does not match archived colour frame"
+        }
+        val archived = ReconstructionVisibilityDepthCodec.copyFrom(frame.metadata.frameId, depth)
+        val envelope = ReconstructionVisibilityDepthCodec.encode(archived)
+        require(envelope.size.toLong() <= maxTotalBytes) { "Visibility depth exceeds archive budget" }
+        val target = depthFile(name)
+        require(!target.exists()) { "Visibility depth already exists" }
+        evictFor(envelope.size.toLong(), protectedFrameName = name, addsFrame = false)
+        val atomic = AtomicFile(target)
+        val output = atomic.startWrite()
+        try {
+            output.write(envelope)
+            atomic.finishWrite(output)
+        } catch (error: Throwable) {
+            atomic.failWrite(output)
+            throw error
+        }
+    }
+
+    @Synchronized
+    fun loadVisibilityDepth(reference: String): ArchivedReconstructionVisibilityDepth? {
+        val name = validatedFrameName(reference)
+        val frame = load(reference) ?: return null
+        val atomic = AtomicFile(depthFile(name))
+        val input = try { atomic.openRead() } catch (_: FileNotFoundException) { return null }
+        val length = atomic.baseFile.length()
+        require(length in 1..ReconstructionVisibilityDepthCodec.MAX_BYTES.toLong()) {
+            input.close(); "Archived visibility depth has an invalid size"
+        }
+        val bytes = input.use { it.readBytes() }
+        require(bytes.size.toLong() == length) { "Archived visibility depth was truncated" }
+        val depth = ReconstructionVisibilityDepthCodec.decode(bytes)
+        require(depth.frameId == frame.metadata.frameId &&
+            depth.timestampNs == frame.metadata.timestampNs &&
+            depth.width == frame.metadata.width && depth.height == frame.metadata.height) {
+            "Archived visibility depth provenance does not match colour frame"
+        }
+        return depth
+    }
+
     @Synchronized
     fun publishOptimizedPoses(manifest: ReconstructionPoseManifest) {
         require(manifest.poses.size <= maxFrames) { "Pose manifest exceeds archive frame budget" }
@@ -357,11 +407,14 @@ class ReconstructionFrameArchive(
 
     @Synchronized
     fun delete(reference: String): Boolean {
-        val name = reference.removePrefix(referencePrefix)
-        require(reference.startsWith(referencePrefix) && FILE_PATTERN.matches(name)) {
-            "Frame reference does not belong to this archive"
+        val name = validatedFrameName(reference)
+        val deleted = File(directory, name).delete()
+        if (deleted) {
+            val companion = depthFile(name)
+            if (companion.exists()) check(companion.delete()) { "Could not delete visibility depth" }
+            invalidatePoseManifest()
         }
-        return File(directory, name).delete().also { if (it) invalidatePoseManifest() }
+        return deleted
     }
 
     @Synchronized
@@ -372,15 +425,25 @@ class ReconstructionFrameArchive(
     @Synchronized
     fun references(): List<String> = frameFiles().map { referencePrefix + it.name }
 
-    private fun evictFor(incomingBytes: Long) {
+    private fun evictFor(
+        incomingBytes: Long,
+        protectedFrameName: String? = null,
+        addsFrame: Boolean = true,
+    ) {
+        cleanupOrphanDepthFiles()
         val files = frameFiles().toMutableList()
-        var bytes = files.sumOf { it.length() }
-        if (files.size >= maxFrames || bytes > maxTotalBytes - incomingBytes) invalidatePoseManifest()
-        while (files.size >= maxFrames || bytes > maxTotalBytes - incomingBytes) {
-            val victim = (if (files.isEmpty()) null else files.removeAt(0))
-                ?: error("Archive budget cannot be satisfied")
-            val length = victim.length()
+        var bytes = archivePayloadFiles().sumOf { it.length() }
+        fun overBudget() = (addsFrame && files.size >= maxFrames) ||
+            bytes > maxTotalBytes - incomingBytes
+        if (overBudget()) invalidatePoseManifest()
+        while (overBudget()) {
+            val victimIndex = files.indexOfFirst { it.name != protectedFrameName }
+            require(victimIndex >= 0) { "Archive budget cannot be satisfied without evicting source frame" }
+            val victim = files.removeAt(victimIndex)
+            val companion = depthFile(victim.name)
+            val length = victim.length() + if (companion.isFile) companion.length() else 0L
             check(victim.delete()) { "Could not evict old reconstruction frame" }
+            if (companion.exists()) check(companion.delete()) { "Could not evict visibility depth" }
             bytes -= length
         }
     }
@@ -392,9 +455,32 @@ class ReconstructionFrameArchive(
         if (file.exists()) check(file.delete()) { "Could not invalidate optimized pose manifest" }
     }
 
+    private fun validatedFrameName(reference: String): String {
+        val name = reference.removePrefix(referencePrefix)
+        require(reference.startsWith(referencePrefix) && FILE_PATTERN.matches(name)) {
+            "Frame reference does not belong to this archive"
+        }
+        return name
+    }
+
+    private fun depthFile(frameName: String): File =
+        File(directory, frameName.removeSuffix(".arkf") + ".arkd")
+
     private fun frameFiles(): List<File> = directory.listFiles { file ->
         file.isFile && FILE_PATTERN.matches(file.name)
     }?.sortedBy { it.name } ?: emptyList()
+
+    private fun archivePayloadFiles(): List<File> = directory.listFiles { file ->
+        file.isFile && (FILE_PATTERN.matches(file.name) || DEPTH_FILE_PATTERN.matches(file.name))
+    }?.toList() ?: emptyList()
+
+    private fun cleanupOrphanDepthFiles() {
+        directory.listFiles { file -> file.isFile && DEPTH_FILE_PATTERN.matches(file.name) }
+            ?.forEach { depth ->
+                val frame = File(directory, depth.name.removeSuffix(".arkd") + ".arkf")
+                if (!frame.isFile) check(depth.delete()) { "Could not delete orphan visibility depth" }
+            }
+    }
 
     private fun fileName(timestampNs: Long, frameId: Long): String =
         String.format(Locale.US, "%019d-%019d.arkf", timestampNs, frameId)
@@ -404,5 +490,6 @@ class ReconstructionFrameArchive(
         const val POSE_MANIFEST_FILE = "optimized-poses.arkp"
         val SESSION_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val FILE_PATTERN = Regex("[0-9]{19}-[0-9]{19}\\.arkf")
+        val DEPTH_FILE_PATTERN = Regex("[0-9]{19}-[0-9]{19}\\.arkd")
     }
 }

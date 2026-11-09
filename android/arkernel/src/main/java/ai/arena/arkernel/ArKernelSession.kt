@@ -46,6 +46,9 @@ class ArKernelSession(
     private val guidedTimeOffsetProbe: GuidedTimeOffsetObservabilityProbe? = null,
     private val guidedMetricProbe: GuidedMetricConsistencyProbe? = null,
     private val calibrationRuntimeMonitor: CameraCalibrationRuntimeMonitor? = null,
+    private val maximumCameraFramesPerSecond: Int = 30,
+    private val maximumPendingReconstructionFrames: Int = 2,
+    private val guidedMotionAdmissionProbe: GuidedMotionAdmissionProbe? = null,
 ) : AutoCloseable {
     private data class ImuPacket(
         val timestampNs: Long,
@@ -70,9 +73,12 @@ class ArKernelSession(
     @Volatile private var closed = false
     @Volatile private var cameraClockDiscontinuity = false
     @Volatile private var calibrationChanged = false
+    @Volatile private var resourceRestartRequired = false
+    private val effectiveCompatibilityProbe =
+        guidedMotionAdmissionProbe?.activeCompatibilityProbe ?: compatibilityProbe
 
     private val imu = AndroidImuSource(context, vio, sampleSink = ::enqueueImu,
-        compatibilityTimingSink = compatibilityProbe?.let { probe ->
+        compatibilityTimingSink = effectiveCompatibilityProbe?.let { probe ->
             { sample -> probe.addImuSample(sample); Unit }
         })
     private val camera = Camera2FrameSource(
@@ -80,6 +86,7 @@ class ArKernelSession(
         rotationPrediction = ::predictRotationAt,
         onResult = ::handleVisualResult,
         onError = onError,
+        onLifecycleFailure = { handleCameraLifecycleFailure() },
         onReconstructionFrame = if (onReconstructionFrame == null) null
             else ::handleReconstructionCameraFrame,
         reconstructionQualityGate = if (onReconstructionFrame == null) null else { snapshot, quality ->
@@ -89,18 +96,36 @@ class ArKernelSession(
             if (!accepted) pendingReconstructionResults.remove(snapshot.timestampNs)
             accepted
         },
-        compatibilityTimingSink = compatibilityProbe?.let { probe ->
+        compatibilityTimingSink = effectiveCompatibilityProbe?.let { probe ->
             { sample -> probe.addCameraSample(sample); Unit }
         },
         onTimestampNormalizationFailure = ::handleCameraClockFailure,
         calibrationRuntimeMonitor = calibrationRuntimeMonitor,
         onCalibrationRuntimeFailure = ::handleCalibrationFailure,
+        maximumOutputFramesPerSecond = maximumCameraFramesPerSecond,
+        maximumPendingFrames = maximumPendingReconstructionFrames,
     )
 
-    init { require(maxQueuedImuSamples >= 128) }
+    init {
+        require(maxQueuedImuSamples >= 128)
+        require(maximumCameraFramesPerSecond in 1..240)
+        require(maximumPendingReconstructionFrames in 1..8)
+        require(compatibilityProbe == null || guidedMotionAdmissionProbe == null ||
+            compatibilityProbe === guidedMotionAdmissionProbe.activeCompatibilityProbe) {
+            "Guided and session compatibility probes must share one owner"
+        }
+        require(guidedMotionAdmissionProbe == null ||
+            (guidedRotationProbe == null && guidedTimeOffsetProbe == null &&
+                guidedMetricProbe == null)) {
+            "Use either the combined guided admission probe or individual diagnostic probes"
+        }
+    }
 
     fun start(cameraId: String? = null) {
         check(!closed) { "AR kernel session is closed" }
+        check(!resourceRestartRequired) {
+            "AR kernel session was invalidated by a resource-plan change; create a new owner"
+        }
         if (running) return
         synchronized(lock) {
             queue.clear(); droppedSamples = 0; gateObservedDroppedSamples = 0
@@ -140,10 +165,16 @@ class ArKernelSession(
         }
     }
 
+    private fun handleCameraLifecycleFailure() {
+        stop()
+    }
+
     private fun enqueueImu(timestamp: Long, acceleration: Vector3, angularVelocity: Vector3) {
         if (!running) return
         guidedTimeOffsetProbe?.addGyroscopeBody(timestamp, angularVelocity)
         guidedMetricProbe?.addImuSample(acceleration, angularVelocity)
+        guidedMotionAdmissionProbe?.addGyroscopeBody(timestamp, angularVelocity)
+        guidedMotionAdmissionProbe?.addImuSample(acceleration, angularVelocity)
         synchronized(lock) {
             if (queue.isNotEmpty() && timestamp <= queue.peekLast().timestampNs) return
             if (queue.size >= maxQueuedImuSamples) {
@@ -191,6 +222,17 @@ class ArKernelSession(
         if (running) onError(IllegalStateException("Camera calibration binding invalidated: $reason"))
     }
 
+    @Synchronized
+    fun invalidateForResourceRestart(reasons: List<RuntimeRestartReason>) {
+        require(reasons.isNotEmpty())
+        if (resourceRestartRequired) return
+        resourceRestartRequired = true
+        latestMappingGate = MappingGateDecision(MappingGateState.PAUSED,
+            MappingPauseReason.RESOURCE_RESTART_REQUIRED, false)
+        if (running) onError(IllegalStateException(
+            "Runtime resource plan changed; clean owner restart required: ${reasons.joinToString()}"))
+    }
+
     private fun handleVisualResult(result: VisualFrontendSnapshot) {
         if (!running) return
         val (rotationPrediction, previousVisualTimestamp) = synchronized(lock) {
@@ -202,15 +244,27 @@ class ArKernelSession(
             prediction to previous
         }
         result.relativePose?.let { pose ->
-            if (rotationPrediction != null) guidedRotationProbe?.addMatchedRotation(
-                pose.rotationCurrentFromPrevious, rotationPrediction)
-            if (previousVisualTimestamp != null) guidedTimeOffsetProbe?.addVisualRotation(
-                previousVisualTimestamp, result.timestampNs,
-                pose.rotationCurrentFromPrevious)
+            if (rotationPrediction != null) {
+                guidedRotationProbe?.addMatchedRotation(
+                    pose.rotationCurrentFromPrevious, rotationPrediction)
+                guidedMotionAdmissionProbe?.addMatchedRotation(
+                    pose.rotationCurrentFromPrevious, rotationPrediction)
+            }
+            if (previousVisualTimestamp != null) {
+                guidedTimeOffsetProbe?.addVisualRotation(
+                    previousVisualTimestamp, result.timestampNs,
+                    pose.rotationCurrentFromPrevious)
+                guidedMotionAdmissionProbe?.addVisualRotation(
+                    previousVisualTimestamp, result.timestampNs,
+                    pose.rotationCurrentFromPrevious)
+            }
         }
         val stateBeforeFusion = vio.snapshot()
         val fusion = result.relativePose?.let(vio::fuseVisualMeasured)
-        if (fusion != null) guidedMetricProbe?.addVisualFusion(fusion)
+        if (fusion != null) {
+            guidedMetricProbe?.addVisualFusion(fusion)
+            guidedMotionAdmissionProbe?.addVisualFusion(fusion)
+        }
         val fusionApplied = fusion?.rotationApplied == true
         val snapshot = vio.snapshot()
         val queueStatus = synchronized(lock) {
@@ -230,7 +284,13 @@ class ArKernelSession(
             acceptedTracks = result.acceptedTrackCount,
             imuQueueOverflow = queueStatus.third,
         )
-        val compatibilityGate = compatibilityProbe?.let { probe ->
+        val compatibilityGate = guidedMotionAdmissionProbe?.let { probe ->
+            if (probe.runtimeMetricAdmissionGranted) kernelMappingGate else MappingGateDecision(
+                MappingGateState.PAUSED,
+                if (probe.isFinished) MappingPauseReason.DEVICE_COMPATIBILITY_REJECTED
+                else MappingPauseReason.DEVICE_COMPATIBILITY_PENDING,
+                false)
+        } ?: effectiveCompatibilityProbe?.let { probe ->
             if (probe.metricAdmissionGranted) kernelMappingGate else MappingGateDecision(
                 MappingGateState.PAUSED,
                 if (probe.isFinished) MappingPauseReason.DEVICE_COMPATIBILITY_REJECTED
@@ -241,6 +301,8 @@ class ArKernelSession(
             MappingGateState.PAUSED, MappingPauseReason.CAMERA_CLOCK_DISCONTINUITY, false)
         else if (calibrationChanged) MappingGateDecision(
             MappingGateState.PAUSED, MappingPauseReason.CALIBRATION_CHANGED, false)
+        else if (resourceRestartRequired) MappingGateDecision(
+            MappingGateState.PAUSED, MappingPauseReason.RESOURCE_RESTART_REQUIRED, false)
         else compatibilityGate
         latestMappingGate = mappingGate
         val worldFromCamera = snapshot?.let { state ->
@@ -257,7 +319,7 @@ class ArKernelSession(
             queueStatus.first, queueStatus.second)
         if (result.keyframe && onReconstructionFrame != null) {
             pendingReconstructionResults[result.timestampNs] = sessionResult
-            while (pendingReconstructionResults.size > MAX_PENDING_RECONSTRUCTION_RESULTS)
+            while (pendingReconstructionResults.size > maximumPendingReconstructionFrames)
                 pendingReconstructionResults.pollFirstEntry()
         }
         onResult(sessionResult)
@@ -483,5 +545,4 @@ class ArKernelSession(
         return Rotation(value.w/norm, value.x/norm, value.y/norm, value.z/norm)
     }
 
-    private companion object { const val MAX_PENDING_RECONSTRUCTION_RESULTS = 4 }
 }

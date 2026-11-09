@@ -18,6 +18,7 @@ add_library(arkernel STATIC
     src/imu_preintegrator.cpp
     src/landmark_merge.cpp
     src/loop_closure.cpp
+    src/mesh_processing.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp
     src/multi_view_stereo.cpp
@@ -26,13 +27,22 @@ add_library(arkernel STATIC
     src/relocalization.cpp
     src/reconstruction_asset.cpp
     src/reconstruction_capture.cpp
+    src/reconstruction_pipeline.cpp
     src/semantic_map.cpp
     src/sparse_map.cpp
     src/spatial_snapshot.cpp
+    src/sparse_tsdf.cpp
     src/surfel_map.cpp
     src/tensor_preprocessor.cpp
     src/temporal_depth_filter.cpp
+    src/texture_atlas.cpp
+    src/texture_baking.cpp
+    src/texture_photometry.cpp
+    src/texture_pipeline.cpp
+    src/texture_seam_blending.cpp
+    src/texture_view_selection.cpp
     src/tracking_quality.cpp
+    src/tsdf_meshing.cpp
     src/visual_frontend.cpp
     src/vio_estimator.cpp
 )

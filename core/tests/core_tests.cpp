@@ -40,6 +40,7 @@
 #include "arkernel/motion_prediction.h"
 #include "arkernel/tracking_quality.h"
 #include "arkernel/trajectory_metrics.h"
+#include "arkernel/tsdf_meshing.h"
 #include "arkernel/visual_frontend.h"
 #include "arkernel/vio_estimator.h"
 
@@ -362,6 +363,63 @@ int main() {
   catch(const std::invalid_argument&){rejected_tsdf_config=true;}
   CHECK(rejected_tsdf_config);
   tsdf_volume.reset();CHECK(tsdf_volume.blockCount()==0&&tsdf_volume.voxelCount()==0);
+
+  // Deterministic bounded Marching Tetrahedra extracts a metric plane only
+  // where all eight TSDF cell corners are observed with sufficient weight.
+  constexpr int mesh_depth_width=32,mesh_depth_height=32;
+  std::vector<float> mesh_plane_depth(mesh_depth_width*mesh_depth_height,2.0F);
+  std::vector<float> mesh_plane_confidence(mesh_plane_depth.size(),1.0F);
+  std::vector<float> mesh_plane_uncertainty(mesh_plane_depth.size(),0.005F);
+  const PinholeRadTanCamera mesh_depth_camera(
+    {mesh_depth_width,mesh_depth_height,40,40,15.5,15.5});
+  const TsdfDepthImageView mesh_depth_view{mesh_depth_width,mesh_depth_height,
+    mesh_depth_width,mesh_plane_depth.data(),mesh_plane_depth.size(),
+    mesh_plane_confidence.data(),mesh_depth_width,mesh_plane_confidence.size(),
+    mesh_plane_uncertainty.data(),mesh_depth_width,mesh_plane_uncertainty.size()};
+  SparseTsdfConfig mesh_tsdf_config;mesh_tsdf_config.voxel_size_m=0.05;
+  mesh_tsdf_config.truncation_distance_m=0.10;mesh_tsdf_config.pixel_stride=1;
+  mesh_tsdf_config.max_blocks=512;mesh_tsdf_config.max_ray_samples=16;
+  SparseTsdfVolume mesh_tsdf(mesh_tsdf_config);
+  const auto mesh_tsdf_update=mesh_tsdf.integrate(mesh_depth_view,mesh_depth_camera,{});
+  CHECK(mesh_tsdf_update.input_valid&&!mesh_tsdf_update.truncated);
+  TsdfMeshingConfig meshing_config;meshing_config.min_voxel_weight=0.1F;
+  const auto extracted_mesh=extractTsdfMesh(mesh_tsdf,meshing_config);
+  CHECK(extracted_mesh.input_valid&&!extracted_mesh.truncated&&
+        extracted_mesh.complete_cells>0&&extracted_mesh.surface_cells>0&&
+        !extracted_mesh.mesh.positions_m.empty()&&validateMesh(extracted_mesh.mesh).valid);
+  CHECK(std::all_of(extracted_mesh.mesh.positions_m.begin(),
+                    extracted_mesh.mesh.positions_m.end(),[](const auto& position){
+                      return std::abs(position.z-2.0F)<0.001F;}));
+  CHECK(std::all_of(extracted_mesh.mesh.normals.begin(),
+                    extracted_mesh.mesh.normals.end(),[](const auto& normal){
+                      return normal.z< -0.99F;}));
+  const auto repeated_mesh=extractTsdfMesh(mesh_tsdf,meshing_config);
+  CHECK(repeated_mesh.mesh.triangle_indices==extracted_mesh.mesh.triangle_indices&&
+        repeated_mesh.mesh.positions_m.size()==extracted_mesh.mesh.positions_m.size());
+  for(std::size_t i=0;i<extracted_mesh.mesh.positions_m.size();++i){
+    CHECK(repeated_mesh.mesh.positions_m[i].x==extracted_mesh.mesh.positions_m[i].x&&
+          repeated_mesh.mesh.positions_m[i].y==extracted_mesh.mesh.positions_m[i].y&&
+          repeated_mesh.mesh.positions_m[i].z==extracted_mesh.mesh.positions_m[i].z);}
+  std::fill(mesh_plane_depth.begin(),mesh_plane_depth.end(),2.025F);
+  SparseTsdfVolume endpoint_tsdf(mesh_tsdf_config);
+  CHECK(endpoint_tsdf.integrate(mesh_depth_view,mesh_depth_camera,{}).input_valid);
+  const auto endpoint_mesh=extractTsdfMesh(endpoint_tsdf,meshing_config);
+  CHECK(endpoint_mesh.input_valid&&!endpoint_mesh.mesh.positions_m.empty()&&
+        validateMesh(endpoint_mesh.mesh).valid);
+  auto limited_meshing_config=meshing_config;limited_meshing_config.max_triangles=1;
+  const auto limited_mesh=extractTsdfMesh(mesh_tsdf,limited_meshing_config);
+  CHECK(limited_mesh.input_valid&&limited_mesh.truncated&&
+        limited_mesh.mesh.triangle_indices.size()==3&&validateMesh(limited_mesh.mesh).valid);
+  auto strict_weight_meshing_config=meshing_config;
+  strict_weight_meshing_config.min_voxel_weight=1000.0F;
+  const auto strict_weight_mesh=extractTsdfMesh(mesh_tsdf,strict_weight_meshing_config);
+  CHECK(strict_weight_mesh.input_valid&&strict_weight_mesh.mesh.positions_m.empty()&&
+        strict_weight_mesh.skipped_low_weight_cells>0);
+  auto invalid_meshing_config=meshing_config;invalid_meshing_config.max_vertices=2;
+  bool rejected_meshing_config=false;
+  try{extractTsdfMesh(mesh_tsdf,invalid_meshing_config);}
+  catch(const std::invalid_argument&){rejected_meshing_config=true;}
+  CHECK(rejected_meshing_config);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

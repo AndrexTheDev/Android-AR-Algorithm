@@ -44,7 +44,11 @@ The output is suitable as a metric CPU-side input to a future renderer adapter, 
 
 Each accepted pixel is distortion-aware unprojected and sampled at half-voxel intervals only through the narrow band. Signed distance is evaluated at the actual voxel centre in camera Z, then fused with confidence multiplied by an uncertainty penalty. Weight is capped while still allowing bounded adaptation. Defaults separately cap visited depth pixels, ray samples, attempted voxel visits, allocated blocks and snapshot voxels. Capacity or work exhaustion sets `truncated`; it never triggers unbounded allocation. Snapshots are lexicographically sorted for deterministic downstream meshing, and direct point sampling exposes only observed voxels.
 
-This narrow-band representation is intentionally not an occupancy map: unknown space and rays far in front of a surface are not marked free. It currently has a native C++ API but no session/JNI orchestration. Surface extraction, connected-component filtering, simplification, persistence and texture provenance remain separate pending stages.
+This narrow-band representation is intentionally not an occupancy map: unknown space and rays far in front of a surface are not marked free. It currently has a native C++ API but no session/JNI orchestration.
+
+`extractTsdfMesh` provides deterministic bounded Marching Tetrahedra over fully observed eight-corner cells. A fixed globally consistent six-tetrahedron split and canonical grid-edge keys share vertices across cells, including exact endpoint crossings. Triangles are oriented toward increasing TSDF, degenerate area is rejected, and area-weighted vertex normals are produced directly in the canonical metric `ReconstructionMesh`. Minimum voxel weight and independent input-voxel, examined-cell, vertex and triangle budgets prevent weak or unbounded extraction. Missing corners remain holes, and any budget stop sets `truncated`; callers must also retain truncation evidence from every preceding fusion update.
+
+Connected-component filtering, simplification, persistence and texture provenance remain separate pending stages. This extractor does not claim watertightness or repair unobserved geometry.
 
 ## Conservative temporal filtering
 

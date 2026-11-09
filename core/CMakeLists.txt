@@ -34,6 +34,7 @@ add_library(arkernel STATIC
     src/tensor_preprocessor.cpp
     src/temporal_depth_filter.cpp
     src/tracking_quality.cpp
+    src/tsdf_meshing.cpp
     src/visual_frontend.cpp
     src/vio_estimator.cpp
 )

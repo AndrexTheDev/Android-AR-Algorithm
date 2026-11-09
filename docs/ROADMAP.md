@@ -125,7 +125,8 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add bounded JNI/Android finalization from seam-aware mesh plus RGBA atlas through PNG, embedded GLB and atomic publication.
 - [x] Add fail-closed portable orchestration across view selection, coherent labels, atlas, photometry, baking and local seam blending.
 - [x] Add bounded fail-closed Android resolution of the unique core view table from opaque archived-frame references to owned canonical pixels.
-- [ ] Expose the complete portable graph through JNI using those loaded sources and add optional global seam optimization.
+- [x] Expose the complete portable graph through bounded JNI using loaded canonical sources, preserve exact stage failures, and feed successful output directly to the final publisher.
+- [ ] Add the depth-aware JNI overload, direct fused-pipeline orchestration, and optional global seam optimization.
 - [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.

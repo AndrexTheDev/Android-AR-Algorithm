@@ -15,6 +15,7 @@
 #include "arkernel/reconstruction_capture.h"
 #include "arkernel/reconstruction_pipeline.h"
 #include "arkernel/temporal_depth_filter.h"
+#include "arkernel/texture_pipeline.h"
 
 namespace {
 ark_vio_handle* fromVioHandle(jlong value) {
@@ -1399,4 +1400,164 @@ Java_ai_arena_arkernel_ReconstructionTexturedAssetPublisher_nativeExportEmbedded
                             reinterpret_cast<const jbyte*>(glb.data()));
     return env->ExceptionCheck()?nullptr:output;
   }catch(...){return nullptr;}
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_ai_arena_arkernel_ReconstructionTexturePipeline_nativeBuild(
+    JNIEnv* env,jobject,jobject positions,jint positions_offset,jint positions_remaining,
+    jobject normals,jint normals_offset,jint normals_remaining,jobject indices,
+    jint indices_offset,jint indices_remaining,jlongArray frame_ids,jobjectArray references,
+    jdoubleArray camera_data,jintArray formats,jintArray widths,jintArray heights,
+    jintArray strides,jobjectArray images,jint max_vertices,jint max_triangles,
+    jint max_result_bytes,jint atlas_width,jint atlas_height,jboolean enable_photometry,
+    jboolean enable_seam_blending) {
+  constexpr jsize kCameraValues=17;
+  constexpr std::uint32_t kMagic=0x54584B41U;
+  constexpr std::uint32_t kVersion=1U;
+  if(!positions||!indices||!frame_ids||!references||!camera_data||!formats||!widths||
+     !heights||!strides||!images||positions_offset<0||positions_remaining<=0||
+     normals_offset<0||normals_remaining<0||indices_offset<0||indices_remaining<=0||
+     positions_remaining%3||indices_remaining%3||max_vertices<=0||max_vertices>5000000||
+     max_triangles<=0||max_triangles>10000000||max_result_bytes<=0||atlas_width<16||
+     atlas_width>4096||atlas_height<16||atlas_height>4096||positions_remaining/3>max_vertices||indices_remaining/3>max_triangles||
+     (normals&&normals_remaining!=positions_remaining)||(!normals&&normals_remaining))return nullptr;
+  const jsize count=env->GetArrayLength(frame_ids);
+  if(count<=0||count>4096||env->GetArrayLength(references)!=count||
+     env->GetArrayLength(camera_data)!=count*kCameraValues||env->GetArrayLength(formats)!=count||
+     env->GetArrayLength(widths)!=count||env->GetArrayLength(heights)!=count||
+     env->GetArrayLength(strides)!=count||env->GetArrayLength(images)!=count)return nullptr;
+  auto* position_data=static_cast<float*>(env->GetDirectBufferAddress(positions));
+  auto* normal_data=normals?static_cast<float*>(env->GetDirectBufferAddress(normals)):nullptr;
+  auto* index_data=static_cast<std::int32_t*>(env->GetDirectBufferAddress(indices));
+  const jlong position_capacity=env->GetDirectBufferCapacity(positions);
+  const jlong normal_capacity=normals?env->GetDirectBufferCapacity(normals):0;
+  const jlong index_capacity=env->GetDirectBufferCapacity(indices);
+  if(!position_data||!index_data||position_capacity<0||index_capacity<0||
+     static_cast<jlong>(positions_offset)+positions_remaining>position_capacity||
+     static_cast<jlong>(indices_offset)+indices_remaining>index_capacity||
+     (normals&&(!normal_data||normal_capacity<0||
+      static_cast<jlong>(normals_offset)+normals_remaining>normal_capacity)))return nullptr;
+  try {
+    std::vector<jlong> ids(static_cast<std::size_t>(count));
+    std::vector<jdouble> cameras_raw(static_cast<std::size_t>(count*kCameraValues));
+    std::vector<jint> format_raw(static_cast<std::size_t>(count));
+    std::vector<jint> width_raw(static_cast<std::size_t>(count));
+    std::vector<jint> height_raw(static_cast<std::size_t>(count));
+    std::vector<jint> stride_raw(static_cast<std::size_t>(count));
+    env->GetLongArrayRegion(frame_ids,0,count,ids.data());
+    env->GetDoubleArrayRegion(camera_data,0,count*kCameraValues,cameras_raw.data());
+    env->GetIntArrayRegion(formats,0,count,format_raw.data());
+    env->GetIntArrayRegion(widths,0,count,width_raw.data());
+    env->GetIntArrayRegion(heights,0,count,height_raw.data());
+    env->GetIntArrayRegion(strides,0,count,stride_raw.data());
+    if(env->ExceptionCheck())return nullptr;
+    arkernel::ReconstructionMesh mesh;mesh.name="AR reconstruction texture source";
+    const std::size_t vertex_count=static_cast<std::size_t>(positions_remaining/3);
+    mesh.positions_m.reserve(vertex_count);if(normal_data)mesh.normals.reserve(vertex_count);
+    for(std::size_t v=0;v<vertex_count;++v){
+      const std::size_t p=static_cast<std::size_t>(positions_offset)+v*3;
+      mesh.positions_m.push_back({position_data[p],position_data[p+1],position_data[p+2]});
+      if(normal_data){const std::size_t n=static_cast<std::size_t>(normals_offset)+v*3;
+        mesh.normals.push_back({normal_data[n],normal_data[n+1],normal_data[n+2]});}
+    }
+    mesh.triangle_indices.reserve(static_cast<std::size_t>(indices_remaining));
+    for(jint i=0;i<indices_remaining;++i){
+      const auto value=index_data[static_cast<std::size_t>(indices_offset)+i];
+      if(value<0)return nullptr;
+      mesh.triangle_indices.push_back(static_cast<std::uint32_t>(value));
+    }
+    std::vector<arkernel::PinholeRadTanCamera> cameras;cameras.reserve(static_cast<std::size_t>(count));
+    std::vector<std::string> refs;refs.reserve(static_cast<std::size_t>(count));
+    std::vector<std::vector<std::uint8_t>> image_storage;image_storage.reserve(static_cast<std::size_t>(count));
+    for(jsize i=0;i<count;++i){
+      if(ids[static_cast<std::size_t>(i)]<=0||width_raw[static_cast<std::size_t>(i)]<=0||
+         height_raw[static_cast<std::size_t>(i)]<=0||stride_raw[static_cast<std::size_t>(i)]<=0||
+         (i>0&&ids[static_cast<std::size_t>(i)]<=ids[static_cast<std::size_t>(i-1)]))return nullptr;
+      auto reference=static_cast<jstring>(env->GetObjectArrayElement(references,i));
+      auto image=static_cast<jbyteArray>(env->GetObjectArrayElement(images,i));
+      if(!reference||!image)return nullptr;
+      const char* chars=env->GetStringUTFChars(reference,nullptr);if(!chars)return nullptr;
+      refs.emplace_back(chars);env->ReleaseStringUTFChars(reference,chars);env->DeleteLocalRef(reference);
+      const jsize image_size=env->GetArrayLength(image);if(image_size<=0)return nullptr;
+      image_storage.emplace_back(static_cast<std::size_t>(image_size));
+      env->GetByteArrayRegion(image,0,image_size,reinterpret_cast<jbyte*>(image_storage.back().data()));
+      env->DeleteLocalRef(image);if(env->ExceptionCheck())return nullptr;
+      const std::size_t b=static_cast<std::size_t>(i*kCameraValues);
+      cameras.emplace_back(arkernel::CameraIntrinsics{width_raw[static_cast<std::size_t>(i)],
+        height_raw[static_cast<std::size_t>(i)],cameras_raw[b],cameras_raw[b+1],
+        cameras_raw[b+2],cameras_raw[b+3]},arkernel::RadTanDistortion{cameras_raw[b+4],
+        cameras_raw[b+5],cameras_raw[b+6],cameras_raw[b+7],cameras_raw[b+8]});
+    }
+    std::vector<arkernel::TextureViewCandidate> candidates;candidates.reserve(static_cast<std::size_t>(count));
+    std::vector<arkernel::TextureSourceImageView> source_images;source_images.reserve(static_cast<std::size_t>(count));
+    for(jsize i=0;i<count;++i){
+      const std::size_t n=static_cast<std::size_t>(i),b=n*static_cast<std::size_t>(kCameraValues);
+      arkernel::TexturePixelFormat format;
+      if(format_raw[n]==1)format=arkernel::TexturePixelFormat::kGray8;
+      else if(format_raw[n]==2)format=arkernel::TexturePixelFormat::kRgba8;
+      else if(format_raw[n]==3)format=arkernel::TexturePixelFormat::kI420;
+      else return nullptr;
+      arkernel::TextureViewCandidate candidate;candidate.frame_id=static_cast<std::uint64_t>(ids[n]);
+      candidate.image_reference=refs[n];candidate.camera=&cameras[n];
+      candidate.world_from_camera.rotation={cameras_raw[b+9],cameras_raw[b+10],cameras_raw[b+11],cameras_raw[b+12]};
+      candidate.world_from_camera.translation={cameras_raw[b+13],cameras_raw[b+14],cameras_raw[b+15]};
+      candidate.quality_score=cameras_raw[b+16];candidates.push_back(std::move(candidate));
+      source_images.push_back({static_cast<std::uint64_t>(ids[n]),width_raw[n],height_raw[n],
+        stride_raw[n],format,image_storage[n].data(),image_storage[n].size()});
+    }
+    arkernel::TexturePipelineConfig config;config.view_selection.require_depth_visibility=false;
+    config.view_selection.max_vertices=static_cast<std::size_t>(max_vertices);
+    config.view_selection.max_triangles=static_cast<std::size_t>(max_triangles);
+    config.view_selection.max_candidates=static_cast<std::size_t>(count);
+    config.label_optimization.max_triangles=static_cast<std::size_t>(max_triangles);
+    config.atlas_layout.atlas_width=atlas_width;config.atlas_layout.atlas_height=atlas_height;
+    config.atlas_layout.max_input_vertices=static_cast<std::size_t>(max_vertices);
+    config.atlas_layout.max_input_triangles=static_cast<std::size_t>(max_triangles);
+    config.atlas_layout.max_output_vertices=static_cast<std::size_t>(max_vertices);
+    config.enable_photometric_correction=enable_photometry==JNI_TRUE;
+    config.enable_seam_blending=enable_seam_blending==JNI_TRUE;
+    const auto result=arkernel::buildTextureAtlas(mesh,candidates,source_images,config);
+    const bool complete=result.stage==arkernel::TexturePipelineStage::kComplete;
+    if(complete&&(result.mesh.positions_m.size()>static_cast<std::size_t>(max_vertices)||
+       result.mesh.triangle_indices.size()/3>static_cast<std::size_t>(max_triangles)))return nullptr;
+    std::size_t bytes=11U*4U+17U*8U+result.error.size();
+    if(complete){
+      bytes+=result.mesh.positions_m.size()*20U+result.mesh.normals.size()*12U+
+        result.mesh.triangle_indices.size()*4U+result.rgba8.size();
+    }
+    if(bytes>static_cast<std::size_t>(max_result_bytes)||
+       bytes>static_cast<std::size_t>(std::numeric_limits<jsize>::max()))return nullptr;
+    std::vector<std::uint8_t> out;out.reserve(bytes);
+    const auto u32=[&out](std::uint32_t v){for(int i=0;i<4;++i)out.push_back(static_cast<std::uint8_t>(v>>(8*i)));};
+    const auto u64=[&out](std::uint64_t v){for(int i=0;i<8;++i)out.push_back(static_cast<std::uint8_t>(v>>(8*i)));};
+    const auto f32=[&out,&u32](float value){std::uint32_t bits=0;std::memcpy(&bits,&value,4);u32(bits);};
+    u32(kMagic);u32(kVersion);u32(static_cast<std::uint32_t>(result.stage));
+    u32((result.input_valid?1U:0U)|(result.truncated?2U:0U));
+    u32(complete?static_cast<std::uint32_t>(result.atlas_width):0U);
+    u32(complete?static_cast<std::uint32_t>(result.atlas_height):0U);
+    u32(complete?static_cast<std::uint32_t>(result.mesh.positions_m.size()):0U);
+    u32(complete?static_cast<std::uint32_t>(result.mesh.normals.size()):0U);
+    u32(complete?static_cast<std::uint32_t>(result.mesh.triangle_indices.size()):0U);
+    u32(static_cast<std::uint32_t>(result.error.size()));
+    u32(complete?static_cast<std::uint32_t>(result.rgba8.size()):0U);
+    const auto& t=result.telemetry;
+    const std::uint64_t telemetry[17]={t.candidate_views,t.projection_tests,t.assigned_triangles,
+      t.unassigned_triangles,t.label_iterations,t.seams_before_labeling,t.seams_after_labeling,
+      t.atlas_patches,t.atlas_vertices,t.atlas_triangles,t.photometry_equations,
+      t.photometry_constrained_views,t.rasterized_pixels,t.padding_pixels,t.raster_pixel_tests,
+      t.blended_seams,t.blended_pixel_updates};
+    for(const auto value:telemetry)u64(value);
+    out.insert(out.end(),result.error.begin(),result.error.end());
+    if(complete){
+      for(const auto& p:result.mesh.positions_m){f32(p.x);f32(p.y);f32(p.z);}
+      for(const auto& n:result.mesh.normals){f32(n.x);f32(n.y);f32(n.z);}
+      for(const auto& uv:result.mesh.texcoords){f32(uv.x);f32(uv.y);}
+      for(const auto index:result.mesh.triangle_indices)u32(index);
+      out.insert(out.end(),result.rgba8.begin(),result.rgba8.end());
+    }
+    if(out.size()!=bytes)return nullptr;
+    auto output=env->NewByteArray(static_cast<jsize>(out.size()));if(!output)return nullptr;
+    env->SetByteArrayRegion(output,0,static_cast<jsize>(out.size()),reinterpret_cast<const jbyte*>(out.data()));
+    return env->ExceptionCheck()?nullptr:output;
+  } catch(...) {return nullptr;}
 }

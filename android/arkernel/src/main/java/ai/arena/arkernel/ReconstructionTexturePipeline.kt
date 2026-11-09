@@ -38,7 +38,8 @@ data class ReconstructionTextureCandidate(
     /** Quaternion w,x,y,z followed by translation x,y,z in metres. */
     val worldFromCamera: DoubleArray,
     val qualityScore: Double,
-    val visibilityDepth: ReconstructionTextureVisibilityDepth? = null,
+    val visibilityDepth: ReconstructionTextureVisibilityDepth? =
+        source.visibilityDepth?.let { ReconstructionTextureVisibilityDepth(it) },
 ) {
     init {
         require(calibration.width == source.width && calibration.height == source.height)

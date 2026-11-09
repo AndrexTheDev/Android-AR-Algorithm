@@ -2,6 +2,8 @@ package ai.arena.arkernel
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,6 +25,10 @@ class ReconstructionTextureSourceLoaderInstrumentedTest {
             val png = ReconstructionTexturePngEncoder.encodeRgba8(2, 2, rgba)
             val pngReference = archive.save(ArchivedReconstructionFrame(
                 metadata(1, 10, ReconstructionImageEncoding.PNG), png.bytes))
+            archive.saveVisibilityDepth(pngReference, MetricDepthBuffer(2, 2, 2,
+                direct(floatArrayOf(2f, 2f, 2f, 2f)),
+                direct(floatArrayOf(1f, 1f, 1f, 1f)), 2, 10,
+                direct(floatArrayOf(0.01f, 0.01f, 0.01f, 0.01f)), 2))
             val i420 = byteArrayOf(82, 82, 82, 82, 90, 240.toByte())
             val i420Reference = archive.save(ArchivedReconstructionFrame(
                 metadata(2, 20, ReconstructionImageEncoding.I420), i420))
@@ -36,13 +42,23 @@ class ReconstructionTextureSourceLoaderInstrumentedTest {
             assertEquals(10L, loaded.sources[0].timestampNs)
             assertEquals(20L, loaded.sources[1].timestampNs)
             assertEquals(1, loaded.decodedCompressedSources)
+            assertEquals(1, loaded.loadedVisibilityDepthSources)
+            assertEquals(48L, loaded.visibilityDepthBytes)
             assertEquals(22L, loaded.canonicalBytes)
+            val loadedDepth = requireNotNull(loaded.sources[0].visibilityDepth)
+            assertTrue(loadedDepth.depthMeters.isDirect)
+            assertEquals(2f, loadedDepth.depthMeters.get(0))
+            assertEquals(0.01f, requireNotNull(loadedDepth.uncertaintyMeters).get(3))
             assertTrue(loaded.sources[0].bytes.contentEquals(rgba))
             assertEquals(CanonicalTexturePixelFormat.RGBA8, loaded.sources[0].format)
             assertEquals(8, loaded.sources[0].rowStrideBytes)
             assertTrue(loaded.sources[1].bytes.contentEquals(i420))
             assertEquals(CanonicalTexturePixelFormat.I420, loaded.sources[1].format)
             assertEquals(2, loaded.sources[1].rowStrideBytes)
+            assertFails { ReconstructionTextureSourceLoader(archive,
+                ReconstructionTextureSourceLoadOptions(maxVisibilityDepthBytes = 47)).load(requests) }
+            assertTrue(archive.delete(pngReference))
+            assertEquals(null, archive.loadVisibilityDepth(pngReference))
         } finally {
             archive.clear()
         }
@@ -68,6 +84,10 @@ class ReconstructionTextureSourceLoaderInstrumentedTest {
             archive.clear()
         }
     }
+
+    private fun direct(values: FloatArray) =
+        ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder())
+            .asFloatBuffer().apply { put(values); flip() }
 
     private fun metadata(id: Long, timestamp: Long, encoding: ReconstructionImageEncoding) =
         ReconstructionFrameMetadata(id, timestamp, 2, 2, 2, encoding,

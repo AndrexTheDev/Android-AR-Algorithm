@@ -20,16 +20,19 @@ data class LoadedReconstructionTextureSource(
     /** Loader-owned canonical bytes; callers must not mutate during native use. */
     val bytes: ByteArray,
     val archivedEncoding: ReconstructionImageEncoding,
+    val visibilityDepth: MetricDepthBuffer? = null,
 )
 
 data class ReconstructionTextureSourceLoadOptions(
     val maxSources: Int = 256,
     val maxCanonicalBytes: Long = 512L * 1024L * 1024L,
+    val maxVisibilityDepthBytes: Long = 512L * 1024L * 1024L,
     val decode: ReconstructionTextureDecodeOptions = ReconstructionTextureDecodeOptions(),
 ) {
     init {
         require(maxSources in 1..4_096)
         require(maxCanonicalBytes in 1..(2L shl 30))
+        require(maxVisibilityDepthBytes in 1..(2L shl 30))
     }
 }
 
@@ -38,6 +41,8 @@ data class LoadedReconstructionTextureSources(
     val archivedBytes: Long,
     val canonicalBytes: Long,
     val decodedCompressedSources: Int,
+    val visibilityDepthBytes: Long,
+    val loadedVisibilityDepthSources: Int,
 )
 
 /**
@@ -63,6 +68,8 @@ class ReconstructionTextureSourceLoader(
         var archivedBytes = 0L
         var canonicalBytes = 0L
         var decodedSources = 0
+        var visibilityDepthBytes = 0L
+        var loadedVisibilityDepthSources = 0
         requests.forEach { request ->
             require(request.frameId > 0 && request.width > 0 && request.height > 0)
             val frame = requireNotNull(archive.load(request.reference)) {
@@ -105,10 +112,22 @@ class ReconstructionTextureSourceLoader(
                 metadata.encoding == ReconstructionImageEncoding.GRAY8) {
                 "Canonical texture source size is inconsistent"
             }
+            val archivedDepth = archive.loadVisibilityDepth(request.reference)
+            val depthBytes = archivedDepth?.let { depth ->
+                val planes = 1 + (if (depth.confidence == null) 0 else 1) +
+                    (if (depth.uncertaintyMeters == null) 0 else 1)
+                Math.multiplyExact(Math.multiplyExact(depth.width.toLong(),
+                    depth.height.toLong()), Math.multiplyExact(planes.toLong(), 4L))
+            } ?: 0L
+            require(depthBytes <= options.maxVisibilityDepthBytes - visibilityDepthBytes) {
+                "Visibility depth byte budget exceeded"
+            }
             canonicalBytes = Math.addExact(canonicalBytes, source.bytes.size.toLong())
-            output += source
+            visibilityDepthBytes = Math.addExact(visibilityDepthBytes, depthBytes)
+            if (archivedDepth != null) loadedVisibilityDepthSources++
+            output += source.copy(visibilityDepth = archivedDepth?.toMetricDepthBuffer())
         }
         return LoadedReconstructionTextureSources(output, archivedBytes, canonicalBytes,
-            decodedSources)
+            decodedSources, visibilityDepthBytes, loadedVisibilityDepthSources)
     }
 }

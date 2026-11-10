@@ -4,6 +4,7 @@ import android.hardware.camera2.CameraCharacteristics
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -81,6 +82,64 @@ class ArKernelGuidedMotionPromptsTest {
         assertTrue(englishBlocked.detail.contains("Metric runtime inconsistent"))
         assertTrue(englishBlocked.detail.contains("Quality: unverified"))
         assertFalse(englishBlocked.message.contains("centimeter", ignoreCase = true))
+    }
+
+    @Test
+    fun formatsCancellationAndLocalizedActionLabels() {
+        val german = ArKernelGuidedMotionPrompts.cancelled(Locale.GERMAN)
+        assertEquals(ArKernelPromptLocale.DE, german.locale)
+        assertEquals(ArKernelPromptTone.BLOCKED, german.tone)
+        assertTrue(german.message.contains("abgebrochen"))
+        assertTrue(german.detail.contains("Qualität: ungeprüft"))
+        assertTrue(german.actionable)
+
+        val english = ArKernelGuidedMotionPrompts.cancelled(Locale.ENGLISH)
+        assertEquals(ArKernelPromptTone.BLOCKED, english.tone)
+        assertTrue(english.message.contains("cancelled"))
+        assertTrue(english.detail.contains("Quality: unverified"))
+
+        val deLabels = ArKernelGuidedMotionPrompts.actionLabels(Locale.GERMAN)
+        assertEquals(ArKernelPromptLocale.DE, deLabels.locale)
+        assertEquals("Abbrechen", deLabels.cancel)
+        assertEquals("Jetzt abschließen", deLabels.finish)
+        assertEquals("Erneut versuchen", deLabels.retry)
+
+        val enLabels = ArKernelGuidedMotionPrompts.actionLabels(Locale.FRENCH)
+        assertEquals(ArKernelPromptLocale.EN, enLabels.locale)
+        assertEquals("Cancel", enLabels.cancel)
+        assertEquals("Finish now", enLabels.finish)
+        assertEquals("Try again", enLabels.retry)
+    }
+
+    @Test
+    fun accessibilityDescriptionContainsQualityAndOnlyAvailableActions() {
+        val prompt = ArKernelGuidedMotionPrompts.format(
+            GuidedMotionGuidanceState.HOLD_STILL, Locale.GERMAN)
+        val labels = ArKernelGuidedMotionPrompts.actionLabels(Locale.GERMAN)
+        val running = ArKernelGuidedMotionPrompts.accessibilityDescription(
+            prompt, labels, cancelAvailable = true, finishAvailable = true,
+            retryAvailable = false)
+        assertTrue(running.contains("Qualität: ungeprüft"))
+        assertTrue(running.contains("Abbrechen"))
+        assertTrue(running.contains("Jetzt abschließen"))
+        assertFalse(running.contains("Erneut versuchen"))
+        assertFalse(running.contains("zentimetervalidiert", ignoreCase = true))
+
+        val retry = ArKernelGuidedMotionPrompts.accessibilityDescription(
+            ArKernelGuidedMotionPrompts.cancelled(Locale.GERMAN), labels,
+            cancelAvailable = false, finishAvailable = false,
+            retryAvailable = true)
+        assertTrue(retry.contains("Erneut versuchen"))
+        assertFalse(retry.contains("Abbrechen"))
+        assertFalse(retry.contains("Jetzt abschließen"))
+        assertTrue(retry.contains("Qualität: ungeprüft"))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            ArKernelGuidedMotionPrompts.accessibilityDescription(
+                prompt, ArKernelGuidedMotionPrompts.actionLabels(Locale.ENGLISH),
+                cancelAvailable = false, finishAvailable = false,
+                retryAvailable = false)
+        }
     }
 
     private fun grantedReport(): GuidedMotionAdmissionReport =

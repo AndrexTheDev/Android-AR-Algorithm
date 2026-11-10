@@ -2,14 +2,28 @@ package ai.arena.arkernel
 
 import java.util.Locale
 
+/** Short localized action labels; hosts still apply real accessibility semantics. */
+data class ArKernelGuidedMotionActionLabels(
+    val locale: ArKernelPromptLocale,
+    val cancel: String,
+    val finish: String,
+    val retry: String,
+) {
+    init {
+        require(cancel.isNotBlank() && finish.isNotBlank() && retry.isNotBlank())
+    }
+}
+
 /**
  * Bounded German/English host copy for guided motion compatibility runs.
  *
  * It reuses the existing UI-neutral prompt envelope and turns only exact
- * [GuidedMotionGuidanceState] values or stable [GuidedMotionAdmissionReason]
- * values into short text. It does not render UI, provide accessibility or
- * cancellation UX, actuate hardware, finish the probe, grant admission or
- * assert a dimensional/quality grade. Accepted reports remain `unverified`.
+ * [GuidedMotionGuidanceState] values, stable [GuidedMotionAdmissionReason]
+ * values or an explicit cancellation into short text and action labels. The
+ * accessibility description is host-supplied text only: this object does not
+ * render UI, provide full accessibility semantics, actuate hardware, finish the
+ * probe, grant admission or assert a dimensional/quality grade. Accepted
+ * reports remain `unverified`.
  */
 object ArKernelGuidedMotionPrompts {
     fun format(
@@ -80,6 +94,55 @@ object ArKernelGuidedMotionPrompts {
                     "Geführter Test nicht freigegeben. Bitte erneut versuchen.",
                     "Guided test not admitted. Please try again."), detail, true)
         }
+    }
+
+    fun cancelled(
+        locale: Locale = Locale.getDefault(),
+    ): ArKernelLocalizedPrompt = cancelled(ArKernelPromptLocale.from(locale))
+
+    fun cancelled(promptLocale: ArKernelPromptLocale): ArKernelLocalizedPrompt =
+        prompt(promptLocale, ArKernelPromptTone.BLOCKED,
+            text(promptLocale, "Geführter Test abgebrochen.",
+                "Guided test cancelled."),
+            text(promptLocale, "Qualität: ungeprüft; Geführter Bewegungstest",
+                "Quality: unverified; Guided motion test"), true)
+
+    fun actionLabels(
+        locale: Locale = Locale.getDefault(),
+    ): ArKernelGuidedMotionActionLabels =
+        actionLabels(ArKernelPromptLocale.from(locale))
+
+    fun actionLabels(
+        promptLocale: ArKernelPromptLocale,
+    ): ArKernelGuidedMotionActionLabels = ArKernelGuidedMotionActionLabels(
+        promptLocale,
+        text(promptLocale, "Abbrechen", "Cancel"),
+        text(promptLocale, "Jetzt abschließen", "Finish now"),
+        text(promptLocale, "Erneut versuchen", "Try again"),
+    )
+
+    /** Text-only content description; it is not a platform accessibility node. */
+    fun accessibilityDescription(
+        prompt: ArKernelLocalizedPrompt,
+        labels: ArKernelGuidedMotionActionLabels,
+        cancelAvailable: Boolean,
+        finishAvailable: Boolean,
+        retryAvailable: Boolean,
+    ): String {
+        require(prompt.locale == labels.locale) {
+            "Prompt and action labels must use the same locale"
+        }
+        val parts = mutableListOf(
+            prompt.message,
+            prompt.detail,
+            text(prompt.locale, "Qualität: ungeprüft", "Quality: unverified"),
+        )
+        if (cancelAvailable) parts += labels.cancel
+        if (finishAvailable) parts += labels.finish
+        if (retryAvailable) parts += labels.retry
+        return parts.joinToString(". ") {
+            it.trim().trimEnd('.', ';')
+        } + "."
     }
 
     private fun guidanceDetail(locale: ArKernelPromptLocale): String =

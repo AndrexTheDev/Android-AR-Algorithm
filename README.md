@@ -81,22 +81,27 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 
 Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/FALLBACK.md`](docs/FALLBACK.md), [`docs/DEVICE_COMPATIBILITY_STRATEGY.md`](docs/DEVICE_COMPATIBILITY_STRATEGY.md), [`docs/INFERENCE.md`](docs/INFERENCE.md), [`docs/SEMANTICS.md`](docs/SEMANTICS.md) und [`docs/OPEN_SOURCE_ADOPTION.md`](docs/OPEN_SOURCE_ADOPTION.md).
 
-## Diagnose-APK für ein echtes Gerät
+## Ultimative Diagnose-App für ein echtes Gerät
 
 Für ein physisches Gerät (z. B. Redmi Note 13) gibt es das sideloadbare Modul
-[`android/diagnostics-app`](android/diagnostics-app/README.md). Nach explizitem
-Opt-in schreibt es eine `ARKFDLOG1`-Textdatei und die zugehörige
-`ARKFDPOL1`-Richtlinie in den Download- bzw. app-eigenen Dateibereich; die
-Datei kann hier im Chat hochgeladen werden. Die App enthält keine Bilder,
-Posen, Trajektorien oder Kalibrierarrays, lädt nichts automatisch hoch und
-bleibt `unverified`. Ein geführter zweiter Modus führt modellunabhängige
-Hardware-Selbsttests auf dem Gerät durch (Sensor-/Kamera-Katalog, IMU-Stillstand,
-Camera2-Lifecycle/Preview, Storage-Roundtrip, deterministischer Kern-Selbsttest,
-Thermal-Zeitreihe) und schreibt ausschließlich opake Struktur-Skalare. Die
-Android-CI baut die Debug-APK als Artefakt `arkernel-diagnostics-apk` und
-veröffentlicht sie zusätzlich als Release-Asset unter dem Tag
-`diagnostics-apk-latest`. Sie liefert begrenzte Laufzeitfakten, keinen
-physischen Bodentruth und keine Zentimetervalidierung.
+[`android/diagnostics-app`](android/diagnostics-app/README.md). Es ist bewusst
+**eine dauerhaft installierte App**: Ein versionierter `ARKFDPLAN1`-Textplan
+verändert Dauer, Reihenfolge, Wiederholungen und begrenzte Sensor-/Kamera-/
+Speicher-/Thermal-Parameter für zukünftige Läufe, ohne dass dafür eine neue APK
+installiert werden muss. Nur eine wirklich neue Android-API erfordert ein Update
+derselben App. Nach explizitem Opt-in schreibt sie `ARKFDPOL1`-Richtlinie,
+`ARKFDPLAN1`-Testplan und `ARKFDLOG1`-Lauf-Log als reine Textdateien in den
+Download- bzw. app-eigenen Dateibereich; Log und Plan können hier im Chat
+hochgeladen werden. Der fail-closed Planparser akzeptiert nur 17 bereits
+implementierte Operatoren, feste Sicherheitsflags und `unverified`. Ein
+ultimativer 20-Schritt-Standardplan deckt Gerätekataloge, Snapshots,
+IMU-Stillstand, Live-Sensoren, Camera2-Lifecycle/Preview, wiederholte
+Storage-/Compute-/Thermal-Tests ab. Die App enthält keine Bilder, Posen,
+Trajektorien oder Kalibrierarrays, lädt nichts automatisch hoch und bleibt
+`unverified`. Die Android-CI baut die Debug-APK als Artefakt
+`arkernel-diagnostics-apk` und veröffentlicht sie zusätzlich als Release-Asset
+unter dem Tag `diagnostics-apk-latest`. Sie liefert begrenzte Laufzeitfakten,
+keinen physischen Bodentruth und keine Zentimetervalidierung.
 
 ## Lizenz
 

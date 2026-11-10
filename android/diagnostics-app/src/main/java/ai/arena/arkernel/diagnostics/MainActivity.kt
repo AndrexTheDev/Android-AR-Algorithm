@@ -5,6 +5,8 @@ import ai.arena.arkernel.ArKernelFieldDiagnosticsLogEventKind
 import ai.arena.arkernel.ArKernelFieldDiagnosticsPolicy
 import ai.arena.arkernel.ArKernelFieldDiagnosticsPolicyBundle
 import ai.arena.arkernel.ArKernelFieldDiagnosticsRunLog
+import ai.arena.arkernel.ArKernelFieldDiagnosticsTestPlan
+import ai.arena.arkernel.ArKernelFieldDiagnosticsTestPlanBundle
 import ai.arena.arkernel.ArKernelPhysicalSelfTestMetrics
 import android.Manifest
 import android.app.ActivityManager
@@ -28,9 +30,12 @@ import android.os.PowerManager
 import android.os.StatFs
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.text.InputFilter
+import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -41,13 +46,13 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Sideloadable host diagnostic app. It writes an opted-in ARKFDPOL1 policy and
- * a bounded ARKFDLOG1 run log as text files, never images, poses, trajectories,
- * calibration arrays or pixels. A guided self-test mode adds only
- * model-independent structural measurements from the device's own sensors,
- * camera lifecycle, storage and thermal API; it performs no automatic upload,
- * signature verification or physical ground-truth measurement and stays
- * explicitly unverified.
+ * Single installed, plan-driven host diagnostic app. It writes an opted-in
+ * ARKFDPOL1 policy, an ARKFDPLAN1 test plan and a bounded ARKFDLOG1 run log as
+ * text files, never images, poses, trajectories, calibration arrays or pixels.
+ * A host-pasted ARKFDPLAN1 plan selects implemented structural test operators;
+ * it cannot add new low-level capabilities. The app performs no automatic
+ * upload, signature verification or physical ground-truth measurement and
+ * stays explicitly unverified.
  */
 class MainActivity : android.app.Activity() {
 
@@ -56,6 +61,9 @@ class MainActivity : android.app.Activity() {
     private lateinit var optIn: CheckBox
     private lateinit var createButton: Button
     private lateinit var physicalButton: Button
+    private lateinit var resetPlanButton: Button
+    private lateinit var planInput: EditText
+    private lateinit var sharePlanButton: Button
     private lateinit var writeButton: Button
     private lateinit var shareButton: Button
     private lateinit var copyButton: Button
@@ -66,11 +74,16 @@ class MainActivity : android.app.Activity() {
     )
     private val policyText: String =
         ArKernelFieldDiagnosticsPolicyBundle.encode(diagnosticsPolicy)
+    private val defaultPlanText: String =
+        ArKernelFieldDiagnosticsTestPlanBundle.defaultPlanText()
     private val runCounter = AtomicInteger(0)
     private val sessionStartMillis = System.currentTimeMillis()
 
     private var currentLog: String = ""
     private var currentRunId: String = "run.initial"
+
+    @Volatile
+    private var currentPlanText: String = defaultPlanText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,19 +101,23 @@ class MainActivity : android.app.Activity() {
         }
 
         val intro = TextView(this).apply {
-            text = "Zwei Modi nach Opt-in: kurzer Kapabilitäts-Log oder geführte " +
-                "physische Selbsttests mit deiner Hilfe. Beide schreiben eine " +
-                "ARKFDLOG1-Textdatei (Downloads/ARKernelDiagnostics bzw. App-Dateien), " +
-                "die du hier im Chat hochladen kannst."
+            text = "Eine installierte App, viele zukünftige Testläufe: unten steht ein " +
+                "ARKFDPLAN1-Textplan. Dauer, Reihenfolge, Wiederholungen und Parameter " +
+                "lassen sich als Text ändern, ohne eine neue App zu installieren. " +
+                "Kurzer Kapabilitäts-Log oder ultimativer Planlauf schreiben " +
+                "ARKFDPOL1, ARKFDPLAN1 und ARKFDLOG1 (Downloads/ARKernelDiagnostics " +
+                "bzw. App-Dateien), die du hier im Chat hochladen kannst."
             textSize = 14f
         }
 
         val safetyText = TextView(this).apply {
-            text = "Nur opake Skalare: Gerätekataloge, IMU-Stillstand, Camera2-Lifecycle, " +
-                "Storage-Roundtrip, Kern-Selbsttest, Thermal-Zeitreihe. Keine Bilder, " +
-                "Posen, Trajektorien, Kalibrierarrays oder Pixel; Nutzerbestätigungen " +
-                "sind nur host-reported. Keine externen Targets, kein Bodentruth, " +
-                "kein Upload, Qualität: unverified."
+            text = "Der Plan wählt nur bereits implementierte Operatoren: Gerätekataloge, " +
+                "Sensoren, IMU-Stillstand, Camera2-Lifecycle, Storage-Roundtrip, " +
+                "Kern-Selbsttest, Thermal-Zeitreihe und Snapshots. Neue Android-APIs " +
+                "würden ein Update derselben App erfordern, keine neue App. Nur opake " +
+                "Skalare; keine Bilder, Posen, Trajektorien, Kalibrierarrays oder Pixel; " +
+                "Nutzerbestätigungen sind host-reported. Keine externen Targets, kein " +
+                "Bodentruth, kein Upload, Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -118,13 +135,40 @@ class MainActivity : android.app.Activity() {
             setPadding(0, 12, 0, 12)
         }
 
+        val planLabel = TextView(this).apply {
+            text = "ARKFDPLAN1 (maximal 4096 Zeichen; fail-closed):"
+            textSize = 13f
+            setPadding(0, 12, 0, 4)
+        }
+
+        planInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            filters = arrayOf(InputFilter.LengthFilter(4_096))
+            minLines = 6
+            maxLines = 10
+            isSingleLine = false
+            setText(defaultPlanText)
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setBackgroundColor(Color.parseColor("#F7F7F7"))
+            setPadding(8, 8, 8, 8)
+        }
+
+        resetPlanButton = Button(this).apply {
+            text = "Standard-ARKFDPLAN1 wiederherstellen"
+            textSize = 14f
+            setAllCaps(false)
+        }
+
         createButton = Button(this).apply {
             text = "1. Kurzen Kapabilitäts-Log erzeugen"
             textSize = 15f
             setAllCaps(false)
         }
         physicalButton = Button(this).apply {
-            text = "2. Physische Selbsttests starten (mit deiner Hilfe)"
+            text = "2. Ultimativen Planlauf starten (mit deiner Hilfe)"
             textSize = 15f
             setAllCaps(false)
         }
@@ -135,6 +179,11 @@ class MainActivity : android.app.Activity() {
         }
         shareButton = Button(this).apply {
             text = "4. Log teilen"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        sharePlanButton = Button(this).apply {
+            text = "ARKFDPLAN1 teilen"
             textSize = 15f
             setAllCaps(false)
         }
@@ -168,10 +217,20 @@ class MainActivity : android.app.Activity() {
         root.addView(safetyText, fullWidthParams())
         root.addView(optIn, fullWidthParams())
         root.addView(statusText, fullWidthParams())
+        root.addView(planLabel, fullWidthParams())
+        root.addView(
+            planInput,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                260,
+            ),
+        )
+        root.addView(resetPlanButton, fullWidthParams())
         root.addView(createButton, fullWidthParams())
         root.addView(physicalButton, fullWidthParams())
         root.addView(writeButton, fullWidthParams())
         root.addView(shareButton, fullWidthParams())
+        root.addView(sharePlanButton, fullWidthParams())
         root.addView(copyButton, fullWidthParams())
         root.addView(
             scroll,
@@ -184,6 +243,11 @@ class MainActivity : android.app.Activity() {
         setContentView(root)
 
         optIn.setOnCheckedChangeListener { _, _ -> updateButtons() }
+        resetPlanButton.setOnClickListener {
+            planInput.setText(defaultPlanText)
+            currentPlanText = defaultPlanText
+            statusText.text = "Standard-ARKFDPLAN1 wiederhergestellt. unverified."
+        }
         createButton.setOnClickListener { createLog() }
         physicalButton.setOnClickListener { runPhysicalTests() }
         writeButton.setOnClickListener {
@@ -193,6 +257,7 @@ class MainActivity : android.app.Activity() {
             }.start()
         }
         shareButton.setOnClickListener { shareLog() }
+        sharePlanButton.setOnClickListener { sharePlan() }
         copyButton.setOnClickListener { copyLog() }
 
         updateButtons()
@@ -207,8 +272,11 @@ class MainActivity : android.app.Activity() {
 
     private fun updateButtons() {
         val allowed = optIn.isChecked
+        resetPlanButton.isEnabled = allowed
+        planInput.isEnabled = allowed
         createButton.isEnabled = allowed
         physicalButton.isEnabled = allowed
+        sharePlanButton.isEnabled = allowed
         val hasLog = allowed && currentLog.isNotEmpty()
         writeButton.isEnabled = hasLog
         shareButton.isEnabled = hasLog
@@ -220,6 +288,7 @@ class MainActivity : android.app.Activity() {
             statusText.text = "Bitte zuerst das Opt-in anhaken."
             return
         }
+        if (capturePlan() == null) return
         try {
             val text = buildLogText()
             publishLog(text, "Kapabilitäts-Log erzeugt.")
@@ -236,28 +305,60 @@ class MainActivity : android.app.Activity() {
             statusText.text = "Bitte zuerst das Opt-in anhaken."
             return
         }
+        val (plan, planText) = capturePlan() ?: return
         physicalButton.isEnabled = false
+        createButton.isEnabled = false
         Thread {
             val runner = PhysicalSelfTestRunner(this)
-            val result = runner.run { progress ->
+            val result = runner.runPlan(plan, planText) { progress ->
                 runOnUiThread { statusText.text = progress }
             }
             runOnUiThread {
                 try {
                     val text = buildLogText(
-                        result.events, result.passed, result.total)
+                        result.events,
+                        result.passed,
+                        result.total,
+                        result.maxEvents,
+                    )
                     publishLog(text, result.summary)
                 } catch (error: Exception) {
                     currentLog = ""
                     currentRunId = "run.error"
                     statusText.text =
-                        "Selbsttests konnten nicht protokolliert werden: " +
+                        "Planlauf konnte nicht protokolliert werden: " +
                             error.message
                 } finally {
                     updateButtons()
                 }
             }
         }.start()
+    }
+
+    /** Canonicalises and fail-closes a host-pasted plan on the UI thread. */
+    private fun capturePlan(): Pair<ArKernelFieldDiagnosticsTestPlan, String>? {
+        val parsed = ArKernelFieldDiagnosticsTestPlanBundle.parse(
+            planInput.text.toString())
+        if (!parsed.accepted) {
+            statusText.text = "ARKFDPLAN1 abgelehnt: ${parsed.rejection.name} " +
+                "(Zeile ${parsed.lineNumber}). ${parsed.detail}"
+            currentLog = ""
+            currentRunId = "run.invalid.plan"
+            updateButtons()
+            return null
+        }
+        val plan = parsed.plan!!
+        if (plan.maxEvents < 16) {
+            statusText.text = "ARKFDPLAN1: max_events muss mindestens 16 sein " +
+                "(Basis-Log plus Terminalevents)."
+            currentLog = ""
+            currentRunId = "run.invalid.plan"
+            updateButtons()
+            return null
+        }
+        val canonical = ArKernelFieldDiagnosticsTestPlanBundle.encode(plan)
+        currentPlanText = canonical
+        return plan to canonical
     }
 
     private fun publishLog(text: String, status: String) {
@@ -282,14 +383,13 @@ class MainActivity : android.app.Activity() {
         extraEvents: List<PendingLogEvent> = emptyList(),
         passed: Int = 0,
         total: Int = 0,
+        maxEvents: Int = 128,
     ): String {
-        require(extraEvents.size <= 100) {
-            "Too many physical self-test events"
-        }
         require(extraEvents.none {
             it.kind == ArKernelFieldDiagnosticsLogEventKind.RUN_START ||
                 it.kind == ArKernelFieldDiagnosticsLogEventKind.RUN_END
-        }) { "Physical self-test events cannot contain terminal events" }
+        }) { "Plan events cannot contain terminal events" }
+        val boundedExtraEvents = boundedPlanEvents(extraEvents, maxEvents)
         val sessionId = "session-" + sessionStartMillis
         val runId = "run-" + System.currentTimeMillis() + "." +
             runCounter.incrementAndGet()
@@ -399,7 +499,7 @@ class MainActivity : android.app.Activity() {
             uptimeSeconds,
             storageToken,
         )
-        for (pending in extraEvents) {
+        for (pending in boundedExtraEvents) {
             add(pending.kind, pending.code, pending.value, pending.detailToken)
         }
         add(
@@ -423,6 +523,28 @@ class MainActivity : android.app.Activity() {
             runId,
             events,
         )
+    }
+
+    /** Keeps the plan's event budget while retaining the final plan result. */
+    private fun boundedPlanEvents(
+        events: List<PendingLogEvent>,
+        maxEvents: Int,
+    ): List<PendingLogEvent> {
+        val budget = maxEvents.coerceIn(16, 128) - 15
+        if (events.size <= budget) return events
+        val tailCount = minOf(7, budget - 1)
+        val headCount = budget - 1 - tailCount
+        val dropped = events.size - headCount - tailCount
+        return events.take(headCount) +
+            listOf(
+                PendingLogEvent(
+                    ArKernelFieldDiagnosticsLogEventKind.GUIDED_STEP,
+                    "plan.events.truncated",
+                    dropped.toLong(),
+                    "unverified",
+                ),
+            ) +
+            events.takeLast(tailCount)
     }
 
     private fun memoryFacts(): Pair<Long, String> {
@@ -540,11 +662,15 @@ class MainActivity : android.app.Activity() {
 
     private fun writeDiagnosticsFiles(): String {
         val policyName = "ARKFDPOL1_${currentRunId}.txt"
+        val planName = "ARKFDPLAN1_${currentRunId}.txt"
         val logName = "ARKFDLOG1_${currentRunId}.txt"
         val policyResult = writeTextToDownloads(policyName, policyText)
+        val planResult = writeTextToDownloads(planName, currentPlanText)
         val logResult = writeTextToDownloads(logName, currentLog)
-        return "Richtlinie: $policyResult\nLauf-Log: $logResult\n\n" +
-            "Bitte $logName hier im Chat hochladen oder über 'Log teilen' senden."
+        return "Richtlinie: $policyResult\nTestplan: $planResult\n" +
+            "Lauf-Log: $logResult\n\n" +
+            "Bitte $logName und $planName hier im Chat hochladen oder über " +
+            "'Log teilen'/'ARKFDPLAN1 teilen' senden."
     }
 
     private fun writeTextToDownloads(fileName: String, text: String): String {
@@ -606,6 +732,21 @@ class MainActivity : android.app.Activity() {
             startActivity(Intent.createChooser(send, "ARKFDLOG1 teilen"))
         } catch (error: Exception) {
             statusText.text = "Teilen fehlgeschlagen: ${error.message}"
+        }
+    }
+
+    private fun sharePlan() {
+        if (!optIn.isChecked || currentPlanText.isEmpty()) return
+        if (capturePlan() == null) return
+        try {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "ARKFDPLAN1 $currentRunId")
+                putExtra(Intent.EXTRA_TEXT, currentPlanText)
+            }
+            startActivity(Intent.createChooser(send, "ARKFDPLAN1 teilen"))
+        } catch (error: Exception) {
+            statusText.text = "Plan teilen fehlgeschlagen: ${error.message}"
         }
     }
 

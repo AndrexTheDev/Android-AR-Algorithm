@@ -26,17 +26,32 @@ private val FIELD_LOG_METADATA_KEYS = listOf(
 enum class ArKernelFieldDiagnosticsLogEventKind {
     RUN_START,
     CAPABILITY,
+    PLAN_METADATA,
+    PLAN_STEP,
+    PLAN_RESULT,
+    PLAN_CRC,
     SENSOR_CATALOG,
     CAMERA_CATALOG,
     GUIDED_STEP,
     IMU_STILLNESS,
+    SENSOR_LIVE,
     CAMERA_LIFECYCLE,
     CAMERA_FRAMES,
+    CAMERA_REPEAT,
     STORAGE_ROUNDTRIP,
+    STORAGE_REPEAT,
     COMPUTE_SELFTEST,
+    COMPUTE_REPEAT,
     TIMING,
     THERMAL,
     THERMAL_SOAK,
+    BATTERY_SNAPSHOT,
+    DISPLAY_SNAPSHOT,
+    AUDIO_CATALOG,
+    CONNECTIVITY_CATALOG,
+    PERMISSION_CATALOG,
+    PACKAGE_CATALOG,
+    MEMORY_SNAPSHOT,
     SERVICE_DEATH,
     SESSION_TERMINAL,
     RUN_END,
@@ -145,9 +160,11 @@ data class ArKernelFieldDiagnosticsLogRecord(
  * calibration arrays, pixels or dense geometry, and stays `unverified`. It can
  * supply bounded runtime facts but cannot replace physical targets, a rig,
  * controlled thermal runs or device-farm evidence. The additional catalog,
- * guided-step, stillness, frame, storage, compute and thermal-soak kinds carry
- * only bounded structural self-test scalars; they are not physical ground
- * truth and cannot assert assessed quality.
+ * guided-step, stillness, frame, storage, compute, thermal-soak, snapshot and
+ * `ARKFDPLAN1` plan-metadata kinds carry only bounded structural self-test
+ * scalars; they are not physical ground truth and cannot assert assessed
+ * quality. A host-supplied plan selects implemented operators but cannot add
+ * new low-level capabilities or physical truth.
  */
 object ArKernelFieldDiagnosticsRunLog {
     /** Requires the host's explicit collection opt-in; still performs no I/O. */

@@ -109,7 +109,8 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Connect the native portable planner through JNI (pose, uncertainty, quality, ROI, view bins and rejection reason).
 - [x] Add one-at-a-time planner reservation with tokenized commit/cancel and unchanged pre-commit coverage.
 - [x] Add host scan controller wiring quality gate, reservation, I420 packet, bounded writer and durable commit/cancel.
-- [ ] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX.
+- [x] Add optional authenticated encryption for sensitive retained keyframes and explicit host retention UX: opt-in AES-256-GCM envelopes for colour frames and frame-owned depth companions, AAD-bound session/file/role identity, non-exportable Android Keystore keys, strict fail-closed decoding and explicit host retention/deletion controls are implemented; localized app UI remains open.
+- [ ] Add localized app retention UI and physical-device validation of encrypted keyframe lifecycle.
 - [ ] Add verified loop closure, pose graph optimization and global bundle adjustment.
 - [x] Add a bounded calibrated inverse-depth plane-sweep MVS fallback with distortion-aware multi-view reprojection, ZNCC support gates, explicit unknown pixels and sampling uncertainty.
 - [ ] Add dense reconstruction refinement and fusion: bounded inverse-depth refinement, uncertainty, matching/consistency, sparse TSDF fusion, meshing, filtering, conservative clustering, Android orchestration, view selection, coherent labels, UV layout, relative per-view RGB normalization, local seam blending, bounded global least-squares seam optimization, measured quadric-error-guided clustering LOD and canonical RGBA/I420 pixel baking are implemented; full Poisson/multiband seam solving, calibrated camera-response modelling and dynamic edge-collapse QEM remain; bounded durable multi-session state is implemented.

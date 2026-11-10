@@ -245,37 +245,60 @@ internal object ReconstructionFrameCodec {
 /**
  * Crash-safe bounded keyframe archive in app-private no-backup storage.
  * One AtomicFile per frame avoids rewriting an entire scan. CRC detects
- * truncation/corruption; it is not authentication or encryption.
+ * truncation/corruption; it is not authentication. When
+ * [authenticatedEncryption] is enabled, each colour/depth envelope is wrapped
+ * in an AES-256-GCM envelope bound to this session and file identity, and the
+ * non-exportable key lives in Android Keystore. Hosts must still expose
+ * explicit retention/deletion controls; [clear] can delete the key as well as
+ * all retained frames.
  */
 class ReconstructionFrameArchive(
     context: Context,
     sessionId: String,
     private val maxFrames: Int = 2_000,
     private val maxTotalBytes: Long = 1L shl 30,
+    val authenticatedEncryption: Boolean = false,
+    keyAlias: String = "ai.arena.arkernel.reconstruction-frames.v1.$sessionId",
 ) {
     private val directory: File
     private val referencePrefix: String
+    private val sessionId: String
+    private val keyAlias: String
 
     init {
         require(SESSION_PATTERN.matches(sessionId)) { "Invalid reconstruction session ID" }
         require(maxFrames > 0 && maxTotalBytes > 0) { "Archive budgets must be positive" }
+        require(keyAlias.isNotBlank()) { "Frame encryption key alias must not be blank" }
+        this.sessionId = sessionId
+        this.keyAlias = keyAlias
         directory = File(context.noBackupFilesDir, "arkernel-reconstruction/$sessionId")
         require(directory.mkdirs() || directory.isDirectory) { "Could not create reconstruction archive" }
         referencePrefix = "arkf://$sessionId/"
     }
 
+    private fun wrapEnvelope(plaintext: ByteArray, fileName: String, kind: Byte): ByteArray =
+        if (!authenticatedEncryption) plaintext else
+            ReconstructionFrameAeadCodec.encrypt(plaintext,
+                ReconstructionFrameAeadCodec.aad(sessionId, fileName, kind), keyAlias)
+
+    private fun unwrapEnvelope(bytes: ByteArray, fileName: String, kind: Byte): ByteArray =
+        if (!authenticatedEncryption) bytes else
+            ReconstructionFrameAeadCodec.decrypt(bytes,
+                ReconstructionFrameAeadCodec.aad(sessionId, fileName, kind), keyAlias)
+
     @Synchronized
     fun save(frame: ArchivedReconstructionFrame): String {
         val envelope = ReconstructionFrameCodec.encode(frame)
-        require(envelope.size.toLong() <= maxTotalBytes) { "Frame exceeds archive byte budget" }
         val name = fileName(frame.metadata.timestampNs, frame.metadata.frameId)
+        val payload = wrapEnvelope(envelope, name, ReconstructionFrameAeadCodec.KIND_COLOUR)
+        require(payload.size.toLong() <= maxTotalBytes) { "Frame exceeds archive byte budget" }
         val target = File(directory, name)
         require(!target.exists()) { "Frame already exists" }
-        evictFor(envelope.size.toLong())
+        evictFor(payload.size.toLong())
         val atomic = AtomicFile(target)
         val output = atomic.startWrite()
         try {
-            output.write(envelope)
+            output.write(payload)
             atomic.finishWrite(output)
         } catch (error: Throwable) {
             atomic.failWrite(output)
@@ -298,7 +321,8 @@ class ReconstructionFrameArchive(
         }
         val bytes = input.use { it.readBytes() }
         require(bytes.size.toLong() == length) { "Archived frame was truncated" }
-        return ReconstructionFrameCodec.decode(bytes)
+        return ReconstructionFrameCodec.decode(
+            unwrapEnvelope(bytes, name, ReconstructionFrameAeadCodec.KIND_COLOUR))
     }
 
     /**
@@ -315,14 +339,16 @@ class ReconstructionFrameArchive(
         }
         val archived = ReconstructionVisibilityDepthCodec.copyFrom(frame.metadata.frameId, depth)
         val envelope = ReconstructionVisibilityDepthCodec.encode(archived)
-        require(envelope.size.toLong() <= maxTotalBytes) { "Visibility depth exceeds archive budget" }
+        val depthName = depthFile(name).name
+        val payload = wrapEnvelope(envelope, depthName, ReconstructionFrameAeadCodec.KIND_DEPTH)
+        require(payload.size.toLong() <= maxTotalBytes) { "Visibility depth exceeds archive budget" }
         val target = depthFile(name)
         require(!target.exists()) { "Visibility depth already exists" }
-        evictFor(envelope.size.toLong(), protectedFrameName = name, addsFrame = false)
+        evictFor(payload.size.toLong(), protectedFrameName = name, addsFrame = false)
         val atomic = AtomicFile(target)
         val output = atomic.startWrite()
         try {
-            output.write(envelope)
+            output.write(payload)
             atomic.finishWrite(output)
         } catch (error: Throwable) {
             atomic.failWrite(output)
@@ -337,12 +363,14 @@ class ReconstructionFrameArchive(
         val atomic = AtomicFile(depthFile(name))
         val input = try { atomic.openRead() } catch (_: FileNotFoundException) { return null }
         val length = atomic.baseFile.length()
-        require(length in 1..ReconstructionVisibilityDepthCodec.MAX_BYTES.toLong()) {
+        require(length in 1..(ReconstructionVisibilityDepthCodec.MAX_BYTES +
+                MAX_AEAD_OVERHEAD_BYTES).toLong()) {
             input.close(); "Archived visibility depth has an invalid size"
         }
         val bytes = input.use { it.readBytes() }
         require(bytes.size.toLong() == length) { "Archived visibility depth was truncated" }
-        val depth = ReconstructionVisibilityDepthCodec.decode(bytes)
+        val depth = ReconstructionVisibilityDepthCodec.decode(
+            unwrapEnvelope(bytes, depthFile(name).name, ReconstructionFrameAeadCodec.KIND_DEPTH))
         require(depth.frameId == frame.metadata.frameId &&
             depth.timestampNs == frame.metadata.timestampNs &&
             depth.width == frame.metadata.width && depth.height == frame.metadata.height) {
@@ -417,10 +445,19 @@ class ReconstructionFrameArchive(
         return deleted
     }
 
+    /** Explicit host deletion of all retained frames and optional key rotation. */
     @Synchronized
-    fun clear(): Boolean = directory.deleteRecursively().also {
-        if (it) require(directory.mkdirs() || directory.isDirectory)
+    fun clear(deleteKey: Boolean = false): Boolean {
+        val deleted = directory.deleteRecursively()
+        if (deleted) require(directory.mkdirs() || directory.isDirectory)
+        if (deleteKey && authenticatedEncryption) deleteEncryptionKey()
+        return deleted
     }
+
+    /** Explicit host deletion of the non-exportable Android Keystore key. */
+    @Synchronized
+    fun deleteEncryptionKey(): Boolean =
+        authenticatedEncryption && ReconstructionFrameAeadCodec.deleteKey(keyAlias)
 
     @Synchronized
     fun references(): List<String> = frameFiles().map { referencePrefix + it.name }
@@ -486,7 +523,8 @@ class ReconstructionFrameArchive(
         String.format(Locale.US, "%019d-%019d.arkf", timestampNs, frameId)
 
     private companion object {
-        const val MAX_HEADER_BYTES = 256
+        const val MAX_HEADER_BYTES = 320
+        const val MAX_AEAD_OVERHEAD_BYTES = 64
         const val POSE_MANIFEST_FILE = "optimized-poses.arkp"
         val SESSION_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
         val FILE_PATTERN = Regex("[0-9]{19}-[0-9]{19}\\.arkf")

@@ -89,6 +89,8 @@
 - [ ] synthetische Camera2-/IMU-Fehlerinjektion: skalare Timing-, Gap-, Dropout-, Latenz-, Clock- und Überlappungsfehler, alle 45 Fehlerpaare sowie ein produktiv verdrahteter generationssicherer Camera2-Lifecycle-Automat mit exhaustiven kurzen Callback-Sequenzen sind implementiert; Framework-Service-Death-Instrumentierung und breiteres Zufalls-Fuzzing bleiben offen; [x] signierte disable-only Quirk-Policy mit atomarer lokaler Installation und Offline-Fallback;
 - [ ] reale Geräte nach Capability-Set-Cover statt Modellliste: deterministische gewichtete Single-/Pairwise-Inventarauswahl ist implementiert; Cloud-/Lab-Provider-Anbindung, Mobly-Sensorfusionsrig, thermische 30-Minuten-Läufe sowie Tag/Nacht/Weather-Szenen bleiben offen;
 - [ ] optionales Feld-Diagnosepaket ohne Bilder/Trajektorien als Default; Zentimetervalidierung bleibt an unabhängige Targets und exakte Capability-/Kalibriersignatur gebunden.
+  - [x] Ein begrenzter, host-eigener kanonischer `ARKFDIAG1`-Textadapter für terminale Zustands-/Telemetriezusammenfassungen ist implementiert: strikte Schlüsselreihenfolge, Eingabe-/Zeilenbudgets, hex-kodierte Fehlertexte, optionale opake Capability-/Kalibriersignaturen und unabhängige Target-Referenzen, fail-closed Parsing und explizites `unverified`; keine Bilder, Posen, Trajektorien, Pixel oder dichte Geometrie, keine automatische Erfassung, kein Upload und keine Qualitätsaufstufung.
+  - [ ] Feldtaugliche Erfassung/Redaktion/Upload-Policy, kryptografische Signaturverifikation, unabhängige physische Targets, Geräte-/Rig-Evidenz und Zentimetervalidierung bleiben offen.
 
 ## Qualitätsgates je Pull Request
 

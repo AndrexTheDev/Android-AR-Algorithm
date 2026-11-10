@@ -97,7 +97,8 @@
   - [ ] Cloud-/Lab-Provider-Anbindung, Mobly-Sensorfusionsrig, echte thermische 30-Minuten-Läufe sowie Tag/Nacht/Weather-Szenen bleiben offen.
 - [ ] optionales Feld-Diagnosepaket ohne Bilder/Trajektorien als Default; Zentimetervalidierung bleibt an unabhängige Targets und exakte Capability-/Kalibriersignatur gebunden.
   - [x] Ein begrenzter, host-eigener kanonischer `ARKFDIAG1`-Textadapter für terminale Zustands-/Telemetriezusammenfassungen ist implementiert: strikte Schlüsselreihenfolge, Eingabe-/Zeilenbudgets, hex-kodierte Fehlertexte, optionale opake Capability-/Kalibriersignaturen und unabhängige Target-Referenzen, fail-closed Parsing und explizites `unverified`; keine Bilder, Posen, Trajektorien, Pixel oder dichte Geometrie, keine automatische Erfassung, kein Upload und keine Qualitätsaufstufung.
-  - [ ] Feldtaugliche Erfassung/Redaktion/Upload-Policy, kryptografische Signaturverifikation, unabhängige physische Targets, Geräte-/Rig-Evidenz und Zentimetervalidierung bleiben offen.
+  - [x] Ein begrenzter, host-eigener kanonischer `ARKFDPOL1`-Richtlinientext ist implementiert: exakte Schlüsselreihenfolge, Eingabe-/Zeilenbudgets, explizites Opt-in, fail-closed Sicherheitsinvarianten, striktes Parsing und dauerhaft `unverified`; er erfasst, redigiert, lädt oder verifiziert nichts und enthält keine Bilder, Posen, Trajektorien, Kalibrierarrays oder dichte Geometrie.
+  - [ ] Tatsächliche feldtaugliche Erfassung/Redaktion/Upload-Abläufe, kryptografische Signaturverifikation, unabhängige physische Targets, Geräte-/Rig-Evidenz und Zentimetervalidierung bleiben offen.
 
 ## Qualitätsgates je Pull Request
 

@@ -140,8 +140,16 @@ jobs:
           fi
           exit "$status"
       - name: Prepare named diagnostics APK
+        shell: bash
         run: |
-          cp android/diagnostics-app/build/outputs/apk/debug/app-debug.apk \
+          set -e
+          SRC=$(find android/diagnostics-app/build/outputs/apk/debug \
+            -maxdepth 1 -type f -name '*.apk' \
+            ! -name 'arkernel-diagnostics-debug.apk' | head -n 1)
+          test -n "$SRC"
+          cp "$SRC" \
+            android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
+          ls -lh \
             android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
       - name: Upload diagnostics APK
         uses: actions/upload-artifact@v4

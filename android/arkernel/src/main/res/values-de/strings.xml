@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="arkernel_retention_title">Aufbewahrung temporärer Scandaten</string>
+    <string name="arkernel_retention_explanation">Wähle, wann temporäre Farb- und Tiefendaten gelöscht werden. Ohne ausdrückliche Bestätigung wird nichts gelöscht.</string>
+    <string name="arkernel_retention_warning">Löschen kann nicht rückgängig gemacht werden.</string>
+    <string name="arkernel_retention_mode_keep_label">Frames behalten</string>
+    <string name="arkernel_retention_mode_keep_description">Daten bleiben auf diesem Gerät, bis die App sie ausdrücklich freigibt.</string>
+    <string name="arkernel_retention_mode_after_publication_label">Nach erfolgreicher Veröffentlichung löschen</string>
+    <string name="arkernel_retention_mode_after_publication_description">Frames nur löschen, wenn die Rekonstruktion erfolgreich veröffentlicht wurde.</string>
+    <string name="arkernel_retention_mode_explicit_release_label">Bei ausdrücklicher Freigabe löschen</string>
+    <string name="arkernel_retention_mode_explicit_release_description">Frames löschen, wenn die App den Scan ausdrücklich freigibt.</string>
+    <string name="arkernel_retention_delete_key_label">Verschlüsselungsschlüssel ebenfalls löschen</string>
+    <string name="arkernel_retention_delete_key_description">Verschlüsselte Frames können nach dem Löschen nicht mehr gelesen werden.</string>
+    <string name="arkernel_retention_delete_key_unavailable">Schlüssellöschung ist nicht verfügbar, weil verschlüsselte Frames nicht aktiviert sind oder die Frames behalten werden.</string>
+    <string name="arkernel_retention_confirm_label">Auswahl speichern</string>
+    <string name="arkernel_retention_cancel_label">Abbrechen</string>
+    <string name="arkernel_retention_action_kept">Zwischengespeicherte Frames bleiben auf diesem Gerät.</string>
+    <string name="arkernel_retention_action_frames_deleted">Zwischengespeicherte Frames wurden gelöscht.</string>
+    <string name="arkernel_retention_action_frames_and_key_deleted">Zwischengespeicherte Frames und der Verschlüsselungsschlüssel wurden gelöscht.</string>
+    <string name="arkernel_retention_action_key_deleted_only">Nur der Verschlüsselungsschlüssel wurde gelöscht. Vorhandene verschlüsselte Frames können nicht mehr gelesen werden.</string>
+</resources>

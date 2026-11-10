@@ -73,6 +73,7 @@ class ArKernelRetentionDialogInstrumentedTest {
             instrumentation.runOnMainSync {
                 dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
             }
+            instrumentation.waitForIdleSync()
             val policy = requireNotNull(confirmed.get())
             assertEquals(ReconstructionFrameRetentionMode.DELETE_ON_EXPLICIT_RELEASE, policy.mode)
             assertTrue(policy.deleteEncryptionKey)
@@ -105,6 +106,7 @@ class ArKernelRetentionDialogInstrumentedTest {
             instrumentation.runOnMainSync {
                 dialog.getButton(DialogInterface.BUTTON_NEGATIVE).performClick()
             }
+            instrumentation.waitForIdleSync()
             assertNull(confirmed.get())
             assertTrue(cancelled.get())
             assertFalse(dialog.isShowing)
@@ -139,6 +141,7 @@ class ArKernelRetentionDialogInstrumentedTest {
                 keyCheckBox.isChecked = true
                 dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
             }
+            instrumentation.waitForIdleSync()
             assertNull(confirmed.get())
             assertNotNull(invalid.get())
             assertTrue(dialog.isShowing)

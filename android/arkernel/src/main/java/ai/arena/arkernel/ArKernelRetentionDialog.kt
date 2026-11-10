@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.DialogInterface
 import android.graphics.Color
 import android.os.Looper
 import android.util.TypedValue
@@ -139,21 +140,36 @@ object ArKernelRetentionDialog {
             activity, android.R.style.Theme_Material_Light_Dialog_Alert)
             .setTitle(strings.title)
             .setView(scrollView)
-            .setPositiveButton(strings.confirmLabel) { d, _ ->
-                val policy = try {
-                    ArKernelRetentionStrings.select(
-                        selectedMode, keyCheckBox.isChecked, encryptionEnabled)
-                } catch (error: IllegalArgumentException) {
-                    onInvalid(error)
-                    return@setPositiveButton
-                }
-                d.dismiss()
-                onConfirm(policy)
-            }
-            .setNegativeButton(strings.cancelLabel) { d, _ -> d.cancel() }
+            .setPositiveButton(
+                strings.confirmLabel, null as DialogInterface.OnClickListener?)
+            .setNegativeButton(
+                strings.cancelLabel, null as DialogInterface.OnClickListener?)
             .setOnCancelListener { onCancel() }
             .create()
         dialog.show()
+        // AlertController posts a dismiss message for its built-in button
+        // listeners. Direct listeners keep invalid selections open and expose
+        // explicit confirm/cancel without an extra main-looper dispatch.
+        val confirmButton = checkNotNull(
+            dialog.getButton(DialogInterface.BUTTON_POSITIVE)) {
+            "Retention dialog confirm button was not created"
+        }
+        val cancelButton = checkNotNull(
+            dialog.getButton(DialogInterface.BUTTON_NEGATIVE)) {
+            "Retention dialog cancel button was not created"
+        }
+        confirmButton.setOnClickListener {
+            val policy = try {
+                ArKernelRetentionStrings.select(
+                    selectedMode, keyCheckBox.isChecked, encryptionEnabled)
+            } catch (error: IllegalArgumentException) {
+                onInvalid(error)
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            onConfirm(policy)
+        }
+        cancelButton.setOnClickListener { dialog.cancel() }
         return dialog
     }
 

@@ -152,7 +152,8 @@ class ArKernelTurntableActuationController(
         }
 
         val step = guidance.turntableStepDegrees
-        val scalars = listOf(step, guidance.currentAzimuthDegrees,
+        if (!step.isFinite()) return result(REJECTED, INVALID_STEP)
+        val scalars = listOf(guidance.currentAzimuthDegrees,
             guidance.currentElevationDegrees, guidance.targetAzimuthDegrees,
             guidance.targetElevationDegrees, guidance.coverageRatio)
         if (scalars.any { !it.isFinite() }) return result(REJECTED, INVALID_GUIDANCE)

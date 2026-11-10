@@ -100,7 +100,9 @@ class ArKernelTurntableActuationTest {
             controller.issue(validGuidance().copy(targetAzimuthDegrees = 400.0), 5_000L).rejection)
         assertEquals(INVALID_GUIDANCE,
             controller.issue(validGuidance().copy(coverageRatio = 1.5), 6_000L).rejection)
-        val accepted = controller.issue(validGuidance(), 7_000L)
+        assertEquals(INVALID_GUIDANCE,
+            controller.issue(validGuidance().copy(targetAzimuthDegrees = Double.NaN), 7_000L).rejection)
+        val accepted = controller.issue(validGuidance(), 8_000L)
         assertEquals(COMMAND, accepted.phase)
         assertEquals(1L, accepted.commandsIssued)
         assertNotNull(controller.pending())

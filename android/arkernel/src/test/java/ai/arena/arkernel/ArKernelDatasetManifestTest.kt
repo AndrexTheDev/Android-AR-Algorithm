@@ -94,7 +94,7 @@ class ArKernelDatasetManifestTest {
         assertEquals(
             ArKernelDatasetManifestRejection.EMPTY_LINE,
             ArKernelDatasetManifestBundle.parse(
-                text.replace("END", "\nEND")).rejection)
+                blankLine(text, 11)).rejection)
         assertEquals(
             ArKernelDatasetManifestRejection.INVALID_SCHEMA,
             ArKernelDatasetManifestBundle.parse(
@@ -217,6 +217,12 @@ class ArKernelDatasetManifestTest {
         ArKernelDatasetManifestEntry(
             1, "tum.vi", "apache.2.0", "b".repeat(64), 2_000L, "held.out"),
     )
+
+    private fun blankLine(text: String, lineIndex: Int): String {
+        val lines = text.lines().toMutableList()
+        lines[lineIndex] = ""
+        return lines.joinToString("\n")
+    }
 
     private fun replaceEntryField(
         text: String,

@@ -257,9 +257,9 @@ class ReconstructionFrameArchive(
     sessionId: String,
     private val maxFrames: Int = 2_000,
     private val maxTotalBytes: Long = 1L shl 30,
-    val authenticatedEncryption: Boolean = false,
+    override val authenticatedEncryption: Boolean = false,
     keyAlias: String = "ai.arena.arkernel.reconstruction-frames.v1.$sessionId",
-) {
+) : ArKernelRetentionActionSink {
     private val directory: File
     private val referencePrefix: String
     private val sessionId: String
@@ -454,9 +454,12 @@ class ReconstructionFrameArchive(
         return deleted
     }
 
+    /** Bounded action-sink entry point; the host still calls this explicitly. */
+    override fun clearFrames(deleteKey: Boolean): Boolean = clear(deleteKey)
+
     /** Explicit host deletion of the non-exportable Android Keystore key. */
     @Synchronized
-    fun deleteEncryptionKey(): Boolean =
+    override fun deleteEncryptionKey(): Boolean =
         authenticatedEncryption && ReconstructionFrameAeadCodec.deleteKey(keyAlias)
 
     @Synchronized

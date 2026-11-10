@@ -210,4 +210,302 @@ TextureSeamBlendingResult blendTextureAtlasSeams(
   return result;
 }
 
+namespace {
+
+std::array<double,4> colorAt(const std::vector<std::uint8_t>& rgba8,int width,int height,
+                             const Point& point,const TextureAtlasPatch& patch) {
+  const int min_x=std::max(0,patch.atlas_x_px);
+  const int max_x=std::min(width-1,patch.atlas_x_px+patch.atlas_width_px-1);
+  const int min_y=std::max(0,patch.atlas_y_px);
+  const int max_y=std::min(height-1,patch.atlas_y_px+patch.atlas_height_px-1);
+  if(min_x>max_x||min_y>max_y)return {0.0,0.0,0.0,0.0};
+  const int x=std::max(min_x,std::min(max_x,
+      static_cast<int>(std::llround(point.x))));
+  const int y=std::max(min_y,std::min(max_y,
+      static_cast<int>(std::llround(point.y))));
+  const std::size_t offset=(static_cast<std::size_t>(y)*width+x)*4;
+  return {static_cast<double>(rgba8[offset]),static_cast<double>(rgba8[offset+1]),
+          static_cast<double>(rgba8[offset+2]),static_cast<double>(rgba8[offset+3])};
+}
+
+struct SeamSample {
+  std::size_t patch_a{0};
+  std::size_t patch_b{0};
+  std::array<double,3> color_a{{0.0,0.0,0.0}};
+  std::array<double,3> color_b{{0.0,0.0,0.0}};
+};
+
+struct PatchSystem {
+  std::array<double,3> a00{{0.0,0.0,0.0}};
+  std::array<double,3> a01{{0.0,0.0,0.0}};
+  std::array<double,3> a11{{0.0,0.0,0.0}};
+  std::array<double,3> b0{{0.0,0.0,0.0}};
+  std::array<double,3> b1{{0.0,0.0,0.0}};
+};
+
+void addEquation(PatchSystem& system,std::size_t channel,double value,double target) {
+  system.a00[channel]+=value*value;
+  system.a01[channel]+=value;
+  system.a11[channel]+=1.0;
+  system.b0[channel]+=value*target;
+  system.b1[channel]+=target;
+}
+
+double seamResidual(const std::vector<SeamSample>& samples,
+                    const std::vector<std::array<double,3>>& gains,
+                    const std::vector<std::array<double,3>>& offsets) {
+  if(samples.empty())return 0.0;
+  double sum=0.0;
+  for(const auto& sample:samples)for(std::size_t channel=0;channel<3;++channel) {
+    const double a=gains[sample.patch_a][channel]*sample.color_a[channel]+
+                   offsets[sample.patch_a][channel];
+    const double b=gains[sample.patch_b][channel]*sample.color_b[channel]+
+                   offsets[sample.patch_b][channel];
+    sum+=(a-b)*(a-b);
+  }
+  return sum/(static_cast<double>(samples.size())*3.0);
+}
+
+}  // namespace
+
+TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
+    const ReconstructionMesh& source_mesh,const TextureAtlasLayoutResult& layout,
+    const std::vector<TriangleTextureView>& labels,
+    const std::vector<std::uint8_t>& rgba8,int width,int height,
+    TextureGlobalSeamConfig config) {
+  if(config.samples_per_seam<=0||config.samples_per_seam>64||
+     config.max_triangles==0||config.max_triangles>10000000||
+     config.max_unique_edges==0||config.max_unique_edges>10000000||
+     config.max_seam_pairs==0||config.max_seam_pairs>10000000||
+     config.max_seam_samples==0||config.max_seam_samples>1000000000||
+     config.max_patches==0||config.max_patches>1000000||
+     config.max_iterations==0||config.max_iterations>256||
+     config.max_pixel_updates==0||config.max_pixel_updates>268435456||
+     !std::isfinite(config.convergence_delta)||config.convergence_delta<=0.0||
+     !std::isfinite(config.regularization)||config.regularization<0.0||
+     !std::isfinite(config.min_gain)||!std::isfinite(config.max_gain)||
+     config.min_gain<=0.0||config.min_gain>=config.max_gain||
+     !std::isfinite(config.min_offset)||!std::isfinite(config.max_offset)||
+     config.min_offset>=config.max_offset) {
+    throw std::invalid_argument("Invalid global texture seam configuration");
+  }
+  TextureGlobalSeamResult result;
+  result.width=width;result.height=height;
+  result.telemetry.enabled=true;
+  const std::size_t source_triangles=source_mesh.triangle_indices.size()/3;
+  if(width<=0||height<=0||static_cast<std::size_t>(width)>4096||
+     static_cast<std::size_t>(height)>4096||
+     source_mesh.triangle_indices.size()%3!=0||source_triangles==0||
+     source_triangles>config.max_triangles||labels.size()!=source_triangles||
+     !layout.input_valid||layout.truncated||!layout.error.empty()||
+     layout.atlas_width!=width||layout.atlas_height!=height||
+     layout.patches.empty()||layout.patches.size()>config.max_patches||
+     layout.source_triangle_patch.size()!=source_triangles||
+     layout.source_triangle_output_triangle.size()!=source_triangles||
+     layout.mesh.triangle_indices.size()%3!=0||
+     layout.mesh.triangle_indices.size()/3!=layout.assigned_triangles||
+     layout.mesh.texcoords.size()!=layout.mesh.positions_m.size()||
+     rgba8.size()!=static_cast<std::size_t>(width)*height*4) {
+    result.telemetry.error="invalid global texture seam input";return result;
+  }
+  if(std::any_of(layout.mesh.triangle_indices.begin(),layout.mesh.triangle_indices.end(),
+                 [&](std::uint32_t index){return index>=layout.mesh.texcoords.size();})||
+     std::any_of(layout.mesh.texcoords.begin(),layout.mesh.texcoords.end(),[](const Vec2f& uv){
+       return !std::isfinite(uv.x)||!std::isfinite(uv.y)||uv.x<0.0F||uv.x>1.0F||
+              uv.y<0.0F||uv.y>1.0F;
+     })) {
+    result.telemetry.error="invalid global texture seam atlas mesh";return result;
+  }
+  const std::size_t no_patch=std::numeric_limits<std::size_t>::max();
+  std::vector<bool> output_seen(layout.assigned_triangles,false);
+  std::size_t mapped_outputs=0;
+  for(std::size_t triangle=0;triangle<source_triangles;++triangle) {
+    const auto patch=layout.source_triangle_patch[triangle];
+    const auto output=layout.source_triangle_output_triangle[triangle];
+    if(!labels[triangle].assigned) {
+      if(patch!=no_patch||output!=no_patch) {
+        result.telemetry.error="invalid global texture seam triangle mapping";
+        return result;
+      }
+      continue;
+    }
+    if(patch>=layout.patches.size()||output>=layout.assigned_triangles||
+       output_seen[output]||layout.patches[patch].view_index!=labels[triangle].view_index||
+       layout.patches[patch].frame_id!=labels[triangle].frame_id) {
+      result.telemetry.error="invalid global texture seam triangle mapping";
+      return result;
+    }
+    output_seen[output]=true;++mapped_outputs;
+  }
+  if(mapped_outputs!=layout.assigned_triangles) {
+    result.telemetry.error="invalid global texture seam triangle mapping";return result;
+  }
+  for(std::size_t patch_index=0;patch_index<layout.patches.size();++patch_index) {
+    const auto& patch=layout.patches[patch_index];
+    if(patch.patch_id!=patch_index||patch.atlas_x_px<0||patch.atlas_y_px<0||
+       patch.atlas_width_px<=0||patch.atlas_height_px<=0||
+       static_cast<std::int64_t>(patch.atlas_x_px)+patch.atlas_width_px>width||
+       static_cast<std::int64_t>(patch.atlas_y_px)+patch.atlas_height_px>height) {
+      result.telemetry.error="invalid global texture seam patch";return result;
+    }
+  }
+  result.telemetry.input_valid=true;
+  std::map<EdgeKey,std::vector<EdgeUse>> edges;
+  for(std::size_t triangle=0;triangle<source_triangles;++triangle) {
+    if(!labels[triangle].assigned)continue;
+    for(std::size_t corner=0;corner<3;++corner) {
+      const std::size_t next=(corner+1)%3;
+      const auto va=source_mesh.triangle_indices[triangle*3+corner];
+      const auto vb=source_mesh.triangle_indices[triangle*3+next];
+      if(va>=source_mesh.positions_m.size()||vb>=source_mesh.positions_m.size()||va==vb) {
+        result.telemetry.error="invalid global texture seam source mesh";return result;
+      }
+      const EdgeKey key{std::min(va,vb),std::max(va,vb)};
+      auto found=edges.find(key);
+      if(found==edges.end()&&edges.size()>=config.max_unique_edges) {
+        result.telemetry.truncated=true;
+        result.telemetry.error="global texture seam edge budget exceeded";return result;
+      }
+      edges[key].push_back({triangle,
+          layout.source_triangle_output_triangle[triangle],corner,next});
+    }
+  }
+  result.unique_edges=edges.size();
+  std::vector<SeamSample> samples;
+  for(const auto& entry:edges) {
+    if(entry.second.size()!=2)continue;
+    const auto& first=entry.second[0];const auto& second=entry.second[1];
+    const auto first_patch=layout.source_triangle_patch[first.source_triangle];
+    const auto second_patch=layout.source_triangle_patch[second.source_triangle];
+    if(first_patch==second_patch)continue;
+    if(result.telemetry.seam_pairs>=config.max_seam_pairs) {
+      result.telemetry.truncated=true;
+      result.telemetry.error="global texture seam count budget exceeded";return result;
+    }
+    ++result.telemetry.seam_pairs;
+    std::array<EdgeUse,2> uses{{first,second}};
+    std::array<std::size_t,2> patch_ids{{first_patch,second_patch}};
+    std::array<Point,2> starts{},ends{};
+    for(std::size_t side=0;side<2;++side) {
+      auto start=atlasPoint(layout,uses[side],uses[side].corner_a);
+      auto end=atlasPoint(layout,uses[side],uses[side].corner_b);
+      const auto source_start=source_mesh.triangle_indices[
+          uses[side].source_triangle*3+uses[side].corner_a];
+      if(source_start!=entry.first.a)std::swap(start,end);
+      starts[side]=start;ends[side]=end;
+    }
+    for(int sample=0;sample<config.samples_per_seam;++sample) {
+      if(samples.size()>=config.max_seam_samples) {
+        result.telemetry.truncated=true;
+        result.telemetry.error="global texture seam sample budget exceeded";
+        return result;
+      }
+      const double t=(static_cast<double>(sample)+0.5)/config.samples_per_seam;
+      const Point point_a{starts[0].x+t*(ends[0].x-starts[0].x),
+                          starts[0].y+t*(ends[0].y-starts[0].y)};
+      const Point point_b{starts[1].x+t*(ends[1].x-starts[1].x),
+                          starts[1].y+t*(ends[1].y-starts[1].y)};
+      const auto color_a=colorAt(rgba8,width,height,point_a,layout.patches[patch_ids[0]]);
+      const auto color_b=colorAt(rgba8,width,height,point_b,layout.patches[patch_ids[1]]);
+      if(color_a[3]<255.0||color_b[3]<255.0) {
+        ++result.telemetry.skipped_transparent_samples;continue;
+      }
+      SeamSample item;
+      item.patch_a=patch_ids[0];item.patch_b=patch_ids[1];
+      for(std::size_t channel=0;channel<3;++channel) {
+        item.color_a[channel]=color_a[channel]/255.0;
+        item.color_b[channel]=color_b[channel]/255.0;
+      }
+      samples.push_back(item);
+    }
+  }
+  result.telemetry.sampled_pairs=samples.size();
+  result.rgba8=rgba8;
+  if(samples.empty())return result;
+
+  const std::size_t patch_count=layout.patches.size();
+  std::vector<std::array<double,3>> gains(patch_count),offsets(patch_count);
+  for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
+    gains[patch][channel]=1.0;offsets[patch][channel]=0.0;
+  }
+  result.telemetry.residual_before=seamResidual(samples,gains,offsets);
+  for(std::size_t iteration=0;iteration<config.max_iterations;++iteration) {
+    std::vector<PatchSystem> systems(patch_count);
+    for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
+      systems[patch].a00[channel]=config.regularization;
+      systems[patch].a11[channel]=config.regularization;
+      systems[patch].b0[channel]=config.regularization;
+    }
+    for(const auto& sample:samples)for(std::size_t channel=0;channel<3;++channel) {
+      const double target_a=gains[sample.patch_b][channel]*sample.color_b[channel]+
+                            offsets[sample.patch_b][channel];
+      const double target_b=gains[sample.patch_a][channel]*sample.color_a[channel]+
+                            offsets[sample.patch_a][channel];
+      addEquation(systems[sample.patch_a],channel,sample.color_a[channel],target_a);
+      addEquation(systems[sample.patch_b],channel,sample.color_b[channel],target_b);
+    }
+    std::vector<std::array<double,3>> next_gains=gains,next_offsets=offsets;
+    double maximum_delta=0.0;
+    for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
+      const auto& system=systems[patch];
+      const double determinant=system.a00[channel]*system.a11[channel]-
+                               system.a01[channel]*system.a01[channel];
+      double gain=gains[patch][channel],offset=offsets[patch][channel];
+      if(std::isfinite(determinant)&&determinant>1e-12) {
+        gain=(system.b0[channel]*system.a11[channel]-
+              system.b1[channel]*system.a01[channel])/determinant;
+        offset=(system.a00[channel]*system.b1[channel]-
+                system.a01[channel]*system.b0[channel])/determinant;
+      }
+      if(!std::isfinite(gain))gain=gains[patch][channel];
+      if(!std::isfinite(offset))offset=offsets[patch][channel];
+      gain=std::max(config.min_gain,std::min(config.max_gain,gain));
+      offset=std::max(config.min_offset,std::min(config.max_offset,offset));
+      maximum_delta=std::max(maximum_delta,std::abs(gain-gains[patch][channel]));
+      maximum_delta=std::max(maximum_delta,std::abs(offset-offsets[patch][channel]));
+      next_gains[patch][channel]=gain;next_offsets[patch][channel]=offset;
+    }
+    gains=std::move(next_gains);offsets=std::move(next_offsets);
+    result.telemetry.iterations=iteration+1;
+    if(maximum_delta<=config.convergence_delta)break;
+  }
+  result.telemetry.residual_after=seamResidual(samples,gains,offsets);
+  std::vector<bool> constrained(patch_count,false);
+  for(const auto& sample:samples) {
+    constrained[sample.patch_a]=true;constrained[sample.patch_b]=true;
+  }
+  for(std::size_t patch=0;patch<patch_count;++patch) {
+    if(!constrained[patch])continue;
+    bool changed=false;
+    for(std::size_t channel=0;channel<3;++channel) {
+      changed=changed||std::abs(gains[patch][channel]-1.0)>1e-12||
+                        std::abs(offsets[patch][channel])>1e-12;
+    }
+    if(changed)++result.telemetry.constrained_patches;
+  }
+  for(std::size_t patch_index=0;patch_index<patch_count;++patch_index) {
+    const auto& patch=layout.patches[patch_index];
+    for(int y=patch.atlas_y_px;y<patch.atlas_y_px+patch.atlas_height_px;++y) {
+      for(int x=patch.atlas_x_px;x<patch.atlas_x_px+patch.atlas_width_px;++x) {
+        const std::size_t offset=(static_cast<std::size_t>(y)*width+x)*4;
+        if(result.rgba8[offset+3]==0)continue;
+        if(result.telemetry.pixel_updates>=config.max_pixel_updates) {
+          result.telemetry.truncated=true;
+          result.telemetry.error="global texture seam pixel-update budget exceeded";
+          return result;
+        }
+        for(std::size_t channel=0;channel<3;++channel) {
+          const double current=rgba8[offset+channel]/255.0;
+          const double corrected=gains[patch_index][channel]*current+
+                                 offsets[patch_index][channel];
+          result.rgba8[offset+channel]=static_cast<std::uint8_t>(std::llround(
+              std::max(0.0,std::min(255.0,corrected*255.0))));
+        }
+        ++result.telemetry.pixel_updates;
+      }
+    }
+  }
+  return result;
+}
+
 }  // namespace arkernel

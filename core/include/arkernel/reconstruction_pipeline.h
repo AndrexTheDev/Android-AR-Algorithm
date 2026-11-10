@@ -23,6 +23,8 @@ struct ReconstructionPipelineConfig {
   TsdfMeshingConfig meshing{};
   MeshComponentFilterConfig component_filter{};
   MeshSimplificationConfig simplification{};
+  MeshQuadricLodConfig quadric_lod{};
+  bool enable_quadric_error_lod{false};
   std::size_t max_integrated_frames{2000};
 };
 
@@ -54,6 +56,18 @@ struct ReconstructionBuildTelemetry {
   std::size_t simplified_vertices{0};
   std::size_t simplified_triangles{0};
   double max_simplification_displacement_m{0.0};
+  bool quadric_lod_enabled{false};
+  bool quadric_lod_truncated{false};
+  std::size_t quadric_lod_input_vertices{0};
+  std::size_t quadric_lod_output_vertices{0};
+  std::size_t quadric_lod_output_triangles{0};
+  std::size_t quadric_lod_accepted_clusters{0};
+  std::size_t quadric_lod_rejected_clusters{0};
+  std::size_t quadric_lod_locked_vertices{0};
+  std::size_t quadric_lod_removed_degenerate_triangles{0};
+  double quadric_lod_initial_error_m2{0.0};
+  double quadric_lod_final_error_m2{0.0};
+  double quadric_lod_max_displacement_m{0.0};
   bool fusion_truncated{false};
   bool meshing_truncated{false};
   bool filtering_truncated{false};

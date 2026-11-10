@@ -95,6 +95,30 @@ class ReconstructionTexturePipelineInstrumentedTest {
         assertTrue(occluded.atlasRgba8.isEmpty())
     }
 
+    @Test
+    fun buildsAtlasWithOptionalGlobalSeamOptimization() {
+        val source = LoadedReconstructionTextureSource(9, 90, "arkf://texture-global/9", 100, 100,
+            400, CanonicalTexturePixelFormat.RGBA8, ByteArray(100 * 100 * 4).also { bytes ->
+                for (pixel in 0 until 100 * 100) {
+                    bytes[pixel * 4] = 120; bytes[pixel * 4 + 1] = 150.toByte()
+                    bytes[pixel * 4 + 2] = 180.toByte(); bytes[pixel * 4 + 3] = 255.toByte()
+                }
+            }, ReconstructionImageEncoding.PNG)
+        val candidate = ReconstructionTextureCandidate(source,
+            CameraCalibration(100, 100, 80.0, 80.0, 49.5, 49.5),
+            doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.8)
+        val pipeline = ReconstructionTexturePipeline(ReconstructionTexturePipelineOptions(
+            maxVertices = 16, maxTriangles = 2, maxCandidates = 1,
+            maxResultBytes = 2 * 1024 * 1024, atlasWidth = 256, atlasHeight = 256,
+            enableGlobalSeamOptimization = true))
+        val result = pipeline.build(mesh(), listOf(candidate))
+        assertEquals(ReconstructionTexturePipelineStage.COMPLETE, result.stage)
+        assertTrue(result.inputValid && !result.truncated && result.error.isEmpty())
+        assertEquals(2, result.telemetry.assignedTriangles)
+        assertEquals(256 * 256 * 4, result.atlasRgba8.size)
+        assertNotNull(result.mesh)
+    }
+
     private fun directFloats(values: FloatArray) =
         ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder())
             .asFloatBuffer().apply { put(values); flip() }

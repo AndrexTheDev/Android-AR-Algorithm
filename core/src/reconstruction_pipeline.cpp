@@ -28,6 +28,9 @@ ReconstructionFusionPipeline::ReconstructionFusionPipeline(
   (void)extractTsdfMesh(volume_, config_.meshing);
   (void)filterMeshComponents(empty_mesh, config_.component_filter);
   (void)simplifyMeshConservative(empty_mesh, config_.simplification);
+  if (config_.enable_quadric_error_lod) {
+    (void)simplifyMeshQuadricError(empty_mesh, config_.quadric_lod);
+  }
 }
 
 ReconstructionIntegrationResult ReconstructionFusionPipeline::status(
@@ -131,10 +134,40 @@ ReconstructionBuildResult ReconstructionFusionPipeline::build() const {
       result.simplified_mesh.positions_m.size();
   result.telemetry.simplified_triangles =
       result.simplified_mesh.triangle_indices.size() / 3;
+  if (config_.enable_quadric_error_lod) {
+    MeshQuadricLodResult lod = simplifyMeshQuadricError(
+        result.simplified_mesh, config_.quadric_lod);
+    result.telemetry.quadric_lod_enabled = true;
+    result.telemetry.quadric_lod_truncated = lod.truncated;
+    result.telemetry.quadric_lod_input_vertices = lod.input_vertices;
+    result.telemetry.quadric_lod_output_vertices = lod.output_vertices;
+    result.telemetry.quadric_lod_output_triangles = lod.output_triangles;
+    result.telemetry.quadric_lod_accepted_clusters = lod.accepted_clusters;
+    result.telemetry.quadric_lod_rejected_clusters = lod.rejected_clusters;
+    result.telemetry.quadric_lod_locked_vertices = lod.locked_vertices;
+    result.telemetry.quadric_lod_removed_degenerate_triangles =
+        lod.removed_degenerate_triangles;
+    result.telemetry.quadric_lod_initial_error_m2 =
+        lod.initial_quadric_error_m2;
+    result.telemetry.quadric_lod_final_error_m2 = lod.final_quadric_error_m2;
+    result.telemetry.quadric_lod_max_displacement_m =
+        lod.max_observed_displacement_m;
+    if (!lod.input_valid || !lod.error.empty() || lod.truncated) {
+      result.error = lod.error.empty() ?
+          "Quadric-error LOD did not complete" : lod.error;
+      return result;
+    }
+    result.simplified_mesh = std::move(lod.mesh);
+    result.telemetry.simplified_vertices =
+        result.simplified_mesh.positions_m.size();
+    result.telemetry.simplified_triangles =
+        result.simplified_mesh.triangle_indices.size() / 3;
+  }
   result.telemetry.complete = !result.telemetry.fusion_truncated &&
       !result.telemetry.meshing_truncated &&
       !result.telemetry.filtering_truncated &&
-      !result.telemetry.simplification_truncated;
+      !result.telemetry.simplification_truncated &&
+      !result.telemetry.quadric_lod_truncated;
   return result;
 }
 

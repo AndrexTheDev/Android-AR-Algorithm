@@ -9,7 +9,7 @@ void fail(TexturePipelineResult& result,TexturePipelineStage stage,bool input_va
           bool truncated,const std::string& error) {
   result.stage=stage;result.input_valid=input_valid;result.truncated=truncated;
   result.error=error.empty()?"texture pipeline stage failed":error;
-  result.mesh={};result.rgba8.clear();
+  result.mesh={};result.rgba8.clear();result.global_seam={};
 }
 
 }  // namespace
@@ -108,6 +108,30 @@ TexturePipelineResult buildTextureAtlas(
     result.rgba8=std::move(blending.rgba8);
   } else {
     result.rgba8=std::move(baking.rgba8);
+  }
+  if(config.enable_global_seam_optimization) {
+    result.stage=TexturePipelineStage::kSeamBlending;
+    auto global=optimizeTextureAtlasSeamsGlobally(source_mesh,layout,
+        labels.triangles,result.rgba8,layout.atlas_width,layout.atlas_height,
+        config.global_seam);
+    result.global_seam=global.telemetry;
+    result.global_seam.enabled=true;
+    result.telemetry.global_seam_pairs=global.telemetry.seam_pairs;
+    result.telemetry.global_seam_samples=global.telemetry.sampled_pairs;
+    result.telemetry.global_seam_iterations=global.telemetry.iterations;
+    result.telemetry.global_seam_pixel_updates=global.telemetry.pixel_updates;
+    result.telemetry.blended_seams+=global.telemetry.seam_pairs;
+    result.telemetry.blended_pixel_updates+=global.telemetry.pixel_updates;
+    if(!global.telemetry.input_valid||global.telemetry.truncated||
+       !global.telemetry.error.empty()) {
+      fail(result,TexturePipelineStage::kSeamBlending,
+           global.telemetry.input_valid,global.telemetry.truncated,
+           global.telemetry.error.empty()?
+             "global texture seam optimization did not complete":
+             global.telemetry.error);
+      return result;
+    }
+    result.rgba8=std::move(global.rgba8);
   }
   result.mesh=std::move(layout.mesh);
   result.atlas_width=layout.atlas_width;result.atlas_height=layout.atlas_height;

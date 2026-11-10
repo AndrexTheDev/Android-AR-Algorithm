@@ -560,6 +560,49 @@ int main() {
   catch(const std::invalid_argument&){rejected_simplification_config=true;}
   CHECK(rejected_simplification_config);
 
+  // Measured quadric-error-guided clustering chooses plane-optimal cluster
+  // representatives under an explicit geometric error bound. It is deterministic
+  // and preserves the source texture reference and UV alignment.
+  MeshQuadricLodConfig quadric_config;
+  quadric_config.cluster_cell_size_m=0.15;
+  quadric_config.max_cluster_quadric_error_m2=1e-3;
+  quadric_config.max_displacement_m=0.12;
+  quadric_config.max_uv_error=0.1;
+  const auto quadric_mesh=simplifyMeshQuadricError(filtered_mesh.mesh,quadric_config);
+  CHECK(quadric_mesh.input_valid&&!quadric_mesh.truncated&&
+        quadric_mesh.error.empty()&&
+        quadric_mesh.output_vertices<quadric_mesh.input_vertices&&
+        quadric_mesh.final_quadric_error_m2>=quadric_mesh.initial_quadric_error_m2&&
+        quadric_mesh.max_observed_displacement_m<=0.120001&&
+        quadric_mesh.mesh.texcoords.size()==quadric_mesh.mesh.positions_m.size()&&
+        quadric_mesh.mesh.base_color_texture.uri=="component-atlas.png"&&
+        validateMesh(quadric_mesh.mesh).valid);
+  const auto repeated_quadric_mesh=simplifyMeshQuadricError(
+    filtered_mesh.mesh,quadric_config);
+  CHECK(repeated_quadric_mesh.mesh.triangle_indices==
+          quadric_mesh.mesh.triangle_indices&&
+        repeated_quadric_mesh.mesh.positions_m.size()==
+          quadric_mesh.mesh.positions_m.size());
+  auto strict_quadric_config=quadric_config;
+  strict_quadric_config.max_cluster_quadric_error_m2=1e-12;
+  const auto strict_quadric_mesh=simplifyMeshQuadricError(
+    filtered_mesh.mesh,strict_quadric_config);
+  CHECK(strict_quadric_mesh.input_valid&&
+        strict_quadric_mesh.rejected_clusters>0);
+  auto invalid_quadric_config=quadric_config;
+  invalid_quadric_config.regularization=0.0;
+  bool rejected_quadric_config=false;
+  try{simplifyMeshQuadricError(filtered_mesh.mesh,invalid_quadric_config);}
+  catch(const std::invalid_argument&){rejected_quadric_config=true;}
+  CHECK(rejected_quadric_config);
+  auto evaluation_limited_config=quadric_config;
+  evaluation_limited_config.max_evaluations=1;
+  const auto evaluation_limited_mesh=simplifyMeshQuadricError(
+    filtered_mesh.mesh,evaluation_limited_config);
+  CHECK(evaluation_limited_mesh.input_valid&&
+        evaluation_limited_mesh.truncated&&
+        evaluation_limited_mesh.error=="quadric LOD evaluation budget exceeded");
+
   // The fusion pipeline owns temporal ordering, sticky truncation evidence and
   // both the filtered source mesh and its independent delivery simplification.
   ReconstructionPipelineConfig pipeline_config;
@@ -624,6 +667,24 @@ int main() {
   try{ReconstructionFusionPipeline invalid_pipeline(invalid_pipeline_config);}
   catch(const std::invalid_argument&){rejected_pipeline_config=true;}
   CHECK(rejected_pipeline_config);
+  auto quadric_pipeline_config=pipeline_config;
+  quadric_pipeline_config.enable_quadric_error_lod=true;
+  quadric_pipeline_config.quadric_lod=quadric_config;
+  ReconstructionFusionPipeline quadric_pipeline(quadric_pipeline_config);
+  CHECK(quadric_pipeline.integrate(1000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  CHECK(quadric_pipeline.integrate(2000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  const auto quadric_pipeline_mesh=quadric_pipeline.build();
+  CHECK(quadric_pipeline_mesh.error.empty()&&
+        quadric_pipeline_mesh.telemetry.complete&&
+        quadric_pipeline_mesh.telemetry.quadric_lod_enabled&&
+        !quadric_pipeline_mesh.telemetry.quadric_lod_truncated&&
+        quadric_pipeline_mesh.telemetry.quadric_lod_output_vertices==
+          quadric_pipeline_mesh.simplified_mesh.positions_m.size()&&
+        quadric_pipeline_mesh.telemetry.quadric_lod_final_error_m2>=
+          quadric_pipeline_mesh.telemetry.quadric_lod_initial_error_m2&&
+        quadric_pipeline_mesh.telemetry.quadric_lod_max_displacement_m<=0.120001&&
+        validateMesh(quadric_pipeline_mesh.source_mesh).valid&&
+        validateMesh(quadric_pipeline_mesh.simplified_mesh).valid);
 
   // Texture source selection uses calibrated projection, facing, image support
   // and measured depth visibility without mutating the source mesh or building an atlas.
@@ -989,6 +1050,43 @@ int main() {
   catch(const std::invalid_argument&){rejected_seam_config=true;}
   CHECK(rejected_seam_config);
 
+  // A bounded global least-squares solve shares one regularized gain/offset per
+  // patch across every sampled seam. It lowers measured disagreement without
+  // touching transparent padding or the alpha channel.
+  TextureGlobalSeamConfig global_seam_config;
+  const auto global_seam_texture=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_seam_config);
+  CHECK(global_seam_texture.telemetry.input_valid&&
+        !global_seam_texture.telemetry.truncated&&
+        global_seam_texture.telemetry.error.empty()&&
+        global_seam_texture.telemetry.seam_pairs==1&&
+        global_seam_texture.telemetry.sampled_pairs>0&&
+        global_seam_texture.telemetry.iterations>0&&
+        global_seam_texture.telemetry.constrained_patches>0&&
+        global_seam_texture.telemetry.pixel_updates>0&&
+        global_seam_texture.telemetry.residual_after<=
+          global_seam_texture.telemetry.residual_before+1e-9&&
+        global_seam_texture.rgba8!=uneven_texture.rgba8);
+  for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
+    CHECK(global_seam_texture.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  auto invalid_global_config=global_seam_config;
+  invalid_global_config.samples_per_seam=0;
+  bool rejected_global_config=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,invalid_global_config);}
+  catch(const std::invalid_argument&){rejected_global_config=true;}
+  CHECK(rejected_global_config);
+  auto sample_limited_config=global_seam_config;
+  sample_limited_config.max_seam_samples=1;
+  const auto sample_limited_global=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,sample_limited_config);
+  CHECK(sample_limited_global.telemetry.truncated&&
+        sample_limited_global.telemetry.error==
+          "global texture seam sample budget exceeded");
+
   auto clipped_images=exposure_images;
   std::fill(exposure_b.begin(),exposure_b.end(),255);
   const auto unconstrained_photometry=estimateTexturePhotometry(texture_mesh,
@@ -1036,6 +1134,18 @@ int main() {
         limited_texture_pipeline.stage==TexturePipelineStage::kBaking&&
         limited_texture_pipeline.rgba8.empty()&&
         limited_texture_pipeline.mesh.positions_m.empty());
+  auto global_pipeline_config=texture_pipeline_config;
+  global_pipeline_config.enable_global_seam_optimization=true;
+  const auto global_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},global_pipeline_config);
+  CHECK(global_pipeline.input_valid&&!global_pipeline.truncated&&
+        global_pipeline.error.empty()&&
+        global_pipeline.stage==TexturePipelineStage::kComplete&&
+        global_pipeline.global_seam.enabled&&
+        global_pipeline.global_seam.input_valid&&
+        global_pipeline.global_seam.seam_pairs==0&&
+        global_pipeline.telemetry.global_seam_pairs==0&&
+        global_pipeline.rgba8==texture_pipeline.rgba8);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

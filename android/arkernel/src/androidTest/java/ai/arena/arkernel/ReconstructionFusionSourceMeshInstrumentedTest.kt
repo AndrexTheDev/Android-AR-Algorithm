@@ -75,6 +75,40 @@ class ReconstructionFusionSourceMeshInstrumentedTest {
         }
     }
 
+    @Test
+    fun buildsDeliveryMeshWithMeasuredQuadricErrorLod() {
+        val options = ReconstructionFusionOptions(voxelSizeMeters = 0.05,
+            truncationDistanceMeters = 0.10, pixelStride = 1, maxBlocks = 512,
+            maxIntegratedFrames = 2, minComponentTriangles = 2,
+            minComponentAreaSquareMeters = 0.0, simplificationCellSizeMeters = 0.15,
+            maxSimplificationErrorMeters = 0.12, maxRawMeshBytes = 4 * 1024 * 1024,
+            enableQuadricErrorLod = true, maxQuadricErrorSquareMeters = 1e-3,
+            maxQuadricLodDisplacementMeters = 0.05, maxQuadricEvaluations = 100_000L)
+        ReconstructionFusionPipeline(options).use { fusion ->
+            val calibration = CameraCalibration(32, 32, 40.0, 40.0, 15.5, 15.5)
+            val depthValues = direct(FloatArray(32 * 32) { 2f })
+            val confidence = direct(FloatArray(32 * 32) { 1f })
+            val uncertainty = direct(FloatArray(32 * 32) { 0.005f })
+            fun depth(timestamp: Long) = MetricDepthBuffer(32, 32, 32,
+                depthValues.duplicate(), confidence.duplicate(), 32, timestamp,
+                uncertainty.duplicate(), 32)
+            fun pose(timestamp: Long) = WorldPose(timestamp, Rotation(1.0, 0.0, 0.0, 0.0),
+                Vector3(0.0, 0.0, 0.0))
+            assertTrue(fusion.integrate(depth(1_000), calibration, pose(1_000)).accepted)
+            assertTrue(fusion.integrate(depth(2_000), calibration, pose(2_000)).accepted)
+            val built = fusion.build()
+            assertTrue("complete=${built.complete} truncated=${built.quadricLodTruncated}",
+                built.complete)
+            assertTrue(built.quadricLodEnabled && !built.quadricLodTruncated)
+            assertTrue(built.quadricLodInitialErrorSquareMeters >= 0.0)
+            assertTrue(built.quadricLodFinalErrorSquareMeters >=
+                built.quadricLodInitialErrorSquareMeters)
+            assertTrue(built.quadricLodMaxDisplacementMeters <= 0.05 + 1e-6)
+            assertEquals(built.simplifiedVertices, built.quadricLodOutputVertices)
+            assertTrue(built.sourceGlb.isNotEmpty() && built.simplifiedGlb.isNotEmpty())
+        }
+    }
+
     private fun direct(values: FloatArray) =
         ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder())
             .asFloatBuffer().apply { put(values); flip() }

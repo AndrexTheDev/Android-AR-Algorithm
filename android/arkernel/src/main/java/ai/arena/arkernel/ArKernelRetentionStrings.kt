@@ -29,6 +29,8 @@ data class ArKernelRetentionDialogText(
     val selectedDeleteEncryptionKey: Boolean,
     val deleteKeyLabel: String,
     val deleteKeyDescription: String,
+    val deleteKeyAvailableDescription: String,
+    val deleteKeyUnavailableDescription: String,
     val deleteKeyAvailable: Boolean,
     val confirmLabel: String,
     val cancelLabel: String,
@@ -43,7 +45,7 @@ object ArKernelRetentionStrings {
         encryptionEnabled: Boolean,
         selectedPolicy: ReconstructionFrameRetentionPolicy = ReconstructionFrameRetentionPolicy(),
     ): ArKernelRetentionDialogText {
-        val localized = localized(context, locale)
+        val localized = localizedContext(context, locale)
         val destructive = selectedPolicy.mode != ReconstructionFrameRetentionMode.KEEP
         val deleteKeyAvailable = encryptionEnabled && destructive
         require(!selectedPolicy.deleteEncryptionKey || deleteKeyAvailable) {
@@ -86,6 +88,10 @@ object ArKernelRetentionStrings {
                 } else {
                     R.string.arkernel_retention_delete_key_unavailable
                 }),
+            deleteKeyAvailableDescription =
+                resources.getString(R.string.arkernel_retention_delete_key_description),
+            deleteKeyUnavailableDescription =
+                resources.getString(R.string.arkernel_retention_delete_key_unavailable),
             deleteKeyAvailable = deleteKeyAvailable,
             confirmLabel = resources.getString(R.string.arkernel_retention_confirm_label),
             cancelLabel = resources.getString(R.string.arkernel_retention_cancel_label),
@@ -118,7 +124,7 @@ object ArKernelRetentionStrings {
         locale: Locale = Locale.getDefault(),
         action: ReconstructionFrameRetentionAction,
     ): String {
-        val resources = localized(context, locale).resources
+        val resources = localizedContext(context, locale).resources
         return resources.getString(
             when {
                 action.deleteFrames && action.deleteEncryptionKey ->
@@ -132,7 +138,8 @@ object ArKernelRetentionStrings {
             })
     }
 
-    private fun localized(context: Context, locale: Locale): Context {
+    /** Stable localized context for host UI views inflated outside this object. */
+    fun localizedContext(context: Context, locale: Locale): Context {
         val configuration = Configuration(context.resources.configuration).apply {
             setLocales(LocaleList(locale))
         }

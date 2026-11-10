@@ -99,6 +99,28 @@ BOM/CRLF-Überschreitungen werden fail-closed abgelehnt; die App startet dann
 keinen Lauf. `max_events` begrenzt die zusätzlichen Plan-Events im
 `ARKFDLOG1`, nicht die Zahl der physischen Messungen.
 
+### Langsame Lichtsensoren: Schwelle als Text ändern
+
+Der Standardplan erwartet bei `SENSOR_LIVE` mindestens 50 Samples in 5 s.
+Ein host-supplied Redmi-Lauf mit `2.1-highrate` lieferte beim Lichtsensor 21
+Samples bei etwa 300 ms Abstand; `mono.0`, `finite.0` und `gapms.300` waren
+sauber, trotzdem wurde der Schritt wegen der fixen Schwelle `pass.0`. Das ist
+fail-closed und kein Sensor-Defekt: `expectedMin` ist eine vom Host gewählte
+Strukturerwartung, keine Gerätegarantie.
+
+Für solch langsame Lichtsensoren genügt es, im Planfeld nur diese Zeile zu
+ändern:
+
+```text
+step=SENSOR_LIVE|5000|2000|2|light
+```
+
+Ein fertiger, kanonisch gültiger Plan liegt unter
+`docs/examples/ARKFDPLAN1_redmi_light_tuned.txt` (CRC-32 `0600c70b`). Danach
+können alle 20 Schritte strukturell durchlaufen, **ohne neue APK**. Die
+Qualität bleibt `unverified`; die Schwelle ist keine Messgenauigkeit und kein
+Bodentruth.
+
 ## Was der ultimative Planlauf prüft
 
 Der geführte Lauf bestätigt einmal den Start und misst nur

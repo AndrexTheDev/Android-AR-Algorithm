@@ -153,6 +153,23 @@ class ArKernelFieldDiagnosticsTestPlanTest {
         }
     }
 
+    @Test
+    fun hostCanLowerSlowLightSensorThresholdAsText() {
+        val text = ArKernelFieldDiagnosticsTestPlanBundle.defaultPlanText()
+        val tuned = replaceStepLine(
+            text, 13, "step=SENSOR_LIVE|5000|2000|2|light")
+        val parsed = ArKernelFieldDiagnosticsTestPlanBundle.parse(tuned)
+        assertTrue(parsed.accepted)
+        assertEquals(
+            ArKernelFieldDiagnosticsTestPlanRejection.NONE, parsed.rejection)
+        val plan = parsed.plan!!
+        val light = plan.steps.single {
+            it.op == "SENSOR_LIVE" && it.label == "light"
+        }
+        assertEquals(2, light.expectedMin)
+        assertEquals(tuned, ArKernelFieldDiagnosticsTestPlanBundle.encode(plan))
+    }
+
     private fun replaceStepLine(
         text: String,
         index: Int,

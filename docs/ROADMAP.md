@@ -146,4 +146,5 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
 - [x] Embed bounded encoded PNG/JPEG image buffer views for true single-file textured GLB output.
 - [x] Add a bounded canonical survey-measurement CSV adapter for held-out dimensional evidence: an exact schema, input/line/row budgets, unique bounded IDs, exact reference kinds, finite coordinates/distances/uncertainties, explicit held-out flags, deterministic encode/parse and fail-closed rejection are implemented; broader survey formats remain open.
+- [x] Add a bounded canonical survey-measurement JSON Lines adapter: a fixed eleven-key schema, input/line/row budgets, unique bounded IDs, exact reference kinds, finite JSON numbers, explicit held-out flags, deterministic encode/parse and fail-closed rejection are implemented; USDZ and other survey formats remain open.
 - [ ] Add an optional Android Filament viewer module and USDZ/broader survey-format adapters.

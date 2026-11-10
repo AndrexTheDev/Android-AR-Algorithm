@@ -197,6 +197,41 @@ class ArKernelFieldDiagnosticsRunLogTest {
         assertTrue(text.lines().all { it.length <= 512 })
     }
 
+    @Test
+    fun allBoundedPhysicalSelfTestKindsRoundTrip() {
+        val middleKinds = ArKernelFieldDiagnosticsLogEventKind.entries.filter {
+            it != ArKernelFieldDiagnosticsLogEventKind.RUN_START &&
+                it != ArKernelFieldDiagnosticsLogEventKind.RUN_END
+        }
+        val events = mutableListOf<ArKernelFieldDiagnosticsLogEvent>()
+        events += ArKernelFieldDiagnosticsLogEvent(
+            0, 0L,
+            ArKernelFieldDiagnosticsLogEventKind.RUN_START,
+            "self.test", null, "unverified",
+        )
+        middleKinds.forEachIndexed { index, kind ->
+            events += ArKernelFieldDiagnosticsLogEvent(
+                index + 1, (index + 1).toLong() * 1_000_000L,
+                kind, "test.kind", 1L, "unverified",
+            )
+        }
+        events += ArKernelFieldDiagnosticsLogEvent(
+            middleKinds.size + 1,
+            (middleKinds.size + 1).toLong() * 1_000_000L,
+            ArKernelFieldDiagnosticsLogEventKind.RUN_END,
+            null, (middleKinds.size + 2).toLong(), null,
+        )
+        val record = ArKernelFieldDiagnosticsLogRecord(
+            "session.self", "run.self", "self.test.v1", events)
+        val text = ArKernelFieldDiagnosticsRunLog.encode(record)
+        val parsed = ArKernelFieldDiagnosticsRunLog.parse(text)
+        assertTrue(parsed.accepted)
+        assertEquals(ArKernelFieldDiagnosticsLogRejection.NONE, parsed.rejection)
+        assertEquals(middleKinds.size + 2, parsed.record!!.events.size)
+        assertEquals("unverified", parsed.record.qualityGrade)
+        assertTrue(text.lines().all { it.length <= 512 })
+    }
+
     private fun canonicalText(): String =
         ArKernelFieldDiagnosticsRunLog.encode(
             ArKernelFieldDiagnosticsPolicy(

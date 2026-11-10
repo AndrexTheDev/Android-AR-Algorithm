@@ -26,9 +26,17 @@ private val FIELD_LOG_METADATA_KEYS = listOf(
 enum class ArKernelFieldDiagnosticsLogEventKind {
     RUN_START,
     CAPABILITY,
+    SENSOR_CATALOG,
+    CAMERA_CATALOG,
+    GUIDED_STEP,
+    IMU_STILLNESS,
     CAMERA_LIFECYCLE,
+    CAMERA_FRAMES,
+    STORAGE_ROUNDTRIP,
+    COMPUTE_SELFTEST,
     TIMING,
     THERMAL,
+    THERMAL_SOAK,
     SERVICE_DEATH,
     SESSION_TERMINAL,
     RUN_END,
@@ -136,7 +144,10 @@ data class ArKernelFieldDiagnosticsLogRecord(
  * opaque event tokens, never images, per-frame poses, trajectories,
  * calibration arrays, pixels or dense geometry, and stays `unverified`. It can
  * supply bounded runtime facts but cannot replace physical targets, a rig,
- * controlled thermal runs or device-farm evidence.
+ * controlled thermal runs or device-farm evidence. The additional catalog,
+ * guided-step, stillness, frame, storage, compute and thermal-soak kinds carry
+ * only bounded structural self-test scalars; they are not physical ground
+ * truth and cannot assert assessed quality.
  */
 object ArKernelFieldDiagnosticsRunLog {
     /** Requires the host's explicit collection opt-in; still performs no I/O. */

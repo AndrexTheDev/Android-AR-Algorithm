@@ -280,7 +280,7 @@ Android Emulator and Cuttlefish are useful for API levels, permissions, lifecycl
 
 They cannot validate a real lens, sensor, ISP or temperature curve.
 
-A bounded sideloadable host diagnostic app in `android/diagnostics-app` can now write an opted-in `ARKFDLOG1` text log plus its `ARKFDPOL1` policy into Downloads on a physical device. It records only opaque device, capability, camera-metadata, thermal and timing tokens, never images or poses, performs no automatic upload and remains `unverified`. It is a transport aid for bounded runtime facts from a real handset, not a measurement rig, thermal endurance run or proof of dimensional accuracy.
+A bounded sideloadable host diagnostic app in `android/diagnostics-app` can now write an opted-in `ARKFDLOG1` text log plus its `ARKFDPOL1` policy into Downloads on a physical device. A guided mode adds model-independent structural self-tests: sensor/camera catalogs, 10 s IMU stillness integrity, 30 repeated Camera2 preview results with lifecycle/exposure/ISO/focus scalars, a byte-exact storage round trip, deterministic core encode/parse and a bounded thermal time series. `ArKernelPhysicalSelfTestMetrics` computes only finite/monotonic/gap/variance/CRC invariants; user confirmations are explicitly `host.reported.not.verified`, images are discarded immediately and every result stays `unverified`. It is a transport aid for bounded runtime facts from a real handset, not a measurement rig, thermal endurance run or proof of dimensional accuracy.
 
 ### 7. Record/replay and metamorphic tests
 

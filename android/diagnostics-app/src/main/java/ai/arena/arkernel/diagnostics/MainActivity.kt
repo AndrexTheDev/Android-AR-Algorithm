@@ -5,6 +5,7 @@ import ai.arena.arkernel.ArKernelFieldDiagnosticsLogEventKind
 import ai.arena.arkernel.ArKernelFieldDiagnosticsPolicy
 import ai.arena.arkernel.ArKernelFieldDiagnosticsPolicyBundle
 import ai.arena.arkernel.ArKernelFieldDiagnosticsRunLog
+import ai.arena.arkernel.ArKernelPhysicalSelfTestMetrics
 import android.Manifest
 import android.app.ActivityManager
 import android.content.ClipData
@@ -42,8 +43,11 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Sideloadable host diagnostic app. It writes an opted-in ARKFDPOL1 policy and
  * a bounded ARKFDLOG1 run log as text files, never images, poses, trajectories,
- * calibration arrays or pixels. It performs no automatic upload, signature
- * verification or physical measurement and stays explicitly unverified.
+ * calibration arrays or pixels. A guided self-test mode adds only
+ * model-independent structural measurements from the device's own sensors,
+ * camera lifecycle, storage and thermal API; it performs no automatic upload,
+ * signature verification or physical ground-truth measurement and stays
+ * explicitly unverified.
  */
 class MainActivity : android.app.Activity() {
 
@@ -51,6 +55,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var logPreview: TextView
     private lateinit var optIn: CheckBox
     private lateinit var createButton: Button
+    private lateinit var physicalButton: Button
     private lateinit var writeButton: Button
     private lateinit var shareButton: Button
     private lateinit var copyButton: Button
@@ -83,17 +88,19 @@ class MainActivity : android.app.Activity() {
         }
 
         val intro = TextView(this).apply {
-            text = "Erzeugt nach deinem Opt-in eine begrenzte ARKFDLOG1-Textdatei " +
-                "für dieses Gerät. Speichere die Dateien (Downloads/ARKernelDiagnostics " +
-                "bzw. App-Dateien) und lade die ARKFDLOG1-Datei hier im Chat hoch."
+            text = "Zwei Modi nach Opt-in: kurzer Kapabilitäts-Log oder geführte " +
+                "physische Selbsttests mit deiner Hilfe. Beide schreiben eine " +
+                "ARKFDLOG1-Textdatei (Downloads/ARKernelDiagnostics bzw. App-Dateien), " +
+                "die du hier im Chat hochladen kannst."
             textSize = 14f
         }
 
         val safetyText = TextView(this).apply {
-            text = "Nur opake Zustands-Tokens (API, ABI, Sensoren, Thermal, Speicher). " +
-                "Keine Bilder, Posen, Trajektorien, Kalibrierdaten oder Pixel. " +
-                "Kein automatischer Upload, keine Signaturprüfung, keine unabhängigen " +
-                "Targets, Qualität: unverified."
+            text = "Nur opake Skalare: Gerätekataloge, IMU-Stillstand, Camera2-Lifecycle, " +
+                "Storage-Roundtrip, Kern-Selbsttest, Thermal-Zeitreihe. Keine Bilder, " +
+                "Posen, Trajektorien, Kalibrierarrays oder Pixel; Nutzerbestätigungen " +
+                "sind nur host-reported. Keine externen Targets, kein Bodentruth, " +
+                "kein Upload, Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -112,17 +119,22 @@ class MainActivity : android.app.Activity() {
         }
 
         createButton = Button(this).apply {
-            text = "1. Log erzeugen / aktualisieren"
+            text = "1. Kurzen Kapabilitäts-Log erzeugen"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        physicalButton = Button(this).apply {
+            text = "2. Physische Selbsttests starten (mit deiner Hilfe)"
             textSize = 15f
             setAllCaps(false)
         }
         writeButton = Button(this).apply {
-            text = "2. Dateien speichern"
+            text = "3. Dateien speichern"
             textSize = 15f
             setAllCaps(false)
         }
         shareButton = Button(this).apply {
-            text = "3. Log teilen"
+            text = "4. Log teilen"
             textSize = 15f
             setAllCaps(false)
         }
@@ -157,6 +169,7 @@ class MainActivity : android.app.Activity() {
         root.addView(optIn, fullWidthParams())
         root.addView(statusText, fullWidthParams())
         root.addView(createButton, fullWidthParams())
+        root.addView(physicalButton, fullWidthParams())
         root.addView(writeButton, fullWidthParams())
         root.addView(shareButton, fullWidthParams())
         root.addView(copyButton, fullWidthParams())
@@ -172,6 +185,7 @@ class MainActivity : android.app.Activity() {
 
         optIn.setOnCheckedChangeListener { _, _ -> updateButtons() }
         createButton.setOnClickListener { createLog() }
+        physicalButton.setOnClickListener { runPhysicalTests() }
         writeButton.setOnClickListener {
             Thread {
                 val result = writeDiagnosticsFiles()
@@ -194,6 +208,7 @@ class MainActivity : android.app.Activity() {
     private fun updateButtons() {
         val allowed = optIn.isChecked
         createButton.isEnabled = allowed
+        physicalButton.isEnabled = allowed
         val hasLog = allowed && currentLog.isNotEmpty()
         writeButton.isEnabled = hasLog
         shareButton.isEnabled = hasLog
@@ -207,21 +222,7 @@ class MainActivity : android.app.Activity() {
         }
         try {
             val text = buildLogText()
-            val parsed = ArKernelFieldDiagnosticsRunLog.parse(text)
-            logPreview.text = text
-            if (!parsed.accepted) {
-                currentLog = ""
-                currentRunId = "run.invalid"
-                statusText.text = "ARKFDLOG1 abgelehnt: ${parsed.rejection.name} " +
-                    "(Zeile ${parsed.lineNumber})."
-                updateButtons()
-                return
-            }
-            currentLog = text
-            val eventCount = parsed.record?.events?.size ?: 0
-            statusText.text = "ARKFDLOG1 akzeptiert ($eventCount Events, " +
-                "${text.length} Zeichen). Run: $currentRunId"
-            updateButtons()
+            publishLog(text, "Kapabilitäts-Log erzeugt.")
         } catch (error: Exception) {
             currentLog = ""
             currentRunId = "run.error"
@@ -230,7 +231,65 @@ class MainActivity : android.app.Activity() {
         }
     }
 
-    private fun buildLogText(): String {
+    private fun runPhysicalTests() {
+        if (!optIn.isChecked) {
+            statusText.text = "Bitte zuerst das Opt-in anhaken."
+            return
+        }
+        physicalButton.isEnabled = false
+        Thread {
+            val runner = PhysicalSelfTestRunner(this)
+            val result = runner.run { progress ->
+                runOnUiThread { statusText.text = progress }
+            }
+            runOnUiThread {
+                try {
+                    val text = buildLogText(
+                        result.events, result.passed, result.total)
+                    publishLog(text, result.summary)
+                } catch (error: Exception) {
+                    currentLog = ""
+                    currentRunId = "run.error"
+                    statusText.text =
+                        "Selbsttests konnten nicht protokolliert werden: " +
+                            error.message
+                } finally {
+                    updateButtons()
+                }
+            }
+        }.start()
+    }
+
+    private fun publishLog(text: String, status: String) {
+        val parsed = ArKernelFieldDiagnosticsRunLog.parse(text)
+        logPreview.text = text
+        if (!parsed.accepted) {
+            currentLog = ""
+            currentRunId = "run.invalid"
+            statusText.text = "ARKFDLOG1 abgelehnt: ${parsed.rejection.name} " +
+                "(Zeile ${parsed.lineNumber}). $status"
+            updateButtons()
+            return
+        }
+        currentLog = text
+        val eventCount = parsed.record?.events?.size ?: 0
+        statusText.text = "$status ARKFDLOG1 akzeptiert ($eventCount Events, " +
+            "${text.length} Zeichen). Run: $currentRunId"
+        updateButtons()
+    }
+
+    private fun buildLogText(
+        extraEvents: List<PendingLogEvent> = emptyList(),
+        passed: Int = 0,
+        total: Int = 0,
+    ): String {
+        require(extraEvents.size <= 100) {
+            "Too many physical self-test events"
+        }
+        require(extraEvents.none {
+            it.kind == ArKernelFieldDiagnosticsLogEventKind.RUN_START ||
+                it.kind == ArKernelFieldDiagnosticsLogEventKind.RUN_END
+        }) { "Physical self-test events cannot contain terminal events" }
         val sessionId = "session-" + sessionStartMillis
         val runId = "run-" + System.currentTimeMillis() + "." +
             runCounter.incrementAndGet()
@@ -340,11 +399,16 @@ class MainActivity : android.app.Activity() {
             uptimeSeconds,
             storageToken,
         )
+        for (pending in extraEvents) {
+            add(pending.kind, pending.code, pending.value, pending.detailToken)
+        }
         add(
             ArKernelFieldDiagnosticsLogEventKind.SESSION_TERMINAL,
-            "snapshot",
-            events.size.toLong(),
-            "unverified",
+            "structural.summary",
+            passed.toLong(),
+            ArKernelPhysicalSelfTestMetrics.opaqueToken(
+                "pass.$passed.of.$total.unverified",
+            ),
         )
         add(
             ArKernelFieldDiagnosticsLogEventKind.RUN_END,

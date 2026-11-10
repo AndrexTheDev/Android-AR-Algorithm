@@ -89,10 +89,14 @@ Opt-in schreibt es eine `ARKFDLOG1`-Textdatei und die zugehörige
 `ARKFDPOL1`-Richtlinie in den Download- bzw. app-eigenen Dateibereich; die
 Datei kann hier im Chat hochgeladen werden. Die App enthält keine Bilder,
 Posen, Trajektorien oder Kalibrierarrays, lädt nichts automatisch hoch und
-bleibt `unverified`. Die Android-CI baut die Debug-APK als Artefakt
-`arkernel-diagnostics-apk` und veröffentlicht sie zusätzlich als Release-Asset
-unter dem Tag `diagnostics-apk-latest`. Sie liefert begrenzte Laufzeitfakten,
-keinen physischen Bodentruth und keine Zentimetervalidierung.
+bleibt `unverified`. Ein geführter zweiter Modus führt modellunabhängige
+Hardware-Selbsttests auf dem Gerät durch (Sensor-/Kamera-Katalog, IMU-Stillstand,
+Camera2-Lifecycle/Preview, Storage-Roundtrip, deterministischer Kern-Selbsttest,
+Thermal-Zeitreihe) und schreibt ausschließlich opake Struktur-Skalare. Die
+Android-CI baut die Debug-APK als Artefakt `arkernel-diagnostics-apk` und
+veröffentlicht sie zusätzlich als Release-Asset unter dem Tag
+`diagnostics-apk-latest`. Sie liefert begrenzte Laufzeitfakten, keinen
+physischen Bodentruth und keine Zentimetervalidierung.
 
 ## Lizenz
 

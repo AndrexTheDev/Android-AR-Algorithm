@@ -372,7 +372,7 @@ No single oracle awards metric validation. Disagreement lowers confidence or tie
 - Keep the core AAR runtime-free and CPU-capable.
 - Package LiteRT/ONNX/ncnn/MNN/graphics accelerators as mutually optional artifacts or dynamic features; applications include only measured choices.
 - Use Android App Bundle ABI splits where the product distribution permits them, while retaining a documented universal/offline package strategy.
-- Bind model, decoder contract and runtime adapter versions in one signed deployment manifest.
+- Bind model, decoder contract and runtime adapter versions in one signed deployment manifest. `ArKernelRuntimeAdapterDeploymentBundle` adds a bounded canonical `ARKRTAD1` text shape for host-declared separately packaged adapter metadata: 1–16 opaque adapters, lowercase SHA-256 artifact digests, bounded byte sizes and five fail-closed safety flags. It loads no adapter, reads no artifact, verifies no signature, builds no factory, runs no sentinel/fallback and stays `unverified`; concrete adapter artifacts and signed deployment manifests remain host work.
 - Roll out new models, delegates and camera policies independently with canaries and immediate rollback.
 - Never download executable/model content silently; verify hash/signature/license metadata and retain a usable built-in fallback.
 

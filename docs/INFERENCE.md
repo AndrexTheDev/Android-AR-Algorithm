@@ -72,3 +72,24 @@ A 2D detection that has no requested observed surface produces a semantic miss, 
 `ArKernelClassMaskPostprocessor` provides the bounded generic part of segmentation handling for models that already emit a one-channel class-index tensor. It accepts direct FLOAT32/INT8/UINT8 tensors with explicit quantization and row stride, nearest-resizes to camera depth, and zeros depth/confidence for a manifest-owned set of dynamic class IDs while preserving all buffer positions. Input dimensions are capped at 4096, output at 16 million pixels, dynamic classes at 256, and masked writes at a caller budget (default 4,194,304). The full mask is validated before depth is mutated.
 
 This SPI does not implement model-specific YOLO/SSD score fusion, logits/argmax or instance-mask decoding, FLOAT16/four-channel tensor encoding, GPU delegates, NNAPI selection, model download/update, signature verification, or device benchmark collection. Models whose boxes are not already explicit one-row-per-box records, or whose masks are not class-index tensors, need a small model-specific adapter before the shared postprocessors. Those belong in explicit backend modules with their own dependencies and license notices. The core remains usable without any ML runtime.
+
+## Bounded host-supplied runtime-adapter deployment manifests
+
+`ArKernelRuntimeAdapterDeploymentBundle` adds a canonical `ARKRTAD1` text
+manifest for bounded host-declared separately packaged runtime adapters. It has
+a fixed ten-key metadata order, 1–16 adapters, unique opaque adapter IDs,
+opaque versions and backend/driver profiles, lowercase 64-character SHA-256 hex
+digests, positive bounded byte sizes, contiguous indices and the fixed state
+`declared`. Input/line/adapter budgets, BOM/CRLF tolerance with one optional
+final separator and a fail-closed `END` are enforced. Five safety flags keep
+CPU fallback, startup sentinel, read-only factory admission, model-name-free
+identity and separate packaging as explicit host requirements rather than
+implemented capabilities; the grade remains `unverified`.
+
+The pure summarizer reports only adapter count, total bytes, declared count and
+distinct backend/driver profiles. It performs no adapter loading, artifact read,
+signature verification, factory construction, startup sentinel, CPU-fallback
+execution, device-farm run, I/O, upload or quality upgrade. Concrete separately
+packaged adapter artifacts, factory implementations and device-farm corpus
+results remain open; `ARKRTAD1` is only a bounded transport shape for metadata
+a host has already supplied.

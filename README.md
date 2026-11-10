@@ -90,8 +90,9 @@ Opt-in schreibt es eine `ARKFDLOG1`-Textdatei und die zugehörige
 Datei kann hier im Chat hochgeladen werden. Die App enthält keine Bilder,
 Posen, Trajektorien oder Kalibrierarrays, lädt nichts automatisch hoch und
 bleibt `unverified`. Die Android-CI baut die Debug-APK als Artefakt
-`arkernel-diagnostics-apk`. Sie liefert begrenzte Laufzeitfakten, keinen
-physischen Bodentruth und keine Zentimetervalidierung.
+`arkernel-diagnostics-apk` und veröffentlicht sie zusätzlich als Release-Asset
+unter dem Tag `diagnostics-apk-latest`. Sie liefert begrenzte Laufzeitfakten,
+keinen physischen Bodentruth und keine Zentimetervalidierung.
 
 ## Lizenz
 

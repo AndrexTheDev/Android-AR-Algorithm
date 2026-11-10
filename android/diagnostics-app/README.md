@@ -18,8 +18,10 @@ Die `ARKFDLOG1`-Datei ist die Datei, die du hier im Chat hochladen kannst.
    Installation erlauben und installieren. Es ist ein Debug-Build, kein
    Play-Store-Release.
 
-Alternativ liegt die Datei als Release-Asset `arkernel-diagnostics-debug.apk`
-bereit, wenn ein Release für diesen Stand erzeugt wurde.
+Alternativ liegt die Datei dauerhaft als Release-Asset bereit:
+<https://github.com/AndrexTheDev/Android-AR-Algorithm/releases/tag/diagnostics-apk-latest>
+(`arkernel-diagnostics-debug.apk`). Die CI aktualisiert dieses Asset bei jedem
+Push auf den aktiven Branch.
 
 ## Bedienung auf dem Gerät
 

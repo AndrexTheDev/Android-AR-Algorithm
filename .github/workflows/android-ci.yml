@@ -105,6 +105,8 @@ jobs:
   diagnostics-apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -137,10 +139,29 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
+      - name: Prepare named diagnostics APK
+        run: |
+          cp android/diagnostics-app/build/outputs/apk/debug/app-debug.apk \
+            android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
       - name: Upload diagnostics APK
         uses: actions/upload-artifact@v4
         with:
           name: arkernel-diagnostics-apk
-          path: android/diagnostics-app/build/outputs/apk/debug/*.apk
+          path: android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Publish diagnostics APK release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="diagnostics-apk-latest"
+          APK="android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --target "$GITHUB_SHA" \
+              --title "AR-Kern Diagnose APK (latest)" \
+              --notes "Bounded opted-in ARKFDLOG1 diagnostics app for sideloading on a physical device. Debug build, quality unverified; no images, poses, trajectories, automatic upload or physical accuracy claims. See android/diagnostics-app/README.md."
+          fi

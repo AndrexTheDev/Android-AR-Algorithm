@@ -30,8 +30,10 @@ struct TexturePipelineConfig {
   TexturePhotometryConfig photometry{};
   TextureBakingConfig baking{};
   TextureSeamBlendingConfig seam_blending{};
+  TextureGlobalSeamConfig global_seam{};
   bool enable_photometric_correction{true};
   bool enable_seam_blending{true};
+  bool enable_global_seam_optimization{false};
 };
 
 struct TexturePipelineTelemetry {
@@ -52,6 +54,11 @@ struct TexturePipelineTelemetry {
   std::size_t raster_pixel_tests{0};
   std::size_t blended_seams{0};
   std::size_t blended_pixel_updates{0};
+  // Cumulative seam work across optional local blending and global optimization.
+  std::size_t global_seam_pairs{0};
+  std::size_t global_seam_samples{0};
+  std::size_t global_seam_iterations{0};
+  std::size_t global_seam_pixel_updates{0};
 };
 
 struct TexturePipelineResult {
@@ -63,6 +70,7 @@ struct TexturePipelineResult {
   int atlas_width{0};
   int atlas_height{0};
   TexturePipelineTelemetry telemetry{};
+  TextureGlobalSeamTelemetry global_seam{};
   TexturePipelineStage stage{TexturePipelineStage::kNone};
   bool input_valid{false};
   bool truncated{false};

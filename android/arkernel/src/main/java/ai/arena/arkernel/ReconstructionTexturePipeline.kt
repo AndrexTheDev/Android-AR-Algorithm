@@ -64,6 +64,8 @@ data class ReconstructionTexturePipelineOptions(
     val requireVisibilityDepth: Boolean = false,
     val enablePhotometry: Boolean = true,
     val enableSeamBlending: Boolean = true,
+    /** Optional bounded global least-squares correction over all atlas seams. */
+    val enableGlobalSeamOptimization: Boolean = false,
 ) {
     init {
         require(maxVertices in 1..5_000_000)
@@ -90,7 +92,10 @@ data class ReconstructionTexturePipelineResult(
  * Bounded JNI adapter for the complete portable texture graph. Optional
  * optical-axis depth, confidence and uncertainty remain borrowed direct buffers
  * only for the synchronized native call. When requireVisibilityDepth is true,
- * every candidate must provide timestamp- and dimension-matched depth. Only
+ * every candidate must provide timestamp- and dimension-matched depth. An
+ * optional bounded global seam optimization can follow local blending; its
+ * cumulative seam/pixel-update counts are reported in the existing telemetry
+ * fields, while portable callers receive the full stage telemetry. Only
  * COMPLETE results expose mesh or atlas bytes.
  */
 class ReconstructionTexturePipeline(
@@ -190,7 +195,8 @@ class ReconstructionTexturePipeline(
             depthBuffers, confidenceBuffers, uncertaintyBuffers, depthData,
             options.maxVertices, options.maxTriangles, options.maxResultBytes,
             options.atlasWidth, options.atlasHeight, options.requireVisibilityDepth,
-            options.enablePhotometry, options.enableSeamBlending)) {
+            options.enablePhotometry, options.enableSeamBlending,
+            options.enableGlobalSeamOptimization)) {
             "Native texture pipeline rejected the bounded request"
         }
         return decode(encoded)
@@ -262,6 +268,7 @@ class ReconstructionTexturePipeline(
         depthData: IntArray, maxVertices: Int, maxTriangles: Int, maxResultBytes: Int,
         atlasWidth: Int, atlasHeight: Int, requireVisibilityDepth: Boolean,
         enablePhotometry: Boolean, enableSeamBlending: Boolean,
+        enableGlobalSeamOptimization: Boolean,
     ): ByteArray?
 
     private companion object {

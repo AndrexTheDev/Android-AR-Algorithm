@@ -935,10 +935,10 @@ Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeUpdate(JNIEnv* env,jobjec
 extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
     JNIEnv* env,jobject,jlongArray integer_options,jdoubleArray scalar_options) {
-  if(!integer_options||!scalar_options||env->GetArrayLength(integer_options)<13||
-     env->GetArrayLength(scalar_options)<11)return 0;
-  std::array<jlong,13> integers{};
-  std::array<jdouble,11> scalars{};
+  if(!integer_options||!scalar_options||env->GetArrayLength(integer_options)<15||
+     env->GetArrayLength(scalar_options)<14)return 0;
+  std::array<jlong,15> integers{};
+  std::array<jdouble,14> scalars{};
   env->GetLongArrayRegion(integer_options,0,integers.size(),integers.data());
   env->GetDoubleArrayRegion(scalar_options,0,scalars.size(),scalars.data());
   if(env->ExceptionCheck())return 0;
@@ -960,10 +960,13 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
   const auto max_edges=bounded_size(integers[10],6000000);
   const auto max_clusters=bounded_size(integers[11],5000000);
   const auto max_glb_bytes=bounded_size(integers[12],512ULL*1024ULL*1024ULL);
+  const auto max_quadric_evaluations=bounded_size(integers[14],100000000ULL);
+  const jlong quadric_lod_flag=integers[13];
   if(!pixel_stride||!max_blocks||!max_frames||!max_depth_pixels||!max_voxel_visits||
      !max_snapshot_voxels||!max_cells||!max_vertices||!max_triangles||
      !min_component_triangles||!max_edges||!max_clusters||!max_glb_bytes||
-     *max_glb_bytes<1024)return 0;
+     !max_quadric_evaluations||*max_glb_bytes<1024||
+     (quadric_lod_flag!=0&&quadric_lod_flag!=1))return 0;
   try{
     arkernel::ReconstructionPipelineConfig config;
     config.fusion.voxel_size_m=scalars[0];
@@ -993,6 +996,18 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
     config.simplification.max_input_triangles=*max_triangles;
     config.simplification.max_unique_edges=*max_edges;
     config.simplification.max_clusters=*max_clusters;
+    config.enable_quadric_error_lod=quadric_lod_flag==1;
+    config.quadric_lod.cluster_cell_size_m=scalars[7];
+    config.quadric_lod.max_cluster_quadric_error_m2=scalars[11];
+    config.quadric_lod.max_displacement_m=scalars[12];
+    config.quadric_lod.regularization=scalars[13];
+    config.quadric_lod.sharp_edge_angle_degrees=scalars[9];
+    config.quadric_lod.max_uv_error=scalars[10];
+    config.quadric_lod.max_input_vertices=*max_vertices;
+    config.quadric_lod.max_input_triangles=*max_triangles;
+    config.quadric_lod.max_unique_edges=*max_edges;
+    config.quadric_lod.max_clusters=*max_clusters;
+    config.quadric_lod.max_evaluations=*max_quadric_evaluations;
     return toHandle(new AndroidReconstructionPipeline(std::move(config),*max_glb_bytes));
   }catch(...){return 0;}
 }
@@ -1061,14 +1076,14 @@ extern "C" JNIEXPORT jobjectArray JNICALL
 Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
     JNIEnv* env,jobject,jlong handle,jlongArray metadata,jdoubleArray scalar_values) {
   auto* owner=fromFusionPipelineHandle(handle);
-  if(!owner||!metadata||!scalar_values||env->GetArrayLength(metadata)<19||
-     env->GetArrayLength(scalar_values)<1)return nullptr;
+  if(!owner||!metadata||!scalar_values||env->GetArrayLength(metadata)<28||
+     env->GetArrayLength(scalar_values)<4)return nullptr;
   try{
     const auto result=owner->pipeline.build();
     if(!result.error.empty()||!meshFitsGlbBudget(result.source_mesh,owner->max_glb_bytes)||
        !meshFitsGlbBudget(result.simplified_mesh,owner->max_glb_bytes))return nullptr;
     const auto& t=result.telemetry;
-    const jlong values[19]={t.complete?1:0,t.fusion_truncated?1:0,
+    const jlong values[28]={t.complete?1:0,t.fusion_truncated?1:0,
       t.meshing_truncated?1:0,t.filtering_truncated?1:0,t.simplification_truncated?1:0,
       static_cast<jlong>(t.fused_frames),static_cast<jlong>(t.fused_blocks),
       static_cast<jlong>(t.fused_voxels),static_cast<jlong>(t.meshing_input_voxels),
@@ -1077,10 +1092,20 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
       static_cast<jlong>(t.meshing_skipped_incomplete_cells),
       static_cast<jlong>(t.source_components),static_cast<jlong>(t.retained_components),
       static_cast<jlong>(t.source_vertices),static_cast<jlong>(t.source_triangles),
-      static_cast<jlong>(t.simplified_vertices),static_cast<jlong>(t.simplified_triangles)};
-    const jdouble displacement=t.max_simplification_displacement_m;
-    env->SetLongArrayRegion(metadata,0,19,values);
-    env->SetDoubleArrayRegion(scalar_values,0,1,&displacement);
+      static_cast<jlong>(t.simplified_vertices),static_cast<jlong>(t.simplified_triangles),
+      t.quadric_lod_enabled?1:0,t.quadric_lod_truncated?1:0,
+      static_cast<jlong>(t.quadric_lod_input_vertices),
+      static_cast<jlong>(t.quadric_lod_output_vertices),
+      static_cast<jlong>(t.quadric_lod_output_triangles),
+      static_cast<jlong>(t.quadric_lod_accepted_clusters),
+      static_cast<jlong>(t.quadric_lod_rejected_clusters),
+      static_cast<jlong>(t.quadric_lod_locked_vertices),
+      static_cast<jlong>(t.quadric_lod_removed_degenerate_triangles)};
+    const jdouble scalars[4]={t.max_simplification_displacement_m,
+      t.quadric_lod_initial_error_m2,t.quadric_lod_final_error_m2,
+      t.quadric_lod_max_displacement_m};
+    env->SetLongArrayRegion(metadata,0,28,values);
+    env->SetDoubleArrayRegion(scalar_values,0,4,scalars);
     jclass byte_array_class=env->FindClass("[B");
     if(!byte_array_class||env->ExceptionCheck())return nullptr;
     jobjectArray output=env->NewObjectArray(2,byte_array_class,nullptr);
@@ -1472,7 +1497,7 @@ Java_ai_arena_arkernel_ReconstructionTexturePipeline_nativeBuild(
     jobjectArray confidence_buffers,jobjectArray uncertainty_buffers,jintArray depth_data,
     jint max_vertices,jint max_triangles,jint max_result_bytes,jint atlas_width,
     jint atlas_height,jboolean require_visibility_depth,jboolean enable_photometry,
-    jboolean enable_seam_blending) {
+    jboolean enable_seam_blending,jboolean enable_global_seam_optimization) {
   constexpr jsize kCameraValues=17;
   constexpr jsize kDepthValues=9;
   constexpr std::uint32_t kMagic=0x54584B41U;
@@ -1633,6 +1658,8 @@ Java_ai_arena_arkernel_ReconstructionTexturePipeline_nativeBuild(
     config.atlas_layout.max_output_vertices=static_cast<std::size_t>(max_vertices);
     config.enable_photometric_correction=enable_photometry==JNI_TRUE;
     config.enable_seam_blending=enable_seam_blending==JNI_TRUE;
+    config.enable_global_seam_optimization=
+      enable_global_seam_optimization==JNI_TRUE;
     const auto result=arkernel::buildTextureAtlas(mesh,candidates,source_images,config);
     const bool complete=result.stage==arkernel::TexturePipelineStage::kComplete;
     if(complete&&(result.mesh.positions_m.size()>static_cast<std::size_t>(max_vertices)||

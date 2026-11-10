@@ -27,9 +27,33 @@ data class ReconstructionFusionOptions(
     val maxUvError: Double = 0.01,
     val maxUniqueEdges: Long = 3_000_000,
     val maxClusters: Long = 1_000_000,
+    /** Optional measured quadric-error-guided delivery LOD; source mesh stays intact. */
+    val enableQuadricErrorLod: Boolean = false,
+    val maxQuadricErrorSquareMeters: Double = 1e-4,
+    val maxQuadricLodDisplacementMeters: Double = 0.02,
+    val quadricRegularization: Double = 1e-9,
+    val maxQuadricEvaluations: Long = 10_000_000,
     val maxGlbBytesPerMesh: Long = 128L * 1024L * 1024L,
     val maxRawMeshBytes: Int = 128 * 1024 * 1024,
-)
+) {
+    init {
+        require(maxQuadricErrorSquareMeters > 0.0 &&
+            maxQuadricErrorSquareMeters.isFinite() &&
+            maxQuadricErrorSquareMeters <= 100.0) {
+            "Invalid quadric error budget"
+        }
+        require(maxQuadricLodDisplacementMeters > 0.0 &&
+            maxQuadricLodDisplacementMeters.isFinite() &&
+            maxQuadricLodDisplacementMeters <= 10.0) {
+            "Invalid quadric LOD displacement budget"
+        }
+        require(quadricRegularization > 0.0 && quadricRegularization.isFinite() &&
+            quadricRegularization <= 1.0) { "Invalid quadric regularization" }
+        require(maxQuadricEvaluations in 1L..100_000_000L) {
+            "Invalid quadric evaluation budget"
+        }
+    }
+}
 
 enum class ReconstructionIntegrationRejection {
     NONE, INVALID_TIMESTAMP, NON_MONOTONIC_TIMESTAMP, FRAME_BUDGET_EXCEEDED,
@@ -90,6 +114,18 @@ data class ReconstructionBuildOutput(
     val simplifiedVertices: Long,
     val simplifiedTriangles: Long,
     val maxSimplificationDisplacementMeters: Double,
+    val quadricLodEnabled: Boolean,
+    val quadricLodTruncated: Boolean,
+    val quadricLodInputVertices: Long,
+    val quadricLodOutputVertices: Long,
+    val quadricLodOutputTriangles: Long,
+    val quadricLodAcceptedClusters: Long,
+    val quadricLodRejectedClusters: Long,
+    val quadricLodLockedVertices: Long,
+    val quadricLodRemovedDegenerateTriangles: Long,
+    val quadricLodInitialErrorSquareMeters: Double,
+    val quadricLodFinalErrorSquareMeters: Double,
+    val quadricLodMaxDisplacementMeters: Double,
 )
 
 /**
@@ -97,7 +133,9 @@ data class ReconstructionBuildOutput(
  *
  * Calls are synchronous and serialized. Buffers must be direct, native-order,
  * alive and immutable until integrate returns. Unknown depth remains unknown;
- * this class performs neither model inference nor hole filling.
+ * this class performs neither model inference nor hole filling. An optional
+ * measured quadric-error LOD may refine only the delivery mesh; the filtered
+ * source mesh used for texturing is never replaced.
  */
 class ReconstructionFusionPipeline(
     options: ReconstructionFusionOptions = ReconstructionFusionOptions(),
@@ -111,12 +149,16 @@ class ReconstructionFusionPipeline(
             options.maxVoxelVisitsPerUpdate, options.maxSnapshotVoxels,
             options.maxMeshCells, options.maxMeshVertices, options.maxMeshTriangles,
             options.minComponentTriangles, options.maxUniqueEdges, options.maxClusters,
-            options.maxGlbBytesPerMesh),
+            options.maxGlbBytesPerMesh,
+            if (options.enableQuadricErrorLod) 1L else 0L,
+            options.maxQuadricEvaluations),
         doubleArrayOf(options.voxelSizeMeters, options.truncationDistanceMeters,
             options.minDepthMeters, options.maxDepthMeters, options.minConfidence,
             options.defaultUncertaintyMeters, options.minComponentAreaSquareMeters,
             options.simplificationCellSizeMeters, options.maxSimplificationErrorMeters,
-            options.sharpEdgeAngleDegrees, options.maxUvError),
+            options.sharpEdgeAngleDegrees, options.maxUvError,
+            options.maxQuadricErrorSquareMeters,
+            options.maxQuadricLodDisplacementMeters, options.quadricRegularization),
     ).also { require(it != 0L) { "Invalid reconstruction fusion options" } }
 
     @Synchronized
@@ -158,8 +200,8 @@ class ReconstructionFusionPipeline(
     @Synchronized
     fun build(): ReconstructionBuildOutput {
         check(nativeHandle != 0L) { "Reconstruction fusion pipeline is closed" }
-        val metadata = LongArray(19)
-        val values = DoubleArray(1)
+        val metadata = LongArray(28)
+        val values = DoubleArray(4)
         val meshes = nativeBuild(nativeHandle, metadata, values)
             ?: error("Native reconstruction build failed")
         check(meshes.size == 2)
@@ -167,7 +209,10 @@ class ReconstructionFusionPipeline(
             metadata[1] != 0L, metadata[2] != 0L, metadata[3] != 0L,
             metadata[4] != 0L, metadata[5], metadata[6], metadata[7], metadata[8],
             metadata[9], metadata[10], metadata[11], metadata[12], metadata[13],
-            metadata[14], metadata[15], metadata[16], metadata[17], metadata[18], values[0])
+            metadata[14], metadata[15], metadata[16], metadata[17], metadata[18],
+            values[0], metadata[19] != 0L, metadata[20] != 0L,
+            metadata[21], metadata[22], metadata[23], metadata[24], metadata[25],
+            metadata[26], metadata[27], values[1], values[2], values[3])
     }
 
     /**

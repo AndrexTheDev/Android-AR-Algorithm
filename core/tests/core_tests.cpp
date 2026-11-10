@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -8,6 +9,7 @@
 #include "arkernel/bundle_adjustment.h"
 #include "arkernel/c_api.h"
 #include "arkernel/camera_model.h"
+#include "arkernel/camera_response.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
 #include "arkernel/depth_postprocessor.h"
@@ -2674,6 +2676,122 @@ int main() {
   auto result = engine.processFrame({30, 1, 1, 1, PixelFormat::kGray8, &frame_pixel, 1});
   CHECK(raw->imu_count == 2);
   CHECK(result.tracking.state == TrackingState::kTracking);
+  // Bounded native camera-response linearity estimator.
+  auto make_response_samples = []() {
+    const double black = 0.05;
+    const double low_exposure = 0.01;
+    const double low_intensity[8] = {
+        0.10, 0.20, 0.30, 0.45, 0.10, 0.16, 0.22, 0.32};
+    const double ratio[8] = {2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0};
+    std::vector<CameraResponsePair> samples;
+    samples.reserve(8);
+    for (int i = 0; i < 8; ++i) {
+      CameraResponsePair sample;
+      sample.id = static_cast<std::uint64_t>(i + 1);
+      sample.exposure_low_s = low_exposure;
+      sample.exposure_high_s = low_exposure * ratio[i];
+      sample.intensity_low = low_intensity[i];
+      sample.intensity_high = black + ratio[i] * (low_intensity[i] - black);
+      samples.push_back(sample);
+    }
+    return samples;
+  };
+  auto samples = make_response_samples();
+  auto accepted = estimateCameraResponseLinearity(samples);
+  CHECK(accepted.accepted);
+  CHECK(accepted.rejection == CameraResponseRejection::kNone);
+  CHECK(accepted.sample_count == 8);
+  CHECK(std::fabs(accepted.black_level - 0.05) < 1e-9);
+  CHECK(accepted.min_slope > 0.0);
+  CHECK(accepted.max_slope >= accepted.min_slope);
+  CHECK(accepted.max_residual < 1e-9);
+  CHECK(accepted.rmse < 1e-9);
+  CHECK(std::strcmp(accepted.quality_grade, "unverified") == 0);
+  CHECK(std::strcmp(cameraResponseRejectionText(accepted.rejection), "none") == 0);
+
+  auto too_few = samples;
+  too_few.resize(7);
+  CHECK(estimateCameraResponseLinearity(too_few).rejection ==
+        CameraResponseRejection::kTooFewSamples);
+  auto too_many = samples;
+  for (std::uint64_t id = 9; id <= 65; ++id) {
+    auto copy = samples[static_cast<std::size_t>((id - 9) % samples.size())];
+    copy.id = id;
+    too_many.push_back(copy);
+  }
+  CHECK(estimateCameraResponseLinearity(too_many).rejection ==
+        CameraResponseRejection::kTooManySamples);
+  auto invalid_id = samples;
+  invalid_id[0].id = 0;
+  CHECK(estimateCameraResponseLinearity(invalid_id).rejection ==
+        CameraResponseRejection::kInvalidId);
+  auto duplicate_id = samples;
+  duplicate_id[1].id = duplicate_id[0].id;
+  CHECK(estimateCameraResponseLinearity(duplicate_id).rejection ==
+        CameraResponseRejection::kDuplicateId);
+  auto non_finite = samples;
+  non_finite[0].intensity_high = std::numeric_limits<double>::quiet_NaN();
+  CHECK(estimateCameraResponseLinearity(non_finite).rejection ==
+        CameraResponseRejection::kNonFiniteInput);
+  auto invalid_exposure = samples;
+  invalid_exposure[0].exposure_low_s = 0.0;
+  CHECK(estimateCameraResponseLinearity(invalid_exposure).rejection ==
+        CameraResponseRejection::kInvalidExposure);
+  auto invalid_ratio = samples;
+  invalid_ratio[0].exposure_high_s = 0.0105;
+  CHECK(estimateCameraResponseLinearity(invalid_ratio).rejection ==
+        CameraResponseRejection::kInvalidExposureRatio);
+  auto invalid_intensity = samples;
+  invalid_intensity[0].intensity_low = 0.99;
+  CHECK(estimateCameraResponseLinearity(invalid_intensity).rejection ==
+        CameraResponseRejection::kInvalidIntensity);
+
+  auto one_ratio = samples;
+  for (std::size_t i = 0; i < one_ratio.size(); ++i) {
+    one_ratio[i].exposure_high_s = 0.02;
+    one_ratio[i].intensity_high =
+        0.05 + 2.0 * (one_ratio[i].intensity_low - 0.05);
+  }
+  CHECK(estimateCameraResponseLinearity(one_ratio).rejection ==
+        CameraResponseRejection::kInsufficientRatioDiversity);
+
+  auto flat_intensity = samples;
+  for (std::size_t i = 0; i < flat_intensity.size(); ++i) {
+    flat_intensity[i].intensity_low = 0.20;
+    const double ratio_value = flat_intensity[i].exposure_high_s /
+                               flat_intensity[i].exposure_low_s;
+    flat_intensity[i].intensity_high =
+        0.05 + ratio_value * (0.20 - 0.05);
+  }
+  CHECK(estimateCameraResponseLinearity(flat_intensity).rejection ==
+        CameraResponseRejection::kInsufficientIntensitySpan);
+
+  auto inconsistent_black = samples;
+  inconsistent_black[0].intensity_high += 0.05;
+  CHECK(estimateCameraResponseLinearity(inconsistent_black).rejection ==
+        CameraResponseRejection::kInconsistentBlackLevel);
+
+  auto residual_too_large = samples;
+  residual_too_large[4].intensity_high += 0.03;
+  CHECK(estimateCameraResponseLinearity(residual_too_large).rejection ==
+        CameraResponseRejection::kResidualTooLarge);
+
+  auto non_positive_slope = samples;
+  non_positive_slope[0].intensity_low = 0.04;
+  non_positive_slope[0].intensity_high = 0.03;
+  CHECK(estimateCameraResponseLinearity(non_positive_slope).rejection ==
+        CameraResponseRejection::kNonPositiveSlope);
+
+  auto rmse_too_large = samples;
+  for (std::size_t i = 0; i < rmse_too_large.size(); ++i) {
+    rmse_too_large[i].intensity_high += (i % 2 == 0) ? 0.019 : -0.019;
+  }
+  CHECK(estimateCameraResponseLinearity(rmse_too_large).rejection ==
+        CameraResponseRejection::kRmseTooLarge);
+  CHECK(std::strcmp(
+            cameraResponseRejectionText(CameraResponseRejection::kRmseTooLarge),
+            "linearity rmse too large") == 0);
+
   std::cout << "All AR kernel tests passed\n";
   return 0;
 }

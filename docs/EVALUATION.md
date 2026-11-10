@@ -99,3 +99,23 @@ device validation or quality upgrade. Real MH_01/TUM-VI/KITTI measurements,
 real external corpora with license/hash manifests and real benchmark runs
 remain open; `ARKDSMAN1` is only a bounded transport shape for metadata a host
 has already supplied.
+
+## Bounded host-supplied device-farm scene matrices
+
+`ArKernelDeviceFarmScenePlanBundle` adds a canonical `ARKSCENE1` text plan for
+bounded host-supplied device-farm scene metadata. It has a fixed nine-key
+metadata order, 1–24 scenes, unique opaque scene IDs, contiguous indices,
+opaque scene-kind and capability-signature tokens, bounded minute durations and
+a `0`/`1` thermal-run marker. Input/line/scene budgets, BOM/CRLF tolerance with
+one optional final separator and a fail-closed `END` are enforced. Four safety
+flags keep provider binding disabled, while rig evidence, thermal-run evidence
+and independent targets remain explicit host requirements rather than
+implemented capabilities; the grade remains `unverified`.
+
+The pure summarizer reports only scene count, total minutes, thermal-run count
+and distinct scene kinds/capability signatures. It performs no provider
+binding, Mobly rig control, real thermal run, day/night/weather capture, I/O,
+upload, evidence verification, device validation or quality upgrade. Real
+Cloud/Lab provider integration, physical rig evidence, real 30-minute thermal
+runs and real day/night/weather scenes remain open; `ARKSCENE1` is only a
+bounded transport shape for a scene matrix a host has already supplied.

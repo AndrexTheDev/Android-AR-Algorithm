@@ -265,7 +265,7 @@ Use Mobly (Apache-2.0) to orchestrate a compact representative matrix with:
 - thermal logging and repeated 30-minute scans;
 - automatic capture of build/capability signature and diagnostic bundle.
 
-The rig supplies ground truth that cloud quantity cannot. DeviceFarmer STF can manage inventory/reservations; it does not replace Mobly measurement logic. `DeviceThermalRunPlanner` and `DeviceThermalRunLedger` now provide only a bounded deterministic 30-minute slot schedule and fail-closed accounting for host-supplied thermal-state/frame-rate samples, with explicit `unverified`. They do not measure temperature, execute scans, connect to a rig or prove thermal endurance; those remain physical lab work.
+The rig supplies ground truth that cloud quantity cannot. DeviceFarmer STF can manage inventory/reservations; it does not replace Mobly measurement logic. `DeviceThermalRunPlanner` and `DeviceThermalRunLedger` now provide only a bounded deterministic 30-minute slot schedule and fail-closed accounting for host-supplied thermal-state/frame-rate samples, with explicit `unverified`. They do not measure temperature, execute scans, connect to a rig or prove thermal endurance; those remain physical lab work. `ArKernelDeviceFarmScenePlanBundle` adds a bounded canonical `ARKSCENE1` text matrix for host-supplied scene metadata: 1–24 opaque scenes, bounded minute durations, a `0`/`1` thermal marker and a pure structural summary. It binds no Cloud/Lab provider, controls no Mobly rig, runs no real day/night/weather or thermal scene and stays `unverified`; real device-farm evidence remains physical lab work.
 
 ### 6. Virtual and synthetic testing
 

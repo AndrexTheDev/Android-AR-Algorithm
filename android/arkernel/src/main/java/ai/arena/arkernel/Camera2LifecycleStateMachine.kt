@@ -11,6 +11,7 @@ enum class Camera2LifecycleState {
 enum class Camera2LifecycleFailure {
     DEVICE_DISCONNECTED,
     DEVICE_ERROR,
+    SERVICE_DEATH,
     SESSION_CONFIGURE_FAILED,
     SESSION_START_FAILED,
 }
@@ -60,7 +61,9 @@ class Camera2LifecycleStateMachine {
         val previous = currentState
         val validState = when (failure) {
             Camera2LifecycleFailure.DEVICE_DISCONNECTED,
-            Camera2LifecycleFailure.DEVICE_ERROR -> currentState == Camera2LifecycleState.OPENING ||
+            Camera2LifecycleFailure.DEVICE_ERROR,
+            Camera2LifecycleFailure.SERVICE_DEATH ->
+                currentState == Camera2LifecycleState.OPENING ||
                 currentState == Camera2LifecycleState.CONFIGURING ||
                 currentState == Camera2LifecycleState.STREAMING
             Camera2LifecycleFailure.SESSION_CONFIGURE_FAILED ->

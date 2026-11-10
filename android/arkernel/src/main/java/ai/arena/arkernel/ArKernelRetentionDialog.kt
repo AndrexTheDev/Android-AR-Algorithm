@@ -1,7 +1,9 @@
 package ai.arena.arkernel
 
+import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Color
 import android.os.Looper
 import android.util.TypedValue
@@ -44,6 +46,9 @@ object ArKernelRetentionDialog {
         check(Looper.myLooper() == Looper.getMainLooper()) {
             "Retention dialog must be shown on the main thread"
         }
+        val activity = context.activityOrNull()
+            ?: throw IllegalArgumentException(
+                "Retention dialog requires an Activity context with a window token")
         val strings = ArKernelRetentionStrings.dialog(
             context, locale, encryptionEnabled, selectedPolicy)
         val localized = ArKernelRetentionStrings.localizedContext(context, locale)
@@ -130,7 +135,8 @@ object ArKernelRetentionDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        val dialog = AlertDialog.Builder(themed)
+        val dialog = AlertDialog.Builder(
+            activity, android.R.style.Theme_Material_Light_Dialog_Alert)
             .setTitle(strings.title)
             .setView(scrollView)
             .setPositiveButton(strings.confirmLabel) { d, _ ->
@@ -149,5 +155,11 @@ object ArKernelRetentionDialog {
             .create()
         dialog.show()
         return dialog
+    }
+
+    private tailrec fun Context.activityOrNull(): Activity? = when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.activityOrNull()
+        else -> null
     }
 }

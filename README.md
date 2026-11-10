@@ -81,6 +81,18 @@ c++ -std=c++17 -Wall -Wextra -Wpedantic -Icore/include \
 
 Android/NDK-Integration ist in `android/arkernel/` vorbereitet. Forschungsstand, Auswahlbegründung und Roadmap stehen in [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/REPLAY.md`](docs/REPLAY.md), [`docs/EVALUATION.md`](docs/EVALUATION.md), [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md), [`docs/DEPTH.md`](docs/DEPTH.md), [`docs/FALLBACK.md`](docs/FALLBACK.md), [`docs/DEVICE_COMPATIBILITY_STRATEGY.md`](docs/DEVICE_COMPATIBILITY_STRATEGY.md), [`docs/INFERENCE.md`](docs/INFERENCE.md), [`docs/SEMANTICS.md`](docs/SEMANTICS.md) und [`docs/OPEN_SOURCE_ADOPTION.md`](docs/OPEN_SOURCE_ADOPTION.md).
 
+## Diagnose-APK für ein echtes Gerät
+
+Für ein physisches Gerät (z. B. Redmi Note 13) gibt es das sideloadbare Modul
+[`android/diagnostics-app`](android/diagnostics-app/README.md). Nach explizitem
+Opt-in schreibt es eine `ARKFDLOG1`-Textdatei und die zugehörige
+`ARKFDPOL1`-Richtlinie in den Download- bzw. app-eigenen Dateibereich; die
+Datei kann hier im Chat hochgeladen werden. Die App enthält keine Bilder,
+Posen, Trajektorien oder Kalibrierarrays, lädt nichts automatisch hoch und
+bleibt `unverified`. Die Android-CI baut die Debug-APK als Artefakt
+`arkernel-diagnostics-apk`. Sie liefert begrenzte Laufzeitfakten, keinen
+physischen Bodentruth und keine Zentimetervalidierung.
+
 ## Lizenz
 
 Eigenständiger Code: Apache-2.0. Externe Backends und **Modellgewichte** müssen vor jeder Distribution separat geprüft werden. Insbesondere ist „Open Source Code“ nicht automatisch gleichbedeutend mit kommerziell frei nutzbaren Gewichten.

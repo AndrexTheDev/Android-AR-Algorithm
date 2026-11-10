@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "AndroidARAlgorithm"
 include(":android:arkernel")
+include(":android:diagnostics-app")

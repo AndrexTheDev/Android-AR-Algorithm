@@ -280,6 +280,8 @@ Android Emulator and Cuttlefish are useful for API levels, permissions, lifecycl
 
 They cannot validate a real lens, sensor, ISP or temperature curve.
 
+A bounded sideloadable host diagnostic app in `android/diagnostics-app` can now write an opted-in `ARKFDLOG1` text log plus its `ARKFDPOL1` policy into Downloads on a physical device. It records only opaque device, capability, camera-metadata, thermal and timing tokens, never images or poses, performs no automatic upload and remains `unverified`. It is a transport aid for bounded runtime facts from a real handset, not a measurement rig, thermal endurance run or proof of dimensional accuracy.
+
 ### 7. Record/replay and metamorphic tests
 
 Maintain a provenance-controlled corpus of raw camera/IMU streams from each behavioral partition. Run every kernel change against it with trajectory and reconstruction regression budgets.

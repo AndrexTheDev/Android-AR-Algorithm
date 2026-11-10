@@ -25,5 +25,7 @@ Mittelwert und Standardabweichung prüfbar, ohne eine neue APK zu installieren.
 Der kanonische Text ist 1069 Bytes lang, hat CRC-32 `0600c70b` und bleibt
 `quality_grade=unverified`. Nach dem Einfügen in das Planfeld der App schreibt
 diese den Plan kanonisch neu; ein künftiger `ARKFDLOG1` trägt dann diese neue
-`PLAN_CRC` statt `c50de25f`. Es werden keine Bilder, Posen, Trajektorien,
-Kalibrierarrays oder physikalischen Bodentruth-Daten erzeugt.
+`PLAN_CRC` statt `c50de25f`. Ein dritter hochgeladener Redmi-Lauf hat genau
+diese Datei byte-identisch verwendet und damit `pass.20.of.20.unverified`
+erreicht. Es werden keine Bilder, Posen, Trajektorien, Kalibrierarrays oder
+physikalischen Bodentruth-Daten erzeugt.

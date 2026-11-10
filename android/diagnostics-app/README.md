@@ -116,9 +116,10 @@ step=SENSOR_LIVE|5000|2000|2|light
 ```
 
 Ein fertiger, kanonisch gültiger Plan liegt unter
-`docs/examples/ARKFDPLAN1_redmi_light_tuned.txt` (CRC-32 `0600c70b`). Danach
-können alle 20 Schritte strukturell durchlaufen, **ohne neue APK**. Die
-Qualität bleibt `unverified`; die Schwelle ist keine Messgenauigkeit und kein
+`docs/examples/ARKFDPLAN1_redmi_light_tuned.txt` (CRC-32 `0600c70b`). Ein
+dritter host-supplied Redmi-Lauf hat diese Datei byte-identisch verwendet und
+damit `pass.20.of.20.unverified` erreicht — **ohne neue APK**. Die Qualität
+bleibt `unverified`; die Schwelle ist keine Messgenauigkeit und kein
 Bodentruth.
 
 ## Was der ultimative Planlauf prüft

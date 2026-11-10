@@ -79,3 +79,23 @@ evaluation, dataset download, upload, signature verification or quality
 upgrade. Real MH_01/TUM-VI/KITTI measurements and external dataset corpora
 remain physical/operational work; `ARKREGR1` can only compare bounded scalars
 that a host has already supplied.
+
+## Bounded host-supplied dataset corpus manifests
+
+`ArKernelDatasetManifestBundle` adds a canonical `ARKDSMAN1` text manifest for
+bounded host-supplied corpus metadata. It has a fixed nine-key metadata order,
+1–64 entries, unique opaque dataset IDs, contiguous indices, opaque license and
+role tokens, lowercase 64-character SHA-256 hex digests, positive byte sizes,
+input/line budgets, BOM/CRLF tolerance with one optional final separator and a
+fail-closed `END`. Four safety flags keep dataset loading and automatic budget
+derivation disabled, while host signature verification and independent targets
+remain explicit host requirements rather than implemented capabilities; the
+grade remains `unverified`.
+
+The pure summarizer reports only entry count, total bytes and distinct license
+and role counts. It performs no I/O, corpus loading, replay, benchmark run,
+upload, signature verification, automatic budget derivation from real data,
+device validation or quality upgrade. Real MH_01/TUM-VI/KITTI measurements,
+real external corpora with license/hash manifests and real benchmark runs
+remain open; `ARKDSMAN1` is only a bounded transport shape for metadata a host
+has already supplied.

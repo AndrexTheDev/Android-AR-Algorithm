@@ -28,7 +28,15 @@ class ArKernelSurveyMeasurementJsonlTest {
         assertTrue(ArKernelSurveyMeasurementJsonl.parse("\uFEFF$jsonl").accepted)
         assertTrue(ArKernelSurveyMeasurementJsonl.parse(
             jsonl.replace("\n", "\r\n")).accepted)
-        assertTrue(ArKernelSurveyMeasurementJsonl.parse("$jsonl\n").accepted)
+        for (separator in listOf("\n", "\r", "\r\n")) {
+            val terminated = ArKernelSurveyMeasurementJsonl.parse("$jsonl$separator")
+            assertTrue("terminal separator $separator must be accepted", terminated.accepted)
+            assertEquals(3, terminated.lineNumber)
+            assertEquals(observations, terminated.observations)
+        }
+        assertTrue(ArKernelSurveyMeasurementJsonl.parse("\uFEFF$jsonl\n").accepted)
+        assertEquals(ArKernelSurveyJsonlRejection.EMPTY_LINE,
+            ArKernelSurveyMeasurementJsonl.parse("$jsonl\n\n").rejection)
     }
 
     @Test
@@ -38,6 +46,10 @@ class ArKernelSurveyMeasurementJsonlTest {
             ArKernelSurveyMeasurementJsonl.parse("").rejection)
         assertEquals(ArKernelSurveyJsonlRejection.EMPTY_DATASET,
             ArKernelSurveyMeasurementJsonl.parse("\uFEFF").rejection)
+        assertEquals(ArKernelSurveyJsonlRejection.EMPTY_DATASET,
+            ArKernelSurveyMeasurementJsonl.parse("\n").rejection)
+        assertEquals(ArKernelSurveyJsonlRejection.EMPTY_DATASET,
+            ArKernelSurveyMeasurementJsonl.parse("\uFEFF\r\n").rejection)
         assertEquals(ArKernelSurveyJsonlRejection.INPUT_TOO_LARGE,
             ArKernelSurveyMeasurementJsonl.parse("x".repeat(65_537)).rejection)
 

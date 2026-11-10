@@ -67,10 +67,11 @@ data class ArKernelSurveyJsonlParseResult(
  * evidence.
  *
  * Each line is one flat JSON object with exactly eleven keys in a fixed order,
- * no whitespace, no nested values and no escaped strings. Evidence IDs and
- * reference kinds use the same bounded vocabularies as the CSV adapter, while
- * numeric fields accept only finite JSON numbers. The parser enforces input,
- * line and row budgets, unique IDs, exact provenance and the existing
+ * no whitespace, no nested values and no escaped strings. A single optional
+ * final line separator is accepted; any other blank line is rejected. Evidence
+ * IDs and reference kinds use the same bounded vocabularies as the CSV adapter,
+ * while numeric fields accept only finite JSON numbers. The parser enforces
+ * input, line and row budgets, unique IDs, exact provenance and the existing
  * dimensional evidence contract. It does not measure anything, run the
  * validator, upgrade `unverified` output or imply `centimeter-validated`
  * accuracy.
@@ -92,11 +93,22 @@ object ArKernelSurveyMeasurementJsonl {
             return reject(ArKernelSurveyJsonlRejection.EMPTY_DATASET, 0,
                 "Survey JSON Lines input is empty")
         }
+        // JSON Lines permits one final line separator. Remove exactly one so
+        // that a terminal newline is not mistaken for an additional blank row.
+        val body = when {
+            normalized.endsWith("\r\n") -> normalized.dropLast(2)
+            normalized.endsWith("\n") || normalized.endsWith("\r") -> normalized.dropLast(1)
+            else -> normalized
+        }
+        if (body.isEmpty()) {
+            return reject(ArKernelSurveyJsonlRejection.EMPTY_DATASET, 0,
+                "Survey JSON Lines input contains no data rows")
+        }
 
         val observations = mutableListOf<HeldOutDimensionObservation>()
         val ids = HashSet<String>(maxRows)
         var lineNumber = 0
-        for (rawLine in normalized.lineSequence()) {
+        for (rawLine in body.lineSequence()) {
             ++lineNumber
             val line = rawLine.trimEnd('\r')
             if (line.length > SURVEY_JSONL_MAX_LINE_CHARACTERS) {

@@ -35,6 +35,8 @@
 - [x] versioniertes synthetisches Kamera-/IMU-Replay, EuRoC-Konverter sowie SE(3)/Sim(3)-ATE/RPE;
 - [x] reproduzierbarer EuRoC-Baseline-Runner mit `T_BS`, Replay, Trajektorienexport und SE(3)/Sim(3)-Reports;
 - [ ] reale MH_01/TUM-VI/KITTI-Messwerte, automatische Ergebnisbudgets und Regressionstrends;
+  - [x] Ein begrenzter, host-eigener kanonischer `ARKREGR1`-Ergebnisbudget-/Trend-Ledger ist implementiert: feste Metadatenreihenfolge, Eingabe-/Zeilen-/Lauf-Budgets, eindeutige opake Run-IDs, streng geordnete Indizes, finite Dezimalskalare, fail-closed Parsing, BOM/CRLF-Toleranz und explizites `unverified`. `ArKernelRegressionTrendBundle` klassifiziert host-supplied Skalare deterministisch als `IMPROVING`, `STABLE`, `DEGRADING` oder `BUDGET_VIOLATION`, mit richtungsabhängiger Verschlechterung, absolutem/relativem Budget und Unsicherheits-Rauschboden. Er lädt keine Datensätze, führt keinen Replay/Benchmark aus, betreibt keine I/O, verifiziert keine Signaturen und stuft keine Qualität hoch.
+  - [ ] Reale MH_01/TUM-VI/KITTI-Messwerte, externe Dataset-Korpora mit Lizenz-/Hash-Manifesten sowie echte Benchmark-Läufe bleiben offen.
 - Fehlerfälle: Cover, Blur, Rotation, Sensorlücke, App pause/resume.
 
 **Exit:** 30 FPS Midrange, keine unbounded allocations, reproduzierbare Trajektorien und dokumentierte Genauigkeit.

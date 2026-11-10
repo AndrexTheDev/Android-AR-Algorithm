@@ -58,3 +58,24 @@ EuRoC images are PNG; conversion uses the free Pillow package when needed. IMU a
 ## Interpretation limits
 
 ATE/RPE do not measure relocalization, anchor jitter, depth quality, CPU, memory, energy or thermal throttling. Results are invalid if timestamps, sensor extrinsics, camera calibration or ground-truth frame conventions are wrong. Dataset scores must include sequence name, alignment mode, association threshold, build commit and device/backend configuration.
+
+## Bounded host-supplied regression trends
+
+`ArKernelRegressionTrendBundle` adds a canonical `ARKREGR1` text ledger for
+already computed, host-supplied scalar results. It has a fixed metadata order,
+bounded input/line/run budgets, unique opaque run IDs, contiguous indices,
+finite decimal values and uncertainties, BOM/CRLF tolerance with one optional
+final separator and a fail-closed `END`. Metadata bind `LOWER_IS_BETTER` or
+`HIGHER_IS_BETTER`, an absolute budget, a relative budget relative to the
+baseline magnitude, a minimum sample count and the permanent grade
+`unverified`.
+
+The pure evaluator reports the first/last delta, direction-dependent
+degradation and improvement, relative degradation, an uncertainty-derived
+noise floor and one of `IMPROVING`, `STABLE`, `DEGRADING` or
+`BUDGET_VIOLATION`. A budget violation is a structural regression signal, not
+an assessed accuracy claim. The adapter performs no I/O, replay, trajectory
+evaluation, dataset download, upload, signature verification or quality
+upgrade. Real MH_01/TUM-VI/KITTI measurements and external dataset corpora
+remain physical/operational work; `ARKREGR1` can only compare bounded scalars
+that a host has already supplied.

@@ -14,6 +14,7 @@
 #include "arkernel/reconstruction_asset.h"
 #include "arkernel/reconstruction_capture.h"
 #include "arkernel/reconstruction_pipeline.h"
+#include "arkernel/object_capture_guidance.h"
 #include "arkernel/temporal_depth_filter.h"
 #include "arkernel/texture_pipeline.h"
 
@@ -26,6 +27,30 @@ ark_visual_handle* fromVisualHandle(jlong value) {
 }
 arkernel::ReconstructionCapturePlanner* fromReconstructionPlannerHandle(jlong value) {
   return reinterpret_cast<arkernel::ReconstructionCapturePlanner*>(static_cast<intptr_t>(value));
+}
+arkernel::ObjectCaptureGuidancePlanner* fromObjectCaptureGuidanceHandle(jlong value) {
+  return reinterpret_cast<arkernel::ObjectCaptureGuidancePlanner*>(static_cast<intptr_t>(value));
+}
+jint writeObjectCaptureGuidance(JNIEnv* env,
+    const arkernel::ObjectCaptureGuidance& guidance,jlongArray metadata,
+    jdoubleArray values) {
+  if(!metadata||!values||env->GetArrayLength(metadata)<9||
+     env->GetArrayLength(values)<7)return ARK_RESULT_INVALID_ARGUMENT;
+  const jlong output[9]={
+    static_cast<jlong>(guidance.phase),static_cast<jlong>(guidance.instruction),
+    static_cast<jlong>(guidance.rejection),guidance.complete?1L:0L,
+    static_cast<jlong>(guidance.observations),
+    static_cast<jlong>(guidance.stable_center_observations),
+    static_cast<jlong>(guidance.covered_bins),static_cast<jlong>(guidance.total_bins),
+    static_cast<jlong>(guidance.covered_rings)};
+  const jdouble scalar_output[7]={
+    guidance.coverage_ratio,guidance.current_azimuth_degrees,
+    guidance.current_elevation_degrees,guidance.target_azimuth_degrees,
+    guidance.target_elevation_degrees,guidance.turntable_step_degrees,
+    guidance.measured_distance_m};
+  env->SetLongArrayRegion(metadata,0,9,output);
+  env->SetDoubleArrayRegion(values,0,7,scalar_output);
+  return env->ExceptionCheck()?ARK_RESULT_INTERNAL_ERROR:ARK_RESULT_OK;
 }
 arkernel::ClockAligner* fromClockAlignerHandle(jlong value) {
   return reinterpret_cast<arkernel::ClockAligner*>(static_cast<intptr_t>(value));
@@ -1415,6 +1440,78 @@ extern "C" JNIEXPORT void JNICALL
 Java_ai_arena_arkernel_ArKernelReconstructionPlanner_nativeDestroy(
     JNIEnv*,jobject,jlong handle) {
   delete fromReconstructionPlannerHandle(handle);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_ai_arena_arkernel_ArKernelObjectCaptureGuidance_nativeCreate(
+    JNIEnv* env,jobject,jlongArray integer_config,jdoubleArray scalar_config) {
+  if(!integer_config||!scalar_config||env->GetArrayLength(integer_config)<4||
+     env->GetArrayLength(scalar_config)<9)return 0;
+  jlong integers[4]{};jdouble scalars[9]{};
+  env->GetLongArrayRegion(integer_config,0,4,integers);
+  env->GetDoubleArrayRegion(scalar_config,0,9,scalars);
+  if(env->ExceptionCheck()||integers[0]<=0||integers[0]>360||integers[1]<=0||
+     integers[1]>180||integers[2]<=0||integers[2]>1000000||integers[3]<=0||
+     integers[3]>integers[2])return 0;
+  try {
+    arkernel::ObjectCaptureGuidanceConfig config;
+    config.azimuth_bins=static_cast<std::size_t>(integers[0]);
+    config.elevation_bins=static_cast<std::size_t>(integers[1]);
+    config.max_observations=static_cast<std::size_t>(integers[2]);
+    config.min_stable_center_observations=static_cast<std::size_t>(integers[3]);
+    config.min_foreground_ratio=scalars[0];config.max_foreground_ratio=scalars[1];
+    config.min_distance_m=scalars[2];config.max_distance_m=scalars[3];
+    config.target_distance_m=scalars[4];config.distance_tolerance_m=scalars[5];
+    config.max_center_shift_m=scalars[6];config.min_coverage_ratio=scalars[7];
+    config.elevation_step_degrees=scalars[8];
+    return toHandle(new arkernel::ObjectCaptureGuidancePlanner(config));
+  }catch(...){return 0;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelObjectCaptureGuidance_nativeObserve(
+    JNIEnv* env,jobject,jlong handle,jlong timestamp,
+    jdouble rw,jdouble rx,jdouble ry,jdouble rz,
+    jdouble px,jdouble py,jdouble pz,jboolean tracking,jdouble foreground_ratio,
+    jboolean has_center,jdouble center_x,jdouble center_y,jdouble center_z,
+    jlongArray metadata,jdoubleArray values) {
+  auto* planner=fromObjectCaptureGuidanceHandle(handle);
+  if(!planner)return ARK_RESULT_INVALID_ARGUMENT;
+  try {
+    arkernel::ObjectCaptureObservation observation;
+    observation.timestamp_ns=timestamp;
+    observation.world_from_camera.rotation={rw,rx,ry,rz};
+    observation.world_from_camera.translation={px,py,pz};
+    observation.tracking_reliable=tracking==JNI_TRUE;
+    observation.foreground_ratio=foreground_ratio;
+    if(has_center==JNI_TRUE)
+      observation.object_center_world_m=arkernel::Vec3{center_x,center_y,center_z};
+    return writeObjectCaptureGuidance(env,planner->observe(observation),metadata,values);
+  }catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelObjectCaptureGuidance_nativeGuidance(
+    JNIEnv* env,jobject,jlong handle,jlongArray metadata,jdoubleArray values) {
+  auto* planner=fromObjectCaptureGuidanceHandle(handle);
+  if(!planner)return ARK_RESULT_INVALID_ARGUMENT;
+  try {
+    return writeObjectCaptureGuidance(env,planner->guidance(),metadata,values);
+  }catch(...){return ARK_RESULT_INTERNAL_ERROR;}
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ai_arena_arkernel_ArKernelObjectCaptureGuidance_nativeReset(
+    JNIEnv*,jobject,jlong handle) {
+  auto* planner=fromObjectCaptureGuidanceHandle(handle);
+  if(!planner)return ARK_RESULT_INVALID_ARGUMENT;
+  planner->reset();return ARK_RESULT_OK;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ai_arena_arkernel_ArKernelObjectCaptureGuidance_nativeDestroy(
+    JNIEnv*,jobject,jlong handle) {
+  delete fromObjectCaptureGuidanceHandle(handle);
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL

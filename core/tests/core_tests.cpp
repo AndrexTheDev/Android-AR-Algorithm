@@ -4,6 +4,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <vector>
 #include "arkernel/bundle_adjustment.h"
 #include "arkernel/c_api.h"
 #include "arkernel/camera_model.h"
@@ -25,6 +26,7 @@
 #include "arkernel/loop_closure.h"
 #include "arkernel/mesh_processing.h"
 #include "arkernel/multi_view_stereo.h"
+#include "arkernel/object_capture_guidance.h"
 #include "arkernel/optical_flow.h"
 #include "arkernel/place_recognition.h"
 #include "arkernel/pose_graph.h"
@@ -193,6 +195,115 @@ int main() {
   candidate.frame_id=6;candidate.timestamp_ns=1900;candidate.sharpness=0.8;
   candidate.image_reference="frames/6.yuv";capture=object_capture.consider(candidate);
   CHECK(!capture.accepted&&capture.rejection==CaptureRejection::kNonMonotonicTimestamp);
+
+  // Bounded deterministic isolated-object guidance tracks measured coverage
+  // around a stable centre and emits UI-neutral turntable targets.
+  ObjectCaptureGuidanceConfig guidance_config;
+  guidance_config.azimuth_bins=4;guidance_config.elevation_bins=2;
+  guidance_config.max_observations=64;guidance_config.min_stable_center_observations=2;
+  guidance_config.min_distance_m=0.2;guidance_config.max_distance_m=2.0;
+  guidance_config.target_distance_m=0.8;guidance_config.distance_tolerance_m=0.05;
+  guidance_config.min_coverage_ratio=1.0;guidance_config.elevation_step_degrees=20.0;
+  auto invalid_guidance_config=guidance_config;
+  invalid_guidance_config.min_foreground_ratio=0.95;
+  bool rejected_guidance_config=false;
+  try{ObjectCaptureGuidancePlanner rejected(invalid_guidance_config);}
+  catch(const std::invalid_argument&){rejected_guidance_config=true;}
+  CHECK(rejected_guidance_config);
+
+  const double guidance_pi=3.14159265358979323846;
+  const Vec3 guidance_center{};
+  auto guidance_observation=[&](std::int64_t timestamp,std::size_t azimuth_bin,
+      std::size_t elevation_bin,double radius) {
+    const Vec3& center=guidance_center;
+    const double azimuth=(static_cast<double>(azimuth_bin)+0.5)*2.0*guidance_pi/
+      static_cast<double>(guidance_config.azimuth_bins);
+    const double elevation=-guidance_pi/2.0+
+      (static_cast<double>(elevation_bin)+0.5)*guidance_pi/
+      static_cast<double>(guidance_config.elevation_bins);
+    const Vec3 delta{std::cos(elevation)*std::cos(azimuth)*radius,
+      std::cos(elevation)*std::sin(azimuth)*radius,std::sin(elevation)*radius};
+    ObjectCaptureObservation observation;
+    observation.timestamp_ns=timestamp;
+    observation.world_from_camera.translation=center+delta;
+    observation.world_from_camera.rotation=Quaternion{1.0,0.0,0.0,0.0};
+    observation.tracking_reliable=true;observation.foreground_ratio=0.5;
+    observation.object_center_world_m=center;
+    return observation;
+  };
+  std::vector<ObjectCaptureObservation> orbit;
+  orbit.push_back(guidance_observation(1000,0,0,0.8));
+  orbit.push_back(guidance_observation(1100,0,0,0.8));
+  for(std::size_t elevation=0;elevation<guidance_config.elevation_bins;++elevation)
+    for(std::size_t azimuth=0;azimuth<guidance_config.azimuth_bins;++azimuth)
+      orbit.push_back(guidance_observation(1200+100*static_cast<std::int64_t>(
+        orbit.size()),azimuth,elevation,0.8));
+
+  ObjectCaptureGuidancePlanner guidance(guidance_config);
+  const auto first_guidance=guidance.observe(orbit[0]);
+  CHECK(first_guidance.phase==ObjectCapturePhase::kStabilizeCenter&&
+        first_guidance.instruction==ObjectCaptureInstruction::kHoldStill&&
+        first_guidance.rejection==ObjectCaptureRejection::kCenterUnstable&&
+        first_guidance.covered_bins==0&&first_guidance.total_bins==8);
+  const auto second_guidance=guidance.observe(orbit[1]);
+  CHECK(second_guidance.phase==ObjectCapturePhase::kOrbit&&
+        second_guidance.instruction==ObjectCaptureInstruction::kOrbitToNextView&&
+        second_guidance.rejection==ObjectCaptureRejection::kNone&&
+        second_guidance.covered_bins==1&&
+        std::abs(second_guidance.turntable_step_degrees-90.0)<1e-6);
+  ObjectCaptureGuidance final_guidance;
+  for(std::size_t index=2;index<orbit.size();++index)
+    final_guidance=guidance.observe(orbit[index]);
+  CHECK(final_guidance.complete&&
+        final_guidance.phase==ObjectCapturePhase::kComplete&&
+        final_guidance.instruction==ObjectCaptureInstruction::kComplete&&
+        final_guidance.rejection==ObjectCaptureRejection::kNone&&
+        final_guidance.covered_bins==8&&final_guidance.total_bins==8&&
+        final_guidance.covered_rings==2&&
+        std::abs(final_guidance.coverage_ratio-1.0)<1e-12);
+  CHECK(guidance.guidance().complete&&guidance.guidance().covered_bins==8);
+  ObjectCaptureGuidancePlanner replay_guidance(guidance_config);
+  ObjectCaptureGuidance replay_final;
+  for(const auto& observation:orbit) replay_final=replay_guidance.observe(observation);
+  CHECK(replay_final.complete&&replay_final.covered_bins==final_guidance.covered_bins&&
+        replay_final.covered_rings==final_guidance.covered_rings&&
+        replay_final.phase==final_guidance.phase&&
+        replay_final.instruction==final_guidance.instruction&&
+        std::abs(replay_final.coverage_ratio-final_guidance.coverage_ratio)<1e-12);
+  guidance.reset();
+  CHECK(!guidance.guidance().complete&&guidance.guidance().covered_bins==0&&
+        guidance.guidance().total_bins==8&&
+        guidance.guidance().phase==ObjectCapturePhase::kAcquireObject);
+
+  ObjectCaptureGuidancePlanner foreground_guidance(guidance_config);
+  auto invalid_foreground=guidance_observation(1000,0,0,0.8);
+  invalid_foreground.foreground_ratio=0.01;
+  const auto foreground_result=foreground_guidance.observe(invalid_foreground);
+  CHECK(foreground_result.phase==ObjectCapturePhase::kAcquireObject&&
+        foreground_result.rejection==ObjectCaptureRejection::kForegroundInvalid&&
+        foreground_result.covered_bins==0);
+  ObjectCaptureGuidancePlanner monotonic_guidance(guidance_config);
+  CHECK(monotonic_guidance.observe(guidance_observation(2000,0,0,0.8)).observations==1);
+  const auto monotonic_result=monotonic_guidance.observe(
+    guidance_observation(1900,1,0,0.8));
+  CHECK(monotonic_result.rejection==ObjectCaptureRejection::kNonMonotonicTimestamp);
+  auto distance_config=guidance_config;distance_config.min_stable_center_observations=1;
+  ObjectCaptureGuidancePlanner distance_planner(distance_config);
+  const auto distance_result=distance_planner.observe(guidance_observation(1000,0,0,1.5));
+  CHECK(distance_result.phase==ObjectCapturePhase::kSetDistance&&
+        distance_result.instruction==ObjectCaptureInstruction::kMoveCloser&&
+        distance_result.rejection==ObjectCaptureRejection::kDistanceInvalid&&
+        distance_result.covered_bins==0);
+  auto capacity_config=guidance_config;
+  capacity_config.max_observations=2;capacity_config.min_stable_center_observations=1;
+  ObjectCaptureGuidancePlanner capacity_planner(capacity_config);
+  CHECK(capacity_planner.observe(guidance_observation(1000,0,0,0.8)).covered_bins==1);
+  CHECK(capacity_planner.observe(guidance_observation(1100,1,0,0.8)).covered_bins==2);
+  const auto capacity_result=capacity_planner.observe(guidance_observation(1200,2,0,0.8));
+  CHECK(capacity_result.phase==ObjectCapturePhase::kBlocked&&
+        capacity_result.instruction==ObjectCaptureInstruction::kStop&&
+        capacity_result.rejection==ObjectCaptureRejection::kCoverageIncomplete&&
+        capacity_result.covered_bins==2);
 
   // Portable, textured indexed meshes export to glTF, OBJ/MTL and PLY.
   ReconstructionMesh mesh;

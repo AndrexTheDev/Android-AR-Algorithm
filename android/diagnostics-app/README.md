@@ -3,11 +3,17 @@
 Diese sideloadbare Host-App ist bewusst **eine einzige, dauerhaft installierte
 App** für ein physisches Android-Gerät, z. B. ein Redmi Note 13. Sie soll
 möglichst viele zukünftige Testvarianten abdecken, ohne dass du dafür jedes Mal
-eine neue APK installieren musst. Version `2.0-plan` enthält dazu einen
-versionierten `ARKFDPLAN1`-Textinterpreter: Dauer, Reihenfolge, Wiederholungen
-und die begrenzten Sensor-/Kamera-/Speicher-/Thermal-Parameter werden als
-**Textplan** geändert. Nur eine wirklich neue Android-API würde ein Update
-**derselben App** erfordern, keine neue App und keinen neuen Installationszyklus.
+eine neue App brauchst. Version `2.0-plan` führte den versionierten
+`ARKFDPLAN1`-Textinterpreter ein: Dauer, Reihenfolge, Wiederholungen und die
+begrenzten Sensor-/Kamera-/Speicher-/Thermal-Parameter werden als **Textplan**
+geändert. Nur eine wirklich neue Android-API oder eine fehlende
+Plattformberechtigung erfordert ein Update **derselben App-ID** – keine zweite
+App und kein neues Installationsobjekt. Version `2.1-highrate` ist genau so ein
+Update: Ein erster host-supplied Redmi-Lauf auf Android 15 hat gezeigt, dass
+`SENSOR_DELAY_FASTEST` die normale Berechtigung
+`android.permission.HIGH_SAMPLING_RATE_SENSORS` braucht; sie ist jetzt im
+Manifest deklariert, wird im Berechtigungskatalog mitprotokolliert und ist in
+der Android-CI gegen versehentliches Entfernen abgesichert.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -119,10 +125,16 @@ nur opake Skalare in `ARKFDLOG1`; `SESSION_TERMINAL` enthält
 
 ## Grenzen
 
-- Ein Plan kann **keine neue Android-API** und **keinen neuen Low-Level-Sensor**
-  hinzufügen; dafür wäre ein Update derselben App nötig. Er kann auch keine
-  externen Targets, Rigs oder physikalische Bodentruth erzeugen.
+- Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
+  und **keinen neuen Low-Level-Sensor** hinzufügen; dafür wäre ein Update
+  derselben App-ID nötig. Er kann auch keine externen Targets, Rigs oder
+  physikalische Bodentruth erzeugen.
 - Keine Bilder, Posen, Trajektorien, Kalibrierarrays, Pixel oder dichte Geometrie.
+- `WRITE_EXTERNAL_STORAGE` ist bewusst auf `maxSdk=28` begrenzt; auf Android 15
+  erscheint sie im Berechtigungskatalog daher als `0`, ohne dass dies ein
+  Laufzeitfehler ist. `HIGH_SAMPLING_RATE_SENSORS` ist eine normale Berechtigung
+  ohne zusätzlichen Laufzeitdialog; mit erteilter Kamera-Berechtigung meldet der
+  Katalog auf Android 15 typischerweise `granted.3.of.4`.
 - Kein automatischer Upload, keine Redaktion, keine Signaturverifikation,
   keine unabhängigen physischen Targets, keine Messung von Zentimetern.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie

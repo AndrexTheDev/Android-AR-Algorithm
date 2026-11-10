@@ -11,8 +11,8 @@ android {
         applicationId = "ai.arena.arkernel.diagnostics"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0-plan"
+        versionCode = 3
+        versionName = "2.1-highrate"
     }
 
     compileOptions {

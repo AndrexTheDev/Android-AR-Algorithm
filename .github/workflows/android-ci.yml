@@ -123,6 +123,12 @@ jobs:
         with:
           gradle-version: '8.10.2'
           cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Verify high-rate sensor permission
+        shell: bash
+        run: |
+          set -e
+          grep -q 'android.permission.HIGH_SAMPLING_RATE_SENSORS' \
+            android/diagnostics-app/src/main/AndroidManifest.xml
       - name: Build diagnostics APK
         shell: bash
         run: |
@@ -171,5 +177,5 @@ jobs:
             gh release create "$TAG" "$APK" \
               --target "$GITHUB_SHA" \
               --title "AR-Kern Diagnose APK (latest)" \
-              --notes "Single installed ARKFDPLAN1 plan-driven diagnostics app for sideloading on a physical device. Writes opted-in ARKFDPOL1, ARKFDPLAN1 and ARKFDLOG1 text files. Debug build, quality unverified; no images, poses, trajectories, automatic upload or physical accuracy claims. See android/diagnostics-app/README.md."
+              --notes "Single installed ARKFDPLAN1 plan-driven diagnostics app for sideloading on a physical device. Writes opted-in ARKFDPOL1, ARKFDPLAN1 and ARKFDLOG1 text files; declares HIGH_SAMPLING_RATE_SENSORS for SENSOR_DELAY_FASTEST sensor tests. Debug build, quality unverified; no images, poses, trajectories, automatic upload or physical accuracy claims. See android/diagnostics-app/README.md."
           fi

@@ -368,6 +368,9 @@ internal class PhysicalSelfTestRunner(private val activity: Activity) {
         val permissions = listOf(
             Manifest.permission.CAMERA,
             Manifest.permission.ACCESS_NETWORK_STATE,
+            // Declared in the manifest; SENSOR_DELAY_FASTEST otherwise throws
+            // SecurityException on Android 12+. Keep the literal in sync with it.
+            "android.permission.HIGH_SAMPLING_RATE_SENSORS",
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
         )
         var granted = 0

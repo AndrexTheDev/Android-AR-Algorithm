@@ -19,6 +19,7 @@ add_library(arkernel STATIC
     src/landmark_merge.cpp
     src/loop_closure.cpp
     src/mesh_processing.cpp
+    src/object_capture_guidance.cpp
     src/optical_flow.cpp
     src/motion_prediction.cpp
     src/multi_view_stereo.cpp

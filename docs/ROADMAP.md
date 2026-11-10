@@ -133,7 +133,8 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add a bounded durable multi-session reconstruction state archive with versioned CRC envelopes, monotonic generations, opaque references, exact terminal provenance/telemetry and deterministic session/generation/byte-budget eviction; no image/depth pixels or dense trajectories are stored.
 - [x] Add optional bounded global least-squares seam optimization and measured quadric-error-guided clustering LOD with explicit budgets, fail-closed telemetry, opt-in JNI/Kotlin flags and preserved `unverified` quality.
 - [ ] Add a full global Poisson/multiband seam solve, calibrated camera-response model and dynamic edge-collapse QEM topology optimizer.
-- [ ] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model.
+- [x] Add isolated-object ROI/foreground capture state machine, coverage guidance and turntable motion model: a bounded deterministic state machine over host-measured foreground ratios and object centres, measured azimuth/elevation coverage, UI-neutral instructions and a bounded turntable target are implemented; localized host prompts and physical turntable actuation/validation remain open.
+- [ ] Add localized isolated-object capture prompts, physical turntable actuation and real-device validation of the guidance model.
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
 - [x] Embed bounded encoded PNG/JPEG image buffer views for true single-file textured GLB output.

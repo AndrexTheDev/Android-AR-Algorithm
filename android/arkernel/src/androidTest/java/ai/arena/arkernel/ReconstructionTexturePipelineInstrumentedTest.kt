@@ -100,7 +100,7 @@ class ReconstructionTexturePipelineInstrumentedTest {
         val source = LoadedReconstructionTextureSource(9, 90, "arkf://texture-global/9", 100, 100,
             400, CanonicalTexturePixelFormat.RGBA8, ByteArray(100 * 100 * 4).also { bytes ->
                 for (pixel in 0 until 100 * 100) {
-                    bytes[pixel * 4] = 120; bytes[pixel * 4 + 1] = 150
+                    bytes[pixel * 4] = 120; bytes[pixel * 4 + 1] = 150.toByte()
                     bytes[pixel * 4 + 2] = 180.toByte(); bytes[pixel * 4 + 3] = 255.toByte()
                 }
             }, ReconstructionImageEncoding.PNG)

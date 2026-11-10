@@ -142,4 +142,5 @@ Format/Lint → Unit → Sanitizer → Recorded-sensor replay → Accuracy regre
 - [x] Add a bounded held-out dimensional evaluator over reconstructed 3D point pairs with unique evidence IDs, explicit independent reference provenance, uncertainty-aware absolute/relative error, dimension diversity and assessed-extent coverage, exposed through stable C ABI/JNI/Kotlin reason flags; `centimeter-validated` is impossible without it.
 - [x] Add GLB 2.0 geometry/material packaging and local viewer loading.
 - [x] Embed bounded encoded PNG/JPEG image buffer views for true single-file textured GLB output.
-- [ ] Add optional Android Filament viewer module; then USDZ and survey-format adapters.
+- [x] Add a bounded canonical survey-measurement CSV adapter for held-out dimensional evidence: an exact schema, input/line/row budgets, unique bounded IDs, exact reference kinds, finite coordinates/distances/uncertainties, explicit held-out flags, deterministic encode/parse and fail-closed rejection are implemented; broader survey formats remain open.
+- [ ] Add an optional Android Filament viewer module and USDZ/broader survey-format adapters.

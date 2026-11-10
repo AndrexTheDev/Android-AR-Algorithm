@@ -43,11 +43,11 @@ class ArKernelRegressionTrendBundleTest {
         val report = ArKernelRegressionTrendBundle.evaluate(parsed.ledger)
         assertEquals("ate.rmse", report.metric)
         assertEquals(3, report.sampleCount)
-        assertEquals(1.000000, report.firstValue, 0.0)
-        assertEquals(0.800000, report.lastValue, 0.0)
-        assertEquals(-0.200000, report.delta, 0.0)
-        assertEquals(0.0, report.degradation, 0.0)
-        assertEquals(0.200000, report.improvement, 0.0)
+        assertEquals(1.000000, report.firstValue, 1e-9)
+        assertEquals(0.800000, report.lastValue, 1e-9)
+        assertEquals(-0.200000, report.delta, 1e-9)
+        assertEquals(0.0, report.degradation, 1e-9)
+        assertEquals(0.200000, report.improvement, 1e-9)
         assertTrue(report.budgetPass)
         assertEquals(ArKernelRegressionTrend.IMPROVING, report.trend)
         assertEquals("unverified", report.qualityGrade)
@@ -63,7 +63,7 @@ class ArKernelRegressionTrendBundleTest {
             ),
         )
         val degrading = ArKernelRegressionTrendBundle.evaluate(lowerDegrading)
-        assertEquals(0.200000, degrading.degradation, 0.0)
+        assertEquals(0.200000, degrading.degradation, 1e-9)
         assertTrue(degrading.budgetPass)
         assertEquals(ArKernelRegressionTrend.DEGRADING, degrading.trend)
 
@@ -89,8 +89,8 @@ class ArKernelRegressionTrendBundleTest {
             ),
         )
         val improving = ArKernelRegressionTrendBundle.evaluate(higherImproving)
-        assertEquals(0.200000, improving.improvement, 0.0)
-        assertEquals(0.0, improving.degradation, 0.0)
+        assertEquals(0.200000, improving.improvement, 1e-9)
+        assertEquals(0.0, improving.degradation, 1e-9)
         assertEquals(ArKernelRegressionTrend.IMPROVING, improving.trend)
 
         val noisy = ledger(
@@ -100,7 +100,7 @@ class ArKernelRegressionTrendBundleTest {
             ),
         )
         val stable = ArKernelRegressionTrendBundle.evaluate(noisy)
-        assertEquals(0.100000, stable.degradation, 0.0)
+        assertEquals(0.100000, stable.degradation, 1e-9)
         assertTrue(stable.budgetPass)
         assertEquals(ArKernelRegressionTrend.STABLE, stable.trend)
         assertEquals("unverified", stable.qualityGrade)
@@ -184,7 +184,7 @@ class ArKernelRegressionTrendBundleTest {
         assertEquals(
             ArKernelRegressionTrendRejection.DUPLICATE_RUN_ID,
             ArKernelRegressionTrendBundle.parse(
-                replaceRunLine(text, 1, "run=1|a|0.900000|0.010000")).rejection)
+                replaceRunLine(text, 1, "run=1|build-100|0.900000|0.010000")).rejection)
         assertEquals(
             ArKernelRegressionTrendRejection.INVALID_OBSERVATION,
             ArKernelRegressionTrendBundle.parse(

@@ -164,3 +164,37 @@ dense geometry, infers no intrinsics or extrinsics, performs no automatic
 calibration, verifies no signature, uploads nothing and grants no quality
 grade. No upgrade was performed or claimed here; real field evidence,
 independent targets and centimetre validation remain open.
+
+## Device-adaptive onboarding, not universal calibration
+
+`ArKernelDeviceAdaptiveProfileAdapter` adds a bounded canonical `ARKADAPT1`
+profile that adapts a **systematic procedure** to host-read device facts:
+Camera2 hardware level, camera count, gyroscope and rotation-vector presence,
+thermal monitoring availability, intrinsics trust, RAM class and API level.
+`selectProfile()` is deterministic and repeatable; unknown or weak devices
+receive the most conservative step list with fewer scale-bar checks. Fifteen
+exact metadata keys in order, five fail-closed invariants (no images,
+automatic profile selection, metric calibration requires the user, physical
+target required, no automatic upload), 1–16 unique contiguous steps with exact
+operators and host-reported statuses, strict input/line budgets, BOM/CRLF
+tolerance and a fail-closed `END` reject malformed profiles deterministically.
+`summarize()` reports structural counts only; `profileComplete` is a
+completeness pre-check, **not** an assessment, **not** a measurement and
+**not** an upgrade. `qualityGrade` stays `unverified`.
+
+Diagnostics app version `2.3-adaptive` adds an onboarding screen that reads
+those facts on every start, selects the profile automatically and guides the
+user through the steps with explicit confirmations, writing an
+`ARKADAPT1_<run>.txt` file. Android provides no install-time calibration
+hook, no calibration can be derived without independent physical targets, and
+there is no universal calibration valid for every device model: the portable
+part is the protocol, while calibration values remain per device and per
+capture. A present `LENS_INTRINSIC_CALIBRATION` field is deliberately not
+treated as a trusted profile because the screen verifies no signature. The
+screen captures no images, pixels, poses or trajectories, infers no
+intrinsics, extrinsics or metric scale, performs no automatic calibration,
+verifies no signature, uploads nothing, performs no I/O in the kernel and
+grants no quality grade. The authoritative grade remains
+`assessReconstructionQuality` with `evaluateHeldOutDimensions`. No upgrade was
+performed or claimed here; real field evidence, independent targets and
+centimetre validation remain open.

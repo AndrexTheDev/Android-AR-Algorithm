@@ -69,6 +69,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var shareButton: Button
     private lateinit var copyButton: Button
     private lateinit var calibrationButton: Button
+    private lateinit var adaptiveButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -119,8 +120,10 @@ class MainActivity : android.app.Activity() {
                 "würden ein Update derselben App erfordern, keine neue App. Nur opake " +
                 "Skalare; keine Bilder, Pixel oder dichte Geometrie. Der separate " +
                 "Kalibrierungs-Bildschirm erfasst mit eigenem Opt-in Maßstabs-Evidenz " +
-                "und Orientierungs-Proben, aber keine metrische Position. Kein " +
-                "Bodentruth im Log, kein Upload, Qualität: unverified."
+                "und Orientierungs-Proben, aber keine metrische Position. Der " +
+                "geräteadaptive Bildschirm wählt automatisch ein Profil, aber " +
+                "kalibriert nicht automatisch. Kein Bodentruth im Log, kein " +
+                "Upload, Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -200,6 +203,11 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        adaptiveButton = Button(this).apply {
+            text = "6. Geräteadaptive Kalibrierung (ARKADAPT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -241,6 +249,7 @@ class MainActivity : android.app.Activity() {
         root.addView(sharePlanButton, fullWidthParams())
         root.addView(copyButton, fullWidthParams())
         root.addView(calibrationButton, fullWidthParams())
+        root.addView(adaptiveButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -271,6 +280,11 @@ class MainActivity : android.app.Activity() {
         calibrationButton.setOnClickListener {
             startActivity(
                 Intent(this, CalibrationCaptureActivity::class.java),
+            )
+        }
+        adaptiveButton.setOnClickListener {
+            startActivity(
+                Intent(this, AdaptiveCalibrationActivity::class.java),
             )
         }
 

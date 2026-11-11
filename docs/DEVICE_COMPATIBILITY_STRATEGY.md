@@ -321,6 +321,21 @@ With explicit opt-in, collect a compact diagnostic record—not images or trajec
 
 Use cohort minimums, retention limits and deletion controls. Field telemetry discovers unknown clusters; it does not by itself validate metric accuracy. Promote a cluster only after controlled evidence.
 
+`ArKernelDeviceAdaptiveProfileAdapter` adds a bounded canonical `ARKADAPT1`
+onboarding contract that adapts a systematic step list to host-read device
+facts: camera hardware level, sensor availability, thermal monitoring,
+intrinsics trust, RAM class and API level. Selection is automatic and
+deterministic, so the same procedure is portable across Android devices;
+calibration values are not. Diagnostics app `2.3-adaptive` reads those facts
+on start, selects the conservative profile for unknown devices and guides the
+user through explicit confirmations before writing an `ARKADAPT1_<run>.txt`
+file. `profileComplete` is a completeness pre-check, not a quality grade, and
+`qualityGrade` stays `unverified`. There is no install-time calibration hook,
+no universal calibration for all models, no automatic calibration, no image
+capture, no signature verification, no upload and no upgrade. The
+authoritative grade remains `assessReconstructionQuality` with
+`evaluateHeldOutDimensions`; no upgrade was performed or claimed here.
+
 A bounded `ARKCALIB1` physical calibration evidence contract now supplies the
 input side of that controlled evidence: twelve exact metadata keys, six
 fail-closed invariants, 1–16 unique held-out independent scale observations

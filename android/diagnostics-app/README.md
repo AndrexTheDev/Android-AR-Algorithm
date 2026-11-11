@@ -15,8 +15,9 @@ Update: Ein erster host-supplied Redmi-Lauf auf Android 15 hat gezeigt, dass
 Manifest deklariert, wird im Berechtigungskatalog mitprotokolliert und ist in
 der Android-CI gegen versehentliches Entfernen abgesichert. Version
 `2.2-calibration` ergänzt einen eigenen Opt-in-Bildschirm für physische
-Kalibrierungs-Evidenz (`ARKCALIB1`) – dieselbe App-ID, kein neues
-Installationsobjekt.
+Kalibrierungs-Evidenz (`ARKCALIB1`). `2.3-adaptive` ergänzt die
+geräteadaptive, systematische Kalibrierungsführung (`ARKADAPT1`) – weiterhin
+dieselbe App-ID, kein neues Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -201,6 +202,53 @@ werte ihn hier deterministisch gegen die Vertrags- und Qualitätsgates aus.
 Keine Bilder, Pixel, Trajektorien oder dichte Geometrie, keine automatische
 Kalibrierung, keine Signaturprüfung, kein Upload, keine Qualitätsaufstufung.
 
+## Geräteadaptive Führung mit `2.3-adaptive`
+
+**Die ehrliche Antwort auf „geht das nicht automatisch bei der Installation?":**
+Teilweise. Android bietet **keinen** verlässlichen Installations-Hook, mit dem
+eine App schon beim Einrichten kalibrieren könnte. Und eine **universelle
+Kalibrierung für alle Modelle gibt es nicht**: Linsen, IMU, Zeitstempel,
+Rolling Shutter und Thermik sind pro Gerät verschieden. Was die App aber
+automatisch kann und jetzt auch tut: beim Öffnen das Gerät erkennen und daraus
+ein **festes, systematisches Profil** wählen. Übertragbar auf jedes
+Android-Gerät ist also das **Verfahren**, nicht ein Kalibrierwert.
+
+Der Knopf **6. Geräteadaptive Kalibrierung (ARKADAPT1)** öffnet einen
+Bildschirm, der beim Start selbst liest: Kamera-Hardwareklasse
+(`LIMITED` / `FULL` / `LEGACY` / unbekannt), Anzahl Kameras, Gyroskop,
+Rotationssensor, Thermik-Verfügbarkeit, RAM-Klasse und Android-Version. Daraus
+wählt `selectProfile()` **deterministisch** ein Profil mit 1–16 Schritten:
+Gerätekatalog, Intrinsics-Prüfung, IMU-Stillstand, Orientierungs-Probe,
+Thermik-Snapshot, Maßstäbe von 0,25 m bis 4 m (je nach Geräteklasse weniger),
+Survey-Target, Kontrolllänge und Held-out-Review. Schwache oder unbekannte
+Geräte bekommen **konservativ weniger** Maßstabsschritte, nie mehr.
+
+Bedienung:
+
+1. **6. Geräteadaptive Kalibrierung** öffnen. Oben stehen Geräte-Token
+   (opaker SHA-256-Auszug aus Modellkennungen, keine Personendaten),
+   Geräteklasse und die automatisch gewählte Schrittfolge.
+2. Pro Schritt **1. Schritt bestätigen** nur dann anklicken, wenn du ihn
+   wirklich auf diesem Gerät ausgeführt hast – oder bewusst
+   **überspringen** (wird protokolliert). Die App bestätigt nichts selbst.
+3. Für echte Maße **Physische Kalibrierung öffnen (ARKCALIB1)** nutzen: dort
+   Zollstock-/Baustellen-Messungen eintragen und `ARKCALIB1_<run>.txt`
+   erzeugen.
+4. **2. ARKADAPT1 prüfen & speichern** baut die Textdatei, prüft sie
+   fail-closed und schreibt `ARKADAPT1_<run>.txt` nach
+   `Downloads/ARKernelDiagnostics`. Mit **ARKADAPT1 teilen** kannst du beide
+   Texte hier im Chat einfügen.
+
+Die Anzeige „Alle Schritte adressiert" ist **nur eine Vollständigkeitsprüfung**,
+keine Qualitätsnote. `intrinsics_state` bleibt in der App bewusst
+`untrusted` oder `unavailable`: ein vorhandenes
+`LENS_INTRINSIC_CALIBRATION`-Feld ist noch kein verifiziertes, signiertes
+Kalibrierprofil. Die maßgebliche Bewertung bleibt
+`assessReconstructionQuality` mit `evaluateHeldOutDimensions` und echten,
+unabhängigen Referenzen. Keine Bilder, Posen, Trajektorien oder dichte
+Geometrie, keine automatische Kalibrierung, keine Signaturprüfung, kein
+Upload, keine Qualitätsaufstufung; Status `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -217,8 +265,10 @@ Kalibrierung, keine Signaturprüfung, kein Upload, keine Qualitätsaufstufung.
   ohne zusätzlichen Laufzeitdialog; mit erteilter Kamera-Berechtigung meldet der
   Katalog auf Android 15 typischerweise `granted.3.of.4`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
-  keine Redaktion, keine Signaturverifikation, keine Messung von Zentimetern.
-  Unabhängige physische Targets musst du selbst messen und eintragen.
+  keine Kalibrierung bei der Installation, keine Redaktion, keine
+  Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
+  Geräteerkennung und Profilwahl. Unabhängige physische Targets musst du
+  selbst messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

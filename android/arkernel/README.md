@@ -185,3 +185,21 @@ zero translation and cannot establish scale; there is no universal
 calibration for every device. The authoritative grade remains
 `assessReconstructionQuality` with `evaluateHeldOutDimensions`; real field
 evidence, independent targets and centimetre validation remain host work.
+
+## Bounded device-adaptive onboarding profiles
+
+`ArKernelDeviceAdaptiveProfileAdapter` adds a bounded canonical `ARKADAPT1`
+text contract that adapts a systematic calibration procedure to host-read,
+non-personal device facts. `selectProfile()` deterministically maps Camera2
+hardware level, camera count, gyroscope and rotation-vector presence, thermal
+monitoring, intrinsics trust, RAM class and API level to one of four device
+classes and a bounded 1–16 step list; unknown devices get the most
+conservative profile. Fifteen exact metadata keys, five fail-closed
+invariants, strict budgets and a fail-closed `END` reject malformed input.
+`summarize()` reports structural counts only; `profileComplete` is not a
+quality grade. The adapter reads no sensor, infers no intrinsics, extrinsics
+or metric scale, performs no automatic or universal calibration, verifies no
+signature, captures no images or poses, uploads nothing, performs no I/O and
+grants no upgrade. The procedure is portable to every Android device; the
+calibration values are not. The grade stays `unverified`; real independent
+targets and per-device validation remain host work.

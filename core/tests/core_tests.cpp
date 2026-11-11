@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -6,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 #include "arkernel/bundle_adjustment.h"
 #include "arkernel/c_api.h"
@@ -1422,6 +1425,265 @@ int main() {
         limited_photometry.sample_tests==1&&
         limited_photometry.error=="texture photometry sample budget exceeded");
 
+  // Bounded deterministic holdout-validated robust photometry. A synthetic
+  // triangle strip supplies twelve seam equations; an opt-in strict split
+  // cross-validates Huber-weighted per-view RGB gains and fails closed.
+  struct PhotometryHoldoutCase {
+    ReconstructionMesh mesh;
+    std::vector<TextureViewReference> views;
+    std::vector<TriangleTextureView> labels;
+    std::vector<std::vector<std::uint8_t>> storage;
+    std::vector<TextureSourceImageView> images;
+  };
+  auto make_holdout_case = [](const std::string& regions) {
+    const int view_sequence[13] = {2, 1, 0, 3, 0, 2, 0, 1, 3, 1, 3, 2, 1};
+    const double base[4] = {100.0, 80.0, 120.0, 60.0};
+    const double outlier_factor = 1.5;
+    PhotometryHoldoutCase result;
+    result.mesh.positions_m.resize(15);
+    for (int i = 0; i < 15; ++i) {
+      result.mesh.positions_m[i] = {static_cast<float>(i) * 0.1F,
+                                    static_cast<float>(i % 2), 2.0F};
+    }
+    for (int i = 0; i < 13; ++i) {
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 1));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 2));
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.views.push_back({static_cast<std::uint64_t>(101 + view),
+                              "holdout-view-" + std::to_string(view), 100, 100});
+    }
+    result.storage.resize(4);
+    for (int view = 0; view < 4; ++view) {
+      result.storage[view].resize(100 * 100 * 3);
+      for (int y = 0; y < 100; ++y) {
+        for (int x = 0; x < 100; ++x) {
+          const double value =
+              base[view] * ((x >= 50) ? outlier_factor : 1.0);
+          const auto byte = static_cast<std::uint8_t>(std::llround(value));
+          const std::size_t offset = (static_cast<std::size_t>(y) * 100 + x) * 3;
+          for (int channel = 0; channel < 3; ++channel) {
+            result.storage[view][offset + channel] = byte;
+          }
+        }
+      }
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.images.push_back({static_cast<std::uint64_t>(101 + view), 100, 100,
+                               300, TexturePixelFormat::kRgb8,
+                               result.storage[view].data(),
+                               result.storage[view].size()});
+    }
+    result.labels.resize(13);
+    for (int i = 0; i < 13; ++i) {
+      auto& label = result.labels[static_cast<std::size_t>(i)];
+      label.assigned = true;
+      label.view_index = static_cast<std::size_t>(view_sequence[i]);
+      label.frame_id = result.views[label.view_index].frame_id;
+      const float u = regions[static_cast<std::size_t>(i)] == 'O' ? 0.75F : 0.25F;
+      for (int corner = 0; corner < 3; ++corner) {
+        label.normalized_uv[static_cast<std::size_t>(corner)] = {u, 0.5F};
+      }
+    }
+    return result;
+  };
+  TexturePhotometryConfig holdout_config;
+  holdout_config.holdout_stride = 2;
+  holdout_config.require_holdout_validation = true;
+  holdout_config.min_holdout_equations = 4;
+  const auto holdout_consistent_case = make_holdout_case(std::string(13, 'N'));
+  const auto holdout_consistent = estimateTexturePhotometry(
+      holdout_consistent_case.mesh, holdout_consistent_case.views,
+      holdout_consistent_case.labels, holdout_consistent_case.images,
+      holdout_config);
+  CHECK(holdout_consistent.input_valid && !holdout_consistent.truncated &&
+        holdout_consistent.error.empty() && holdout_consistent.holdout_accepted &&
+        holdout_consistent.holdout_validated &&
+        holdout_consistent.rejection == TexturePhotometryRejection::kNone);
+  CHECK(holdout_consistent.equations == 12 &&
+        holdout_consistent.training_equations == 6 &&
+        holdout_consistent.holdout_equations == 6 &&
+        holdout_consistent.robust_iterations >= 1 &&
+        holdout_consistent.robust_converged &&
+        holdout_consistent.downweighted_equations == 0);
+  CHECK(holdout_consistent.training_rmse < 1e-9 &&
+        holdout_consistent.holdout_rmse < 1e-9 &&
+        holdout_consistent.holdout_max_residual < 1e-9 &&
+        holdout_consistent.holdout_ratio < 1e-9);
+  CHECK(holdout_consistent.corrections.size() == 4);
+  for (const auto& correction : holdout_consistent.corrections) {
+    CHECK(correction.constrained && correction.supporting_equations > 0);
+  }
+  CHECK(std::fabs(holdout_consistent.corrections[0].rgb_gain[0] - 1.0) < 1e-9 &&
+        std::fabs(holdout_consistent.corrections[1].rgb_gain[0] - 1.25) < 1e-9 &&
+        std::fabs(holdout_consistent.corrections[2].rgb_gain[0] -
+                  100.0 / 120.0) < 1e-9 &&
+        std::fabs(holdout_consistent.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 1e-9);
+  CHECK(std::strcmp(texturePhotometryRejectionText(
+                        TexturePhotometryRejection::kNone),
+                    "none") == 0);
+
+  const auto holdout_train_outlier_case =
+      make_holdout_case(std::string(5, 'N') + std::string(8, 'O'));
+  const auto holdout_train_outlier = estimateTexturePhotometry(
+      holdout_train_outlier_case.mesh, holdout_train_outlier_case.views,
+      holdout_train_outlier_case.labels, holdout_train_outlier_case.images,
+      holdout_config);
+  CHECK(holdout_train_outlier.holdout_accepted &&
+        holdout_train_outlier.holdout_validated &&
+        holdout_train_outlier.robust_converged &&
+        holdout_train_outlier.downweighted_equations > 0 &&
+        holdout_train_outlier.training_rmse <=
+            holdout_config.max_training_rmse &&
+        holdout_train_outlier.holdout_max_residual <=
+            holdout_config.max_holdout_residual &&
+        holdout_train_outlier.holdout_rmse <=
+            holdout_config.max_holdout_rmse &&
+        holdout_train_outlier.holdout_ratio <=
+            holdout_config.max_holdout_ratio);
+  CHECK(std::fabs(holdout_train_outlier.corrections[1].rgb_gain[0] - 1.25) <
+            0.05 &&
+        std::fabs(holdout_train_outlier.corrections[2].rgb_gain[0] -
+                  100.0 / 120.0) < 0.05 &&
+        std::fabs(holdout_train_outlier.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 0.05);
+
+  const auto holdout_rejected_case =
+      make_holdout_case(std::string(6, 'N') + std::string(7, 'O'));
+  const auto holdout_rejected = estimateTexturePhotometry(
+      holdout_rejected_case.mesh, holdout_rejected_case.views,
+      holdout_rejected_case.labels, holdout_rejected_case.images,
+      holdout_config);
+  CHECK(!holdout_rejected.holdout_accepted &&
+        holdout_rejected.holdout_validated &&
+        holdout_rejected.rejection ==
+            TexturePhotometryRejection::kHoldoutResidualTooLarge &&
+        holdout_rejected.error ==
+            "texture photometry holdout residual too large" &&
+        holdout_rejected.holdout_max_residual >
+            holdout_config.max_holdout_residual &&
+        holdout_rejected.holdout_rmse > holdout_config.max_holdout_rmse &&
+        holdout_rejected.holdout_ratio > holdout_config.max_holdout_ratio);
+  for (const auto& correction : holdout_rejected.corrections) {
+    CHECK(!correction.constrained && correction.supporting_equations == 0 &&
+          correction.rgb_gain[0] == 1.0 && correction.rgb_gain[1] == 1.0 &&
+          correction.rgb_gain[2] == 1.0);
+  }
+  CHECK(std::strcmp(texturePhotometryRejectionText(
+                        TexturePhotometryRejection::kHoldoutResidualTooLarge),
+                    "holdout residual too large") == 0);
+
+  auto holdout_config_rejected =
+      [&](const TexturePhotometryConfig& config) {
+        try {
+          const auto ignored = estimateTexturePhotometry(
+              holdout_consistent_case.mesh, holdout_consistent_case.views,
+              holdout_consistent_case.labels, holdout_consistent_case.images,
+              config);
+          (void)ignored;
+        } catch (const std::invalid_argument&) {
+          return true;
+        }
+        return false;
+      };
+  auto holdout_rejected_with =
+      [&](const PhotometryHoldoutCase& data,
+          const TexturePhotometryConfig& config,
+          TexturePhotometryRejection expected) {
+        const auto result = estimateTexturePhotometry(
+            data.mesh, data.views, data.labels, data.images, config);
+        return !result.holdout_accepted && result.rejection == expected &&
+               !result.error.empty() && result.corrections[1].rgb_gain[0] == 1.0;
+      };
+  auto holdout_sparse_config = holdout_config;
+  holdout_sparse_config.min_holdout_equations = 7;
+  CHECK(holdout_rejected_with(
+      holdout_consistent_case, holdout_sparse_config,
+      TexturePhotometryRejection::kInsufficientHoldoutEvidence));
+  auto holdout_training_config = holdout_config;
+  holdout_training_config.min_training_equations = 7;
+  CHECK(holdout_rejected_with(
+      holdout_consistent_case, holdout_training_config,
+      TexturePhotometryRejection::kInsufficientTrainingEvidence));
+  auto holdout_slow_config = holdout_config;
+  holdout_slow_config.solver_iterations = 1;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_slow_config,
+      TexturePhotometryRejection::kRobustSolverDidNotConverge));
+  auto holdout_train_rmse_config = holdout_config;
+  holdout_train_rmse_config.max_training_rmse = 0.01;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_train_rmse_config,
+      TexturePhotometryRejection::kTrainingRmseTooLarge));
+  auto holdout_max_residual_config = holdout_config;
+  holdout_max_residual_config.max_holdout_residual = 1e-9;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_max_residual_config,
+      TexturePhotometryRejection::kHoldoutResidualTooLarge));
+  auto holdout_rmse_config = holdout_config;
+  holdout_rmse_config.max_holdout_rmse = 1e-9;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_rmse_config,
+      TexturePhotometryRejection::kHoldoutRmseTooLarge));
+  auto holdout_ratio_config = holdout_config;
+  holdout_ratio_config.max_holdout_ratio = 1e-9;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_ratio_config,
+      TexturePhotometryRejection::kHoldoutRatioTooLarge));
+
+  auto holdout_disabled_config = holdout_config;
+  holdout_disabled_config.require_holdout_validation = false;
+  const auto holdout_disabled = estimateTexturePhotometry(
+      holdout_rejected_case.mesh, holdout_rejected_case.views,
+      holdout_rejected_case.labels, holdout_rejected_case.images,
+      holdout_disabled_config);
+  CHECK(holdout_disabled.holdout_accepted &&
+        !holdout_disabled.holdout_validated &&
+        holdout_disabled.error.empty() &&
+        holdout_disabled.rejection == TexturePhotometryRejection::kNone &&
+        holdout_disabled.corrections[1].rgb_gain[0] > 1.0);
+
+  auto holdout_bad_stride = holdout_config;
+  holdout_bad_stride.holdout_stride = 1;
+  CHECK(holdout_config_rejected(holdout_bad_stride));
+  auto holdout_bad_training = holdout_config;
+  holdout_bad_training.min_training_equations = 0;
+  CHECK(holdout_config_rejected(holdout_bad_training));
+  auto holdout_bad_budget = holdout_config;
+  holdout_bad_budget.min_holdout_equations =
+      holdout_bad_budget.max_equations + 1;
+  CHECK(holdout_config_rejected(holdout_bad_budget));
+  auto holdout_bad_iterations = holdout_config;
+  holdout_bad_iterations.solver_iterations = 129;
+  CHECK(holdout_config_rejected(holdout_bad_iterations));
+  auto holdout_bad_huber = holdout_config;
+  holdout_bad_huber.huber_delta =
+      std::numeric_limits<double>::quiet_NaN();
+  CHECK(holdout_config_rejected(holdout_bad_huber));
+  auto holdout_bad_ratio = holdout_config;
+  holdout_bad_ratio.max_holdout_ratio = 0.0;
+  CHECK(holdout_config_rejected(holdout_bad_ratio));
+
+  auto holdout_text_is = [](TexturePhotometryRejection value,
+                            const char* expected) {
+    return std::strcmp(texturePhotometryRejectionText(value), expected) == 0;
+  };
+  CHECK(holdout_text_is(TexturePhotometryRejection::kInsufficientTrainingEvidence,
+                        "insufficient training evidence"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kInsufficientHoldoutEvidence,
+                        "insufficient holdout evidence"));
+  CHECK(holdout_text_is(
+      TexturePhotometryRejection::kRobustSolverDidNotConverge,
+      "robust solver did not converge"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kTrainingRmseTooLarge,
+                        "training rmse too large"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kHoldoutRmseTooLarge,
+                        "holdout rmse too large"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kHoldoutRatioTooLarge,
+                        "holdout ratio too large"));
+
   // The transaction-level texture graph stops on any truncated stage and only
   // exposes final mesh/pixels after selection, labels, layout, photometry,
   // baking and seam blending have all completed.
@@ -1442,6 +1704,18 @@ int main() {
         texture_pipeline.telemetry.assigned_triangles==2&&
         texture_pipeline.telemetry.atlas_patches==1&&
         texture_pipeline.telemetry.rasterized_pixels>0);
+  auto holdout_pipeline_config=texture_pipeline_config;
+  holdout_pipeline_config.photometry.holdout_stride=2;
+  holdout_pipeline_config.photometry.require_holdout_validation=true;
+  holdout_pipeline_config.photometry.min_holdout_equations=2;
+  const auto holdout_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},holdout_pipeline_config);
+  CHECK(holdout_pipeline.input_valid&&!holdout_pipeline.truncated&&
+        holdout_pipeline.stage==TexturePipelineStage::kPhotometry&&
+        holdout_pipeline.error==
+          "texture photometry insufficient training evidence"&&
+        holdout_pipeline.rgba8.empty()&&
+        holdout_pipeline.mesh.positions_m.empty());
   auto limited_texture_pipeline_config=texture_pipeline_config;
   limited_texture_pipeline_config.baking.max_pixel_tests=1;
   const auto limited_texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,

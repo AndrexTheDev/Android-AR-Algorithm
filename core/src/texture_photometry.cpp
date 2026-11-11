@@ -79,6 +79,46 @@ double median(std::vector<double>& values) {
   return values.size()%2?values[middle]:(values[middle-1]+values[middle])*0.5;
 }
 
+struct EquationMetrics {
+  double max_residual{0.0};
+  double rmse{0.0};
+};
+
+EquationMetrics evaluateEquations(
+    const std::vector<Equation>& equations,
+    const std::vector<std::array<double,3>>& logs) {
+  EquationMetrics metrics;
+  double sum_squared=0.0;
+  std::size_t count=0;
+  for(const auto& equation:equations) {
+    for(std::size_t channel=0;channel<3;++channel) {
+      const double residual=(logs[equation.b][channel]-logs[equation.a][channel])-
+                            equation.delta[channel];
+      const double magnitude=std::fabs(residual);
+      metrics.max_residual=std::max(metrics.max_residual,magnitude);
+      sum_squared+=residual*residual;
+      ++count;
+    }
+  }
+  if(count>0)metrics.rmse=std::sqrt(sum_squared/static_cast<double>(count));
+  return metrics;
+}
+
+double huberWeight(double residual,double delta) {
+  return std::min(1.0,delta/std::max(std::fabs(residual),1e-9));
+}
+
+void resetPhotometryCorrections(TexturePhotometryResult& result) {
+  for(auto& correction:result.corrections) {
+    correction.constrained=false;
+    correction.supporting_equations=0;
+    correction.rgb_gain={{1.0,1.0,1.0}};
+  }
+  result.connected_components=0;
+  result.constrained_views=0;
+  result.clamped_channels=0;
+}
+
 }  // namespace
 
 TexturePhotometryResult estimateTexturePhotometry(
@@ -91,7 +131,20 @@ TexturePhotometryResult estimateTexturePhotometry(
      config.max_unique_edges==0||config.max_unique_edges>10000000||
      config.max_sample_tests==0||config.max_sample_tests>1000000000||
      config.max_equations==0||config.max_equations>10000000||
-     config.solver_iterations==0||config.solver_iterations>100||
+     config.solver_iterations==0||config.solver_iterations>128||
+     config.holdout_stride<2||config.holdout_stride>16||
+     config.min_training_equations==0||config.min_training_equations>config.max_equations||
+     config.min_holdout_equations>config.max_equations||
+     !std::isfinite(config.huber_delta)||config.huber_delta<=0.0||
+     config.huber_delta>1.0||
+     !std::isfinite(config.max_training_rmse)||config.max_training_rmse<=0.0||
+     config.max_training_rmse>1.0||
+     !std::isfinite(config.max_holdout_residual)||config.max_holdout_residual<=0.0||
+     config.max_holdout_residual>1.0||
+     !std::isfinite(config.max_holdout_rmse)||config.max_holdout_rmse<=0.0||
+     config.max_holdout_rmse>1.0||
+     !std::isfinite(config.max_holdout_ratio)||config.max_holdout_ratio<=0.0||
+     config.max_holdout_ratio>32.0||
      !std::isfinite(config.min_usable_channel)||!std::isfinite(config.max_usable_channel)||
      config.min_usable_channel<0||config.max_usable_channel>255||
      config.min_usable_channel>=config.max_usable_channel||
@@ -200,22 +253,33 @@ TexturePhotometryResult estimateTexturePhotometry(
     equations.push_back(equation);
   }
   result.equations=equations.size();
-  std::vector<std::vector<std::size_t>> adjacency(views.size());
+  std::vector<Equation> training,holdout;
+  training.reserve(equations.size());holdout.reserve(equations.size());
   for(std::size_t i=0;i<equations.size();++i) {
-    adjacency[equations[i].a].push_back(i);adjacency[equations[i].b].push_back(i);
-    ++result.corrections[equations[i].a].supporting_equations;
-    ++result.corrections[equations[i].b].supporting_equations;
+    if((i+1)%config.holdout_stride==0)holdout.push_back(equations[i]);
+    else training.push_back(equations[i]);
+  }
+  result.training_equations=training.size();
+  result.holdout_equations=holdout.size();
+  std::vector<std::vector<std::size_t>> adjacency(views.size());
+  for(std::size_t i=0;i<training.size();++i) {
+    adjacency[training[i].a].push_back(i);adjacency[training[i].b].push_back(i);
+    ++result.corrections[training[i].a].supporting_equations;
+    ++result.corrections[training[i].b].supporting_equations;
   }
   std::vector<int> component(views.size(),-1);std::vector<std::size_t> anchors;
   std::vector<std::array<double,3>> logs(views.size());
-  for(std::size_t start=0;start<views.size();++start)if(component[start]<0&&!adjacency[start].empty()) {
-    anchors.push_back(start);std::queue<std::size_t> pending;pending.push(start);
-    component[start]=static_cast<int>(anchors.size()-1);
-    while(!pending.empty()) {const auto current=pending.front();pending.pop();
-      for(const auto equation_index:adjacency[current]) {const auto& equation=equations[equation_index];
-        const bool current_is_a=equation.a==current;
-        const auto next=current_is_a?equation.b:equation.a;
-        if(component[next]<0){
+  for(std::size_t start=0;start<views.size();++start)
+    if(component[start]<0&&!adjacency[start].empty()) {
+      anchors.push_back(start);std::queue<std::size_t> pending;pending.push(start);
+      component[start]=static_cast<int>(anchors.size()-1);
+      while(!pending.empty()) {
+        const auto current=pending.front();pending.pop();
+        for(const auto equation_index:adjacency[current]) {
+          const auto& equation=training[equation_index];
+          const bool current_is_a=equation.a==current;
+          const auto next=current_is_a?equation.b:equation.a;
+          if(component[next]>=0)continue;
           component[next]=component[current];
           for(std::size_t channel=0;channel<3;++channel)
             logs[next][channel]=logs[current][channel]+
@@ -224,23 +288,97 @@ TexturePhotometryResult estimateTexturePhotometry(
         }
       }
     }
-  }
   result.connected_components=anchors.size();
+  bool converged=false;
+  std::vector<bool> downweighted(training.size(),false);
   for(std::size_t iteration=0;iteration<config.solver_iterations;++iteration) {
     auto next=logs;
+    std::fill(downweighted.begin(),downweighted.end(),false);
+    double maximum_delta=0.0;
     for(std::size_t view=0;view<views.size();++view) {
-      if(component[view]<0||anchors[static_cast<std::size_t>(component[view])]==view)continue;
-      std::array<double,3> sums{};
-      for(const auto index:adjacency[view]) {const auto& equation=equations[index];
-        const bool is_b=equation.b==view;const auto neighbor=is_b?equation.a:equation.b;
-        for(std::size_t channel=0;channel<3;++channel)
-          sums[channel]+=logs[neighbor][channel]+(is_b?equation.delta[channel]:-equation.delta[channel]);
+      if(component[view]<0||anchors[static_cast<std::size_t>(component[view])]==view)
+        continue;
+      std::array<double,3> sums{},weights{};
+      for(const auto index:adjacency[view]) {
+        const auto& equation=training[index];
+        const bool is_b=equation.b==view;
+        const auto neighbor=is_b?equation.a:equation.b;
+        for(std::size_t channel=0;channel<3;++channel) {
+          const double residual=
+              (logs[equation.b][channel]-logs[equation.a][channel])-
+              equation.delta[channel];
+          const double weight=huberWeight(residual,config.huber_delta);
+          if(weight<1.0)downweighted[index]=true;
+          const double prediction=logs[neighbor][channel]+
+              (is_b?equation.delta[channel]:-equation.delta[channel]);
+          sums[channel]+=weight*prediction;
+          weights[channel]+=weight;
+        }
       }
-      for(std::size_t channel=0;channel<3;++channel)
-        next[view][channel]=sums[channel]/adjacency[view].size();
+      for(std::size_t channel=0;channel<3;++channel) {
+        if(weights[channel]>1e-12)
+          next[view][channel]=sums[channel]/weights[channel];
+        maximum_delta=std::max(maximum_delta,
+            std::abs(next[view][channel]-logs[view][channel]));
+      }
     }
     logs.swap(next);
+    result.robust_iterations=iteration+1;
+    if(maximum_delta<=1e-7) {converged=true;break;}
   }
+  result.robust_converged=converged;
+  result.downweighted_equations=static_cast<std::size_t>(
+      std::count(downweighted.begin(),downweighted.end(),true));
+  const auto training_metrics=evaluateEquations(training,logs);
+  const auto holdout_metrics=evaluateEquations(holdout,logs);
+  result.training_rmse=training_metrics.rmse;
+  result.holdout_max_residual=holdout_metrics.max_residual;
+  result.holdout_rmse=holdout_metrics.rmse;
+  result.holdout_ratio=holdout_metrics.rmse/
+      std::max(training_metrics.rmse,1e-6);
+  if(config.require_holdout_validation) {
+    result.holdout_validated=true;
+    const auto reject=[&](TexturePhotometryRejection reason,const char* error) {
+      result.holdout_accepted=false;
+      result.rejection=reason;
+      result.error=error;
+      resetPhotometryCorrections(result);
+    };
+    if(training.size()<config.min_training_equations) {
+      reject(TexturePhotometryRejection::kInsufficientTrainingEvidence,
+             "texture photometry insufficient training evidence");
+    } else if(holdout.size()<config.min_holdout_equations) {
+      reject(TexturePhotometryRejection::kInsufficientHoldoutEvidence,
+             "texture photometry insufficient holdout evidence");
+    } else if(!converged) {
+      reject(TexturePhotometryRejection::kRobustSolverDidNotConverge,
+             "texture photometry robust solver did not converge");
+    } else if(!std::isfinite(result.training_rmse)||
+              result.training_rmse>config.max_training_rmse) {
+      reject(TexturePhotometryRejection::kTrainingRmseTooLarge,
+             "texture photometry training rmse too large");
+    } else if(!std::isfinite(result.holdout_max_residual)||
+              result.holdout_max_residual>config.max_holdout_residual) {
+      reject(TexturePhotometryRejection::kHoldoutResidualTooLarge,
+             "texture photometry holdout residual too large");
+    } else if(!std::isfinite(result.holdout_rmse)||
+              result.holdout_rmse>config.max_holdout_rmse) {
+      reject(TexturePhotometryRejection::kHoldoutRmseTooLarge,
+             "texture photometry holdout rmse too large");
+    } else if(!std::isfinite(result.holdout_ratio)||
+              result.holdout_ratio>config.max_holdout_ratio) {
+      reject(TexturePhotometryRejection::kHoldoutRatioTooLarge,
+             "texture photometry holdout ratio too large");
+    } else {
+      result.holdout_accepted=true;
+      result.rejection=TexturePhotometryRejection::kNone;
+    }
+  } else {
+    result.holdout_accepted=true;
+    result.holdout_validated=false;
+    result.rejection=TexturePhotometryRejection::kNone;
+  }
+  if(!result.holdout_accepted)return result;
   for(std::size_t view=0;view<views.size();++view)if(component[view]>=0) {
     result.corrections[view].constrained=true;++result.constrained_views;
     for(std::size_t channel=0;channel<3;++channel) {
@@ -251,6 +389,29 @@ TexturePhotometryResult estimateTexturePhotometry(
     }
   }
   return result;
+}
+
+const char* texturePhotometryRejectionText(
+    TexturePhotometryRejection rejection) {
+  switch(rejection) {
+    case TexturePhotometryRejection::kNone:
+      return "none";
+    case TexturePhotometryRejection::kInsufficientTrainingEvidence:
+      return "insufficient training evidence";
+    case TexturePhotometryRejection::kInsufficientHoldoutEvidence:
+      return "insufficient holdout evidence";
+    case TexturePhotometryRejection::kRobustSolverDidNotConverge:
+      return "robust solver did not converge";
+    case TexturePhotometryRejection::kTrainingRmseTooLarge:
+      return "training rmse too large";
+    case TexturePhotometryRejection::kHoldoutResidualTooLarge:
+      return "holdout residual too large";
+    case TexturePhotometryRejection::kHoldoutRmseTooLarge:
+      return "holdout rmse too large";
+    case TexturePhotometryRejection::kHoldoutRatioTooLarge:
+      return "holdout ratio too large";
+  }
+  return "unknown rejection";
 }
 
 }  // namespace arkernel

@@ -111,3 +111,7 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 ## Field diagnostics redaction rules
 
 `ArKernelFieldDiagnosticsRedactionBundle` adds a bounded canonical `ARKREDACT1` text plan for host-declared redaction rules: fixed metadata order, 1–32 rules, unique opaque field IDs, `drop`/`hash` actions, opaque tokens/reasons, strict budgets, deterministic encode/parse and fail-closed rejection. It collects, redacts, uploads and verifies nothing, performs no I/O, grants no quality grade and stays `unverified`; real field workflows and physical target evidence remain host work.
+
+## Loop-closure candidate transport
+
+`ArKernelLoopClosureCandidateBundle` adds a bounded canonical `ARKLOOP1` text ledger for host-proposed loop candidates: fixed metadata order, 1–48 unique opaque candidates, distinct opaque keyframe pairs, finite non-negative residual/uncertainty decimals, bounded inlier counts, strict budgets, deterministic encode/parse and fail-closed rejection. It verifies no loop, optimizes no pose graph, runs no global bundle adjustment, mutates no map, performs no I/O, grants no quality grade and stays `unverified`; verified loop closure and full optimization remain host work.

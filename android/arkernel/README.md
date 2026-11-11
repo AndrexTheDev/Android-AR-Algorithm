@@ -146,3 +146,7 @@ signature, builds no factory or backend, runs no inference, sentinel or CPU
 fallback, performs no I/O and stays `unverified`; real golden frames, concrete
 adapter artifacts, factory implementations and device-farm corpus results
 remain host work.
+
+## Bounded host-supplied set-cover plan ledger
+
+`ArKernelCoveragePlanBundle` adds a bounded canonical `ARKCOV1` text ledger for one host-supplied weighted set-cover plan: fixed fourteen-key metadata order, 0–64 unique four-field selection rows, 0–64 seven-field uncovered requirement rows, contiguous indices, exact `CapabilityCoverageDimension` names in ascending order for pairwise requirements, bounded value tokens and weights, strict input/line budgets, BOM/CRLF tolerance and a fail-closed `END`. Aggregate counts, selection sums, covered-plus-uncovered totals and weight bounds are checked exactly. `fromPlan()` serializes an existing `CapabilityCoveragePlan` and `toPlan()` rebuilds it; `summarize()` reports only structural counts, sums and distinctness. Five safety flags keep provider binding, Mobly rig control, thermal-run execution, physical scene capture and automatic upload disabled. The ledger contacts no provider, controls no rig, runs no thermal or day/night/weather scene, performs no I/O and stays `unverified`; concrete inventories, rig automation and device-farm evidence remain host work.

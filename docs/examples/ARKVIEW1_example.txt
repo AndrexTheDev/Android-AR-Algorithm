@@ -1,0 +1,13 @@
+ARKVIEW1
+version=1
+plan_id=viewer.plan.v1
+revision=1
+view_count=2
+asset_loading_disabled=true
+renderer_initialization_disabled=true
+automatic_upload_disabled=true
+external_format_import_disabled=true
+quality_grade=unverified
+view=0|view-01|arkglb://demo_session/0000000000000000001-asset-01.glb|orbit|base_color|15.0|-10.0|2.5|60.0|1920|1080|1
+view=1|view-02|arkglb://demo_session/0000000000000000002-asset-02.glb|front|normals|-45.0|20.0|4.0|45.0|1280|720|0
+END

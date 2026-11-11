@@ -108,7 +108,7 @@ Planned adapters include GLB, USDZ, untextured STL, LAS/LAZ/E57 and 3D Tiles. ST
 
 `tools/viewer/index.html` is a dependency-free WebGL 2 viewer for the generated glTF subset. Select one `.glb`, or select `.gltf`, referenced `.bin` and optional texture together. It supports orbit, zoom, normals, indexed triangles and base-colour textures without uploads or network access. It also displays the embedded accuracy grade plus held-out observation count and maximum validated dimension; it does not infer or upgrade quality when metadata is absent. Unsupported component encodings are rejected.
 
-An Android product viewer should be a separate optional module and load glTF/GLB through Filament `gltfio`; this keeps a renderer out of the headless core AAR.
+An Android product viewer should be a separate optional module and load glTF/GLB through Filament `gltfio`; this keeps a renderer out of the headless core AAR. `ArKernelAssetViewerPlanBundle` adds only a bounded host-owned canonical `ARKVIEW1` inspection-plan envelope for such a future module: fixed metadata order, 1–16 views, opaque internal `arkglb://` references, exact view/color modes, bounded camera/frame values, four fail-closed safety flags and a pure structural summarizer. It loads no asset, initializes no renderer, imports no USDZ or external format, uploads nothing, performs no I/O, infers no quality and stays `unverified`; the viewer module itself remains host work.
 
 ## Research basis
 

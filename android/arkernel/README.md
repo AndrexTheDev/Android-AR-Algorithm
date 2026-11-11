@@ -203,3 +203,18 @@ signature, captures no images or poses, uploads nothing, performs no I/O and
 grants no upgrade. The procedure is portable to every Android device; the
 calibration values are not. The grade stays `unverified`; real independent
 targets and per-device validation remain host work.
+
+## Bounded systematic portable campaign plans
+
+`ArKernelCampaignPlanAdapter` adds a bounded canonical `ARKCAMPAIGN1` text
+contract: seventeen exact metadata keys, eight fail-closed invariants, 1–16
+unique scenes across nine fixed kinds, repeat budgets and ten canonical
+questions with fixed evidence depths. `canonicalPlan()` uses the device class
+from `ARKADAPT1`; the protocol is portable across Android devices, while
+calibration values are not. Weaker devices get fewer scenes and explicit
+`unsupportedQuestionCount`; they never get different questions or a weaker
+quality rule. `summarize()` reports structural counts only;
+`campaignEvidenceComplete` is a completeness pre-check, not an assessment.
+The adapter reads no sensor, measures no target, captures no images or poses,
+performs no automatic/universal calibration, verifies no signature, uploads
+nothing, performs no I/O and grants no upgrade. The grade stays `unverified`.

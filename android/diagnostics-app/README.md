@@ -16,8 +16,10 @@ Manifest deklariert, wird im Berechtigungskatalog mitprotokolliert und ist in
 der Android-CI gegen versehentliches Entfernen abgesichert. Version
 `2.2-calibration` ergänzt einen eigenen Opt-in-Bildschirm für physische
 Kalibrierungs-Evidenz (`ARKCALIB1`). `2.3-adaptive` ergänzt die
-geräteadaptive, systematische Kalibrierungsführung (`ARKADAPT1`) – weiterhin
-dieselbe App-ID, kein neues Installationsobjekt.
+geräteadaptive, systematische Kalibrierungsführung (`ARKADAPT1`).
+`2.4-campaign` ergänzt den geräteübergreifenden, systematischen
+Messkampagnenplan (`ARKCAMPAIGN1`) – weiterhin dieselbe App-ID, kein neues
+Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -249,6 +251,48 @@ unabhängigen Referenzen. Keine Bilder, Posen, Trajektorien oder dichte
 Geometrie, keine automatische Kalibrierung, keine Signaturprüfung, kein
 Upload, keine Qualitätsaufstufung; Status `unverified`.
 
+## Systematische Messkampagne mit `2.4-campaign`
+
+Der Knopf **7. Systematische Messkampagne (ARKCAMPAIGN1)** baut aus der
+automatisch erkannten `ARKADAPT1`-Geräteklasse einen festen Plan. **Das
+Verfahren ist auf allen Android-Geräten identisch**: neun Szenenarten
+(Maßstab drinnen/draußen, rechte Winkel, Stillstand, Thermik-Wiederholung,
+Tag/Nacht, Held-out, Sitzungs- und Gerätevergleich) und zehn kanonische Fragen
+mit festen Wiederholungstiefen. Nur die Szenenliste wird bei `limited`,
+`legacy` oder `unknown` kürzer (9 → 8 → 6 → 5); die Fragen bleiben gleich, und
+fehlende Szenen werden als `unsupportedQuestionCount` ausgewiesen.
+
+Die systematischen Fragen lauten: `Q_SCALE_SHORT`, `Q_SCALE_LONG`,
+`Q_ORTHOGONALITY`, `Q_ORIENTATION_STILLNESS`, `Q_THERMAL_DRIFT`,
+`Q_LIGHTING_CHANGE`, `Q_HELD_OUT_DIMENSION`, `Q_REPEATABILITY`,
+`Q_CROSS_SESSION`, `Q_CROSS_DEVICE`. Jede Frage verlangt eine abgeschlossene
+Szene der passenden Art mit mindestens der festgelegten Zahl Wiederholungen.
+`Q_HELD_OUT_DIMENSION` erzwingt zusätzlich eine Held-out-Szene, also ein Maß,
+das **nicht** zum Kalibrieren benutzt wurde.
+
+Bedienung:
+
+1. **7. Systematische Messkampagne** öffnen. Oben stehen Geräte-Token,
+   Geräteklasse, nächste Szene und nächste Frage.
+2. Pro Szene **1. Szene als durchgeführt markieren** (nach der echten Messung
+   mit Zollstock/Baustellen-Target) oder bewusst **überspringen**.
+3. Pro Frage **2. Frage mit Evidenz bestätigen** (nur wenn die zugehörigen
+   Wiederholungen wirklich erfolgt sind) oder **überspringen**.
+4. Für echte Maße weiterhin **5. Physische Kalibrierung (ARKCALIB1)** und für
+   die Geräteanpassung **6. Geräteadaptive Kalibrierung (ARKADAPT1)** nutzen.
+5. **3. ARKCAMPAIGN1 prüfen & speichern** erzeugt `ARKCAMPAIGN1_<run>.txt`
+   unter `Downloads/ARKernelDiagnostics`; **teilen** fügt den Text hier im
+   Chat ein.
+
+`campaignEvidenceComplete` bedeutet nur: alle Fragen vom Host bestätigt und
+die passenden Szenen mit genug Wiederholungen vorhanden. Das ist **keine
+Antwort**, kein Messergebnis, keine Zentimetergenauigkeit und keine
+Qualitätsnote. Die maßgebliche Bewertung bleibt
+`assessReconstructionQuality` mit `evaluateHeldOutDimensions` und echten,
+unabhängigen Referenzen. Keine Bilder, Posen, Trajektorien, keine
+automatische/universelle Kalibrierung, keine Feldmessung in der App, keine
+Signaturprüfung, kein Upload, keine Qualitätsaufstufung; `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -267,8 +311,8 @@ Upload, keine Qualitätsaufstufung; Status `unverified`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
   keine Kalibrierung bei der Installation, keine Redaktion, keine
   Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
-  Geräteerkennung und Profilwahl. Unabhängige physische Targets musst du
-  selbst messen und eintragen.
+  Geräteerkennung, Profilwahl und Planerzeugung. Unabhängige physische
+  Targets musst du selbst messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

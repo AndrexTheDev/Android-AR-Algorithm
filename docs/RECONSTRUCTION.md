@@ -198,3 +198,28 @@ grants no quality grade. The authoritative grade remains
 `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No upgrade was
 performed or claimed here; real field evidence, independent targets and
 centimetre validation remain open.
+
+## Systematic portable measurement campaign, not a universal calibration
+
+`ArKernelCampaignPlanAdapter` adds a bounded canonical `ARKCAMPAIGN1` plan
+with seventeen exact metadata keys, eight fail-closed invariants, 1–16 unique
+scenes across nine fixed scene kinds, repeat budgets and exactly ten canonical
+systematic questions with fixed evidence depths. `canonicalPlan()` derives the
+scene list from the `ARKADAPT1` device class: the portable protocol is
+identical on every Android device, while weaker or unknown devices receive
+fewer scenes and explicitly report unsupported questions. `summarize()`
+computes structural counts only; `campaignEvidenceComplete` means a host
+reported completed scenes of the required kinds and depths plus confirmed
+questions. It is **not** an answer, **not** accuracy, **not** centimetre
+validation and **not** an upgrade. `qualityGrade` stays `unverified`.
+
+Diagnostics app version `2.4-campaign` adds a campaign screen that reads the
+device class, builds the canonical plan, guides explicit scene completions and
+question confirmations and writes an `ARKCAMPAIGN1_<run>.txt` file. The screen
+captures no images, pixels, poses or trajectories, measures no physical
+target, infers no intrinsics, extrinsics or metric scale, performs no
+automatic or universal calibration, verifies no signature, uploads nothing,
+performs no I/O in the kernel and grants no quality grade. A tape measure, an
+independent held-out target and real field measurements remain host work. The
+authoritative grade remains `assessReconstructionQuality` with
+`evaluateHeldOutDimensions`. No upgrade was performed or claimed here.

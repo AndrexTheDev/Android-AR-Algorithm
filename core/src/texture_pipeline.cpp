@@ -129,6 +129,10 @@ TexturePipelineResult buildTextureAtlas(
            global.telemetry.error.empty()?
              "global texture seam optimization did not complete":
              global.telemetry.error);
+      // Keep the exact failing stage telemetry for fail-closed diagnosis;
+      // fail() intentionally clears the portable mesh and RGBA pixels.
+      result.global_seam=global.telemetry;
+      result.global_seam.enabled=true;
       return result;
     }
     result.rgba8=std::move(global.rgba8);

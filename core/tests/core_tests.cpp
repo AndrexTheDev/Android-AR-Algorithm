@@ -1381,6 +1381,11 @@ int main() {
         global_seam_texture.telemetry.error.empty()&&
         global_seam_texture.telemetry.seam_pairs==1&&
         global_seam_texture.telemetry.sampled_pairs>0&&
+        global_seam_texture.telemetry.training_samples==
+          global_seam_texture.telemetry.sampled_pairs&&
+        global_seam_texture.telemetry.holdout_samples==0&&
+        !global_seam_texture.telemetry.holdout_validated&&
+        global_seam_texture.telemetry.holdout_accepted&&
         global_seam_texture.telemetry.iterations>0&&
         global_seam_texture.telemetry.constrained_patches>0&&
         global_seam_texture.telemetry.pixel_updates>0&&
@@ -1389,6 +1394,198 @@ int main() {
         global_seam_texture.rgba8!=uneven_texture.rgba8);
   for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
     CHECK(global_seam_texture.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  // A deterministic train/holdout split can now gate the global seam solve.
+  // Accepted strict validation fits only on training samples and preserves
+  // alpha; rejected validation fails closed with identity RGBA pixels.
+  auto global_accepted_config=global_seam_config;
+  global_accepted_config.require_holdout_validation=true;
+  const auto global_accepted_result=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_accepted_config);
+  CHECK(global_accepted_result.telemetry.input_valid&&
+        !global_accepted_result.telemetry.truncated&&
+        global_accepted_result.telemetry.error.empty()&&
+        global_accepted_result.telemetry.sampled_pairs==
+          global_seam_texture.telemetry.sampled_pairs&&
+        global_accepted_result.telemetry.training_samples>0&&
+        global_accepted_result.telemetry.holdout_samples>=
+          global_accepted_config.min_holdout_samples&&
+        global_accepted_result.telemetry.training_samples+
+          global_accepted_result.telemetry.holdout_samples==
+          global_accepted_result.telemetry.sampled_pairs&&
+        global_accepted_result.telemetry.holdout_validated&&
+        global_accepted_result.telemetry.holdout_accepted&&
+        global_accepted_result.telemetry.rejection==TextureGlobalSeamRejection::kNone&&
+        global_accepted_result.telemetry.training_rmse>0.0&&
+        global_accepted_result.telemetry.training_rmse<
+          global_accepted_config.max_training_rmse&&
+        global_accepted_result.telemetry.holdout_max_residual>0.0&&
+        global_accepted_result.telemetry.holdout_max_residual<
+          global_accepted_config.max_holdout_residual&&
+        global_accepted_result.telemetry.holdout_rmse>0.0&&
+        global_accepted_result.telemetry.holdout_rmse<
+          global_accepted_config.max_holdout_rmse&&
+        global_accepted_result.telemetry.holdout_ratio>0.0&&
+        global_accepted_result.telemetry.holdout_ratio<
+          global_accepted_config.max_holdout_ratio&&
+        global_accepted_result.telemetry.residual_after<=
+          global_accepted_result.telemetry.residual_before+1e-9&&
+        global_accepted_result.telemetry.pixel_updates>0&&
+        global_accepted_result.rgba8!=uneven_texture.rgba8);
+  for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
+    CHECK(global_accepted_result.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  const auto global_accepted_repeat=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_accepted_config);
+  CHECK(global_accepted_repeat.rgba8==global_accepted_result.rgba8&&
+        global_accepted_repeat.telemetry.training_rmse==
+          global_accepted_result.telemetry.training_rmse&&
+        global_accepted_repeat.telemetry.holdout_rmse==
+          global_accepted_result.telemetry.holdout_rmse&&
+        global_accepted_repeat.telemetry.holdout_ratio==
+          global_accepted_result.telemetry.holdout_ratio);
+  const auto checkRejectedGlobalSeam=[&](const TextureGlobalSeamConfig& config,
+      TextureGlobalSeamRejection reason,const char* error,
+      const char* reason_text) -> bool {
+    const auto rejected=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+        photometry_layout,photometry_labels,uneven_texture.rgba8,
+        uneven_texture.width,uneven_texture.height,config);
+    const bool ok=rejected.telemetry.input_valid&&
+          !rejected.telemetry.truncated&&
+          rejected.telemetry.error==error&&
+          rejected.telemetry.holdout_validated&&
+          !rejected.telemetry.holdout_accepted&&
+          rejected.telemetry.rejection==reason&&
+          std::string(textureGlobalSeamRejectionText(reason))==reason_text&&
+          rejected.telemetry.pixel_updates==0&&
+          rejected.telemetry.constrained_patches==0&&
+          rejected.rgba8==uneven_texture.rgba8;
+    if(!ok)std::cerr<<"FAIL global seam rejection: "<<error<<"\n";
+    return ok;
+  };
+  auto global_insufficient_training_config=global_accepted_config;
+  global_insufficient_training_config.min_training_samples=1000;
+  CHECK(checkRejectedGlobalSeam(global_insufficient_training_config,
+      TextureGlobalSeamRejection::kInsufficientTrainingEvidence,
+      "global texture seam insufficient training evidence",
+      "insufficient training evidence"));
+  auto global_insufficient_holdout_config=global_accepted_config;
+  global_insufficient_holdout_config.min_holdout_samples=1000;
+  CHECK(checkRejectedGlobalSeam(global_insufficient_holdout_config,
+      TextureGlobalSeamRejection::kInsufficientHoldoutEvidence,
+      "global texture seam insufficient holdout evidence",
+      "insufficient holdout evidence"));
+  auto global_training_rmse_config=global_accepted_config;
+  global_training_rmse_config.max_training_rmse=1e-6;
+  CHECK(checkRejectedGlobalSeam(global_training_rmse_config,
+      TextureGlobalSeamRejection::kTrainingRmseTooLarge,
+      "global texture seam training rmse too large",
+      "training rmse too large"));
+  auto global_holdout_residual_config=global_accepted_config;
+  global_holdout_residual_config.max_holdout_residual=1e-6;
+  CHECK(checkRejectedGlobalSeam(global_holdout_residual_config,
+      TextureGlobalSeamRejection::kHoldoutResidualTooLarge,
+      "global texture seam holdout residual too large",
+      "holdout residual too large"));
+  auto global_holdout_rmse_config=global_accepted_config;
+  global_holdout_rmse_config.max_holdout_rmse=1e-6;
+  CHECK(checkRejectedGlobalSeam(global_holdout_rmse_config,
+      TextureGlobalSeamRejection::kHoldoutRmseTooLarge,
+      "global texture seam holdout rmse too large",
+      "holdout rmse too large"));
+  auto global_holdout_ratio_config=global_accepted_config;
+  global_holdout_ratio_config.max_holdout_ratio=0.5;
+  CHECK(checkRejectedGlobalSeam(global_holdout_ratio_config,
+      TextureGlobalSeamRejection::kHoldoutRatioTooLarge,
+      "global texture seam holdout ratio too large",
+      "holdout ratio too large"));
+  CHECK(std::string(textureGlobalSeamRejectionText(
+      TextureGlobalSeamRejection::kNone))=="none");
+  // A measured holdout-only pixel outlier leaves training RMSE unchanged but
+  // exceeds the holdout gates; strict validation returns the exact input atlas.
+  std::vector<std::uint8_t> holdout_outlier_pixels=uneven_texture.rgba8;
+  constexpr std::size_t kGlobalSeamHoldoutOutlierPixel=6682;
+  CHECK(kGlobalSeamHoldoutOutlierPixel<holdout_outlier_pixels.size()/4&&
+        holdout_outlier_pixels[kGlobalSeamHoldoutOutlierPixel*4+3]!=0);
+  const int global_outlier_value=static_cast<int>(
+      holdout_outlier_pixels[kGlobalSeamHoldoutOutlierPixel*4])+100;
+  holdout_outlier_pixels[kGlobalSeamHoldoutOutlierPixel*4]=
+      static_cast<std::uint8_t>(std::max(0,std::min(255,global_outlier_value)));
+  const auto holdout_outlier_strict=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,holdout_outlier_pixels,
+      uneven_texture.width,uneven_texture.height,global_accepted_config);
+  CHECK(holdout_outlier_strict.telemetry.input_valid&&
+        !holdout_outlier_strict.telemetry.truncated&&
+        holdout_outlier_strict.telemetry.error==
+          "global texture seam holdout residual too large"&&
+        holdout_outlier_strict.telemetry.holdout_validated&&
+        !holdout_outlier_strict.telemetry.holdout_accepted&&
+        holdout_outlier_strict.telemetry.rejection==
+          TextureGlobalSeamRejection::kHoldoutResidualTooLarge&&
+        std::abs(holdout_outlier_strict.telemetry.training_rmse-
+                 global_accepted_result.telemetry.training_rmse)<1e-9&&
+        holdout_outlier_strict.telemetry.holdout_max_residual>
+          global_accepted_config.max_holdout_residual&&
+        holdout_outlier_strict.telemetry.holdout_rmse>
+          global_accepted_config.max_holdout_rmse&&
+        holdout_outlier_strict.telemetry.holdout_ratio>
+          global_accepted_config.max_holdout_ratio&&
+        holdout_outlier_strict.telemetry.pixel_updates==0&&
+        holdout_outlier_strict.telemetry.constrained_patches==0&&
+        holdout_outlier_strict.rgba8==holdout_outlier_pixels);
+  const auto holdout_outlier_unchecked=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,holdout_outlier_pixels,
+      uneven_texture.width,uneven_texture.height,global_seam_config);
+  CHECK(holdout_outlier_unchecked.telemetry.error.empty()&&
+        !holdout_outlier_unchecked.telemetry.holdout_validated&&
+        holdout_outlier_unchecked.telemetry.holdout_accepted&&
+        holdout_outlier_unchecked.telemetry.holdout_samples==0&&
+        holdout_outlier_unchecked.telemetry.pixel_updates>0&&
+        holdout_outlier_unchecked.rgba8!=holdout_outlier_pixels);
+  auto global_disabled_config=global_accepted_config;
+  global_disabled_config.require_holdout_validation=false;
+  global_disabled_config.min_training_samples=1000;
+  global_disabled_config.min_holdout_samples=1000;
+  global_disabled_config.max_training_rmse=1e-6;
+  global_disabled_config.max_holdout_residual=1e-6;
+  global_disabled_config.max_holdout_rmse=1e-6;
+  global_disabled_config.max_holdout_ratio=1e-6;
+  const auto global_disabled_result=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_disabled_config);
+  CHECK(global_disabled_result.telemetry.input_valid&&
+        !global_disabled_result.telemetry.truncated&&
+        global_disabled_result.telemetry.error.empty()&&
+        !global_disabled_result.telemetry.holdout_validated&&
+        global_disabled_result.telemetry.holdout_accepted&&
+        global_disabled_result.telemetry.rejection==TextureGlobalSeamRejection::kNone&&
+        global_disabled_result.telemetry.pixel_updates>0&&
+        global_disabled_result.rgba8!=uneven_texture.rgba8);
+  auto global_invalid_holdout_stride=global_seam_config;
+  global_invalid_holdout_stride.holdout_stride=1;
+  bool global_rejected_holdout_stride=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,global_invalid_holdout_stride);}
+  catch(const std::invalid_argument&){global_rejected_holdout_stride=true;}
+  CHECK(global_rejected_holdout_stride);
+  auto global_invalid_training_rmse=global_seam_config;
+  global_invalid_training_rmse.max_training_rmse=0.0;
+  bool global_rejected_training_rmse=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,global_invalid_training_rmse);}
+  catch(const std::invalid_argument&){global_rejected_training_rmse=true;}
+  CHECK(global_rejected_training_rmse);
+  auto global_invalid_min_training=global_seam_config;
+  global_invalid_min_training.min_training_samples=0;
+  bool global_rejected_min_training=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,global_invalid_min_training);}
+  catch(const std::invalid_argument&){global_rejected_min_training=true;}
+  CHECK(global_rejected_min_training);
+
   auto invalid_global_config=global_seam_config;
   invalid_global_config.samples_per_seam=0;
   bool rejected_global_config=false;
@@ -1991,6 +2188,33 @@ int main() {
         global_pipeline.global_seam.seam_pairs==0&&
         global_pipeline.telemetry.global_seam_pairs==0&&
         global_pipeline.rgba8==texture_pipeline.rgba8);
+  auto strict_global_pipeline_config=global_pipeline_config;
+  strict_global_pipeline_config.global_seam.require_holdout_validation=true;
+  const auto strict_global_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},strict_global_pipeline_config);
+  CHECK(strict_global_pipeline.input_valid&&
+        !strict_global_pipeline.truncated&&
+        strict_global_pipeline.stage==TexturePipelineStage::kSeamBlending&&
+        strict_global_pipeline.error==
+          "global texture seam insufficient training evidence"&&
+        strict_global_pipeline.rgba8.empty()&&
+        strict_global_pipeline.mesh.positions_m.empty()&&
+        strict_global_pipeline.global_seam.enabled&&
+        strict_global_pipeline.global_seam.holdout_validated&&
+        !strict_global_pipeline.global_seam.holdout_accepted&&
+        strict_global_pipeline.global_seam.rejection==
+          TextureGlobalSeamRejection::kInsufficientTrainingEvidence&&
+        strict_global_pipeline.global_seam.pixel_updates==0&&
+        strict_global_pipeline.telemetry.global_seam_pixel_updates==0);
+  auto disabled_global_bad_config=global_pipeline_config;
+  disabled_global_bad_config.enable_global_seam_optimization=false;
+  disabled_global_bad_config.global_seam.holdout_stride=1;
+  const auto disabled_global_bad_pipeline=buildTextureAtlas(texture_mesh,
+      no_depth_candidate,{pipeline_image},disabled_global_bad_config);
+  CHECK(disabled_global_bad_pipeline.stage==TexturePipelineStage::kComplete&&
+        disabled_global_bad_pipeline.error.empty()&&
+        !disabled_global_bad_pipeline.global_seam.enabled&&
+        disabled_global_bad_pipeline.rgba8==texture_pipeline.rgba8);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;

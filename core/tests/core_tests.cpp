@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 #include "arkernel/bundle_adjustment.h"
 #include "arkernel/c_api.h"
@@ -2993,6 +2994,279 @@ int main() {
   CHECK(std::strcmp(
             cameraResponseRejectionText(CameraResponseRejection::kRmseTooLarge),
             "linearity rmse too large") == 0);
+
+  // Bounded deterministic synthetic nonlinear inverse-response LUT.
+  auto make_curve_nonlinear_pairs = []() {
+    const double gamma = 0.7;
+    const double ratios[8] = {1.2, 1.35, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0};
+    std::vector<CameraResponsePair> pairs;
+    for (int r = 0; r < 8; ++r) {
+      const double ratio = ratios[r];
+      const double response = std::pow(ratio, gamma);
+      const double max_low = (0.96 / response < 0.5) ? (0.96 / response) : 0.5;
+      for (int k = 0; k < 8; ++k) {
+        const double fraction = (static_cast<double>(k) + 0.5) / 8.0;
+        const double low = 0.025 + (max_low - 0.025) * fraction;
+        CameraResponsePair pair;
+        pair.id = static_cast<std::uint64_t>(pairs.size() + 1);
+        pair.exposure_low_s = 1.0;
+        pair.exposure_high_s = ratio;
+        pair.intensity_low = low;
+        pair.intensity_high = response * low;
+        pairs.push_back(pair);
+      }
+    }
+    return pairs;
+  };
+  auto make_curve_sparse_pairs = []() {
+    const double gamma = 0.7;
+    const double ratios[4] = {1.2, 1.5, 3.0, 6.0};
+    std::vector<CameraResponsePair> pairs;
+    for (int r = 0; r < 4; ++r) {
+      const double ratio = ratios[r];
+      const double response = std::pow(ratio, gamma);
+      const double max_low = (0.96 / response < 0.5) ? (0.96 / response) : 0.5;
+      for (int k = 0; k < 8; ++k) {
+        const double fraction = (static_cast<double>(k) + 0.5) / 8.0;
+        const double low = 0.025 + (max_low - 0.025) * fraction;
+        CameraResponsePair pair;
+        pair.id = static_cast<std::uint64_t>(pairs.size() + 1);
+        pair.exposure_low_s = 1.0;
+        pair.exposure_high_s = ratio;
+        pair.intensity_low = low;
+        pair.intensity_high = response * low;
+        pairs.push_back(pair);
+      }
+    }
+    return pairs;
+  };
+  const auto curve_nonlinear_pairs = make_curve_nonlinear_pairs();
+  const CameraResponseCurveConfig curve_config;
+  const auto curve_accepted =
+      estimateCameraResponseCurve(curve_nonlinear_pairs, curve_config);
+  CHECK(curve_accepted.accepted);
+  CHECK(curve_accepted.solver_converged);
+  CHECK(curve_accepted.rejection == CameraResponseRejection::kNone);
+  CHECK(curve_accepted.sample_count == curve_nonlinear_pairs.size());
+  CHECK(curve_accepted.bin_count == curve_config.bins);
+  CHECK(curve_accepted.training_samples >= curve_config.min_samples);
+  CHECK(curve_accepted.holdout_samples >= 2);
+  CHECK(curve_accepted.training_samples + curve_accepted.holdout_samples ==
+        curve_accepted.sample_count);
+  CHECK(curve_accepted.covered_bins >= curve_config.min_covered_bins);
+  CHECK(curve_accepted.covered_bins <= curve_config.bins);
+  CHECK(curve_accepted.iterations > 0);
+  CHECK(curve_accepted.iterations <= curve_config.max_iterations);
+  CHECK(curve_accepted.monotonic_projections > 0);
+  CHECK(curve_accepted.monotonic_projections <= curve_accepted.iterations);
+  CHECK(curve_accepted.rmse <= curve_config.convergence_rmse);
+  CHECK(curve_accepted.max_residual <= curve_config.max_residual);
+  CHECK(curve_accepted.rmse <= curve_config.max_rmse);
+  CHECK(curve_accepted.max_cross_validation_residual <=
+        curve_config.max_cross_validation_residual);
+  CHECK(curve_accepted.cross_validation_rmse <=
+        curve_config.max_cross_validation_rmse);
+  CHECK(curve_accepted.cross_validation_ratio <=
+        curve_config.max_cross_validation_ratio);
+  CHECK(curve_accepted.inverse_response.size() == curve_config.bins);
+  CHECK(std::fabs(curve_accepted.inverse_response[0]) < 1e-9);
+  for (std::size_t i = 0; i < curve_accepted.inverse_response.size(); ++i) {
+    CHECK(std::isfinite(curve_accepted.inverse_response[i]));
+    if (i > 0) {
+      CHECK(curve_accepted.inverse_response[i] >=
+            curve_accepted.inverse_response[i - 1] + curve_config.min_slope -
+                1e-9);
+    }
+  }
+  CHECK(std::strcmp(curve_accepted.quality_grade, "unverified") == 0);
+  CHECK(std::strcmp(cameraResponseRejectionText(curve_accepted.rejection),
+                    "none") == 0);
+  const auto curve_repeated =
+      estimateCameraResponseCurve(curve_nonlinear_pairs, curve_config);
+  CHECK(curve_repeated.accepted);
+  CHECK(curve_repeated.inverse_response == curve_accepted.inverse_response);
+  CHECK(curve_repeated.rmse == curve_accepted.rmse);
+  CHECK(curve_repeated.cross_validation_rmse ==
+        curve_accepted.cross_validation_rmse);
+  CHECK(curve_repeated.iterations == curve_accepted.iterations);
+
+  // The old linear estimator cannot absorb this synthetic nonlinear response.
+  const auto curve_linear = estimateCameraResponseLinearity(curve_nonlinear_pairs);
+  CHECK(!curve_linear.accepted);
+  CHECK(curve_linear.rejection ==
+        CameraResponseRejection::kInconsistentBlackLevel);
+
+  // A curve_sparse holdout must fail closed instead of extrapolating from training.
+  const auto curve_sparse_pairs = make_curve_sparse_pairs();
+  const auto curve_sparse = estimateCameraResponseCurve(curve_sparse_pairs, curve_config);
+  CHECK(!curve_sparse.accepted);
+  CHECK(curve_sparse.solver_converged);
+  CHECK(curve_sparse.rejection ==
+        CameraResponseRejection::kCrossValidationResidualTooLarge);
+  CHECK(curve_sparse.rmse <= curve_config.max_rmse);
+  CHECK(curve_sparse.cross_validation_rmse >
+        curve_config.max_cross_validation_rmse);
+  CHECK(curve_sparse.max_cross_validation_residual >
+        curve_config.max_cross_validation_residual);
+  CHECK(curve_sparse.inverse_response.empty());
+
+  auto curve_rejected_with = [&](const CameraResponseCurveConfig& config,
+                           CameraResponseRejection expected) {
+    const auto result = estimateCameraResponseCurve(curve_nonlinear_pairs, config);
+    return !result.accepted && result.rejection == expected &&
+           result.inverse_response.empty();
+  };
+  auto curve_config_rejected = [&](const CameraResponseCurveConfig& config) {
+    try {
+      const auto result = estimateCameraResponseCurve(curve_nonlinear_pairs, config);
+      (void)result;
+    } catch (const std::invalid_argument&) {
+      return true;
+    }
+    return false;
+  };
+
+  auto curve_too_few_pairs = curve_nonlinear_pairs;
+  curve_too_few_pairs.resize(curve_config.min_samples - 1);
+  CHECK(estimateCameraResponseCurve(curve_too_few_pairs, curve_config).rejection ==
+        CameraResponseRejection::kTooFewSamples);
+  auto curve_too_many_pairs = curve_nonlinear_pairs;
+  for (std::uint64_t id = 65; id <= curve_config.max_samples + 1; ++id) {
+    auto copy = curve_nonlinear_pairs[static_cast<std::size_t>((id - 65) %
+                                                        curve_nonlinear_pairs.size())];
+    copy.id = id;
+    curve_too_many_pairs.push_back(copy);
+  }
+  CHECK(estimateCameraResponseCurve(curve_too_many_pairs, curve_config).rejection ==
+        CameraResponseRejection::kTooManySamples);
+  auto curve_zero_id = curve_nonlinear_pairs;
+  curve_zero_id[0].id = 0;
+  CHECK(estimateCameraResponseCurve(curve_zero_id, curve_config).rejection ==
+        CameraResponseRejection::kInvalidId);
+  auto curve_duplicate_id = curve_nonlinear_pairs;
+  curve_duplicate_id[1].id = curve_duplicate_id[0].id;
+  CHECK(estimateCameraResponseCurve(curve_duplicate_id, curve_config).rejection ==
+        CameraResponseRejection::kDuplicateId);
+  auto curve_non_finite_pair = curve_nonlinear_pairs;
+  curve_non_finite_pair[0].intensity_high =
+      std::numeric_limits<double>::quiet_NaN();
+  CHECK(estimateCameraResponseCurve(curve_non_finite_pair, curve_config).rejection ==
+        CameraResponseRejection::kNonFiniteInput);
+  auto curve_invalid_exposure = curve_nonlinear_pairs;
+  curve_invalid_exposure[0].exposure_low_s = 0.0;
+  CHECK(estimateCameraResponseCurve(curve_invalid_exposure, curve_config).rejection ==
+        CameraResponseRejection::kInvalidExposure);
+  auto curve_invalid_ratio = curve_nonlinear_pairs;
+  curve_invalid_ratio[0].exposure_high_s = 1.05;
+  CHECK(estimateCameraResponseCurve(curve_invalid_ratio, curve_config).rejection ==
+        CameraResponseRejection::kInvalidExposureRatio);
+  auto curve_invalid_intensity = curve_nonlinear_pairs;
+  curve_invalid_intensity[0].intensity_low = 0.99;
+  CHECK(estimateCameraResponseCurve(curve_invalid_intensity, curve_config).rejection ==
+        CameraResponseRejection::kInvalidIntensity);
+  auto curve_zero_gap = curve_nonlinear_pairs;
+  curve_zero_gap[0].intensity_high = curve_zero_gap[0].intensity_low;
+  CHECK(estimateCameraResponseCurve(curve_zero_gap, curve_config).rejection ==
+        CameraResponseRejection::kInvalidIntensity);
+  auto curve_one_ratio = curve_nonlinear_pairs;
+  for (auto& pair : curve_one_ratio) pair.exposure_high_s = 2.0;
+  CHECK(estimateCameraResponseCurve(curve_one_ratio, curve_config).rejection ==
+        CameraResponseRejection::kInsufficientRatioDiversity);
+  auto curve_flat_intensity = curve_nonlinear_pairs;
+  for (auto& pair : curve_flat_intensity) {
+    pair.intensity_low = 0.20;
+    pair.intensity_high = 0.35;
+  }
+  CHECK(estimateCameraResponseCurve(curve_flat_intensity, curve_config)
+            .rejection == CameraResponseRejection::kInsufficientIntensitySpan);
+
+  auto curve_holdout_pairs = curve_nonlinear_pairs;
+  curve_holdout_pairs.resize(12);
+  auto curve_holdout_config = curve_config;
+  curve_holdout_config.min_samples = 8;
+  curve_holdout_config.holdout_stride = 16;
+  CHECK(estimateCameraResponseCurve(curve_holdout_pairs, curve_holdout_config).rejection ==
+        CameraResponseRejection::kInsufficientHoldoutEvidence);
+
+  auto curve_coverage_config = curve_config;
+  curve_coverage_config.min_covered_bins = 60;
+  CHECK(curve_rejected_with(curve_coverage_config,
+                      CameraResponseRejection::kInsufficientBinCoverage));
+  auto curve_solver_config = curve_config;
+  curve_solver_config.max_iterations = 16;
+  curve_solver_config.convergence_rmse = 1e-12;
+  curve_solver_config.convergence_delta = 1e-12;
+  CHECK(curve_rejected_with(curve_solver_config,
+                      CameraResponseRejection::kSolverDidNotConverge));
+  auto curve_residual_config = curve_config;
+  curve_residual_config.max_residual = 1e-9;
+  CHECK(curve_rejected_with(curve_residual_config,
+                      CameraResponseRejection::kCurveResidualTooLarge));
+  auto curve_rmse_config = curve_config;
+  curve_rmse_config.max_rmse = 1e-9;
+  CHECK(curve_rejected_with(curve_rmse_config,
+                      CameraResponseRejection::kCurveRmseTooLarge));
+  auto curve_cv_residual_config = curve_config;
+  curve_cv_residual_config.max_cross_validation_residual = 1e-9;
+  CHECK(curve_rejected_with(
+      curve_cv_residual_config,
+      CameraResponseRejection::kCrossValidationResidualTooLarge));
+  auto curve_cv_rmse_config = curve_config;
+  curve_cv_rmse_config.max_cross_validation_rmse = 1e-9;
+  CHECK(curve_rejected_with(curve_cv_rmse_config,
+                      CameraResponseRejection::kCrossValidationRmseTooLarge));
+  auto curve_cv_ratio_config = curve_config;
+  curve_cv_ratio_config.max_cross_validation_ratio = 1.01;
+  CHECK(curve_rejected_with(
+      curve_cv_ratio_config,
+      CameraResponseRejection::kCrossValidationRatioTooLarge));
+
+  auto curve_bad_bins = curve_config;
+  curve_bad_bins.bins = 8;
+  CHECK(curve_config_rejected(curve_bad_bins));
+  auto curve_bad_coverage = curve_config;
+  curve_bad_coverage.min_covered_bins = curve_bad_coverage.bins + 1;
+  CHECK(curve_config_rejected(curve_bad_coverage));
+  auto curve_bad_budget = curve_config;
+  curve_bad_budget.max_samples = curve_bad_budget.min_samples - 1;
+  CHECK(curve_config_rejected(curve_bad_budget));
+  auto curve_bad_smoothness = curve_config;
+  curve_bad_smoothness.smoothness = std::numeric_limits<double>::quiet_NaN();
+  CHECK(curve_config_rejected(curve_bad_smoothness));
+  auto curve_bad_iterations = curve_config;
+  curve_bad_iterations.max_iterations = 8;
+  CHECK(curve_config_rejected(curve_bad_iterations));
+
+  auto curve_rejection_text_is = [](CameraResponseRejection value,
+                              const char* expected) {
+    return std::strcmp(cameraResponseRejectionText(value), expected) == 0;
+  };
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kInsufficientBinCoverage,
+      "insufficient response bin coverage"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kInsufficientHoldoutEvidence,
+      "insufficient holdout evidence"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kNonMonotonicResponse,
+      "non-monotonic response estimate"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCurveResidualTooLarge,
+      "response curve residual too large"));
+  CHECK(curve_rejection_text_is(CameraResponseRejection::kCurveRmseTooLarge,
+                          "response curve rmse too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCrossValidationResidualTooLarge,
+      "cross-validation residual too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCrossValidationRmseTooLarge,
+      "cross-validation rmse too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCrossValidationRatioTooLarge,
+      "cross-validation ratio too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kSolverDidNotConverge,
+      "response curve solver did not converge"));
 
   std::cout << "All AR kernel tests passed\n";
   return 0;

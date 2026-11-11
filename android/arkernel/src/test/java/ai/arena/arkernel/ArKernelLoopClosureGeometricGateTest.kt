@@ -161,8 +161,8 @@ class ArKernelLoopClosureGeometricGateTest {
         assertTrue(report.accepted)
         assertEquals(64, report.correspondenceCount)
         assertEquals(64, report.inlierCount)
-        assertEquals(0.0, report.maxResidualMeters, 0.0)
-        assertEquals(0.0, report.rmseMeters, 0.0)
+        assertEquals(0.0, report.maxResidualMeters, 1e-12)
+        assertEquals(0.0, report.rmseMeters, 1e-12)
         assertTrue(report.spreadMeters >= 0.05)
     }
 

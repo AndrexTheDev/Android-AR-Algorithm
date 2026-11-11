@@ -93,3 +93,29 @@ execution, device-farm run, I/O, upload or quality upgrade. Concrete separately
 packaged adapter artifacts, factory implementations and device-farm corpus
 results remain open; `ARKRTAD1` is only a bounded transport shape for metadata
 a host has already supplied.
+
+## Bounded host-supplied golden-suite plans
+
+`ArKernelGoldenSuitePlanBundle` adds a canonical `ARKGOLDEN1` text contract for
+a bounded host-declared CPU/delegate golden suite. It fixes a sixteen-key
+metadata order, 1–16 nine-field cases, unique case IDs and opaque lowercase
+SHA-256 frame digests, contiguous indices, exactly one declared startup
+sentinel, exact `SEMANTIC_DETECTION` or `METRIC_DEPTH` tasks (relative depth and
+segmentation are rejected because the bounded decoded selector compares only
+those two output families), bounded frame dimensions and output budgets, six
+canonical finite decimal tolerances without exponent or leading zero, strict
+input/line budgets, BOM/CRLF tolerance with one optional final separator and a
+fail-closed `END`. Five safety invariants keep model loading, delegate
+execution, evidence-cache writes, automatic upload and device-farm corpora
+disabled; the grade remains `unverified`.
+
+`ArKernelGoldenSuiteTolerances.options()` only builds the existing inert
+`InferenceSemanticConformanceOptions` data object; the pure summarizer reports
+only case counts, distinct IDs/digests, task/role counts, output budgets and
+frame maxima. The adapter loads no model, verifies no manifest bytes or
+signature, constructs no factory or delegate, runs no inference, startup
+sentinel or CPU fallback, writes no evidence cache, uploads nothing, loads no
+device-farm corpus, performs no I/O and grants no quality grade. Concrete
+separately packaged adapter artifacts, factory implementations, real golden
+frames and device-farm corpus results remain host work; `ARKGOLDEN1` is only a
+bounded transport shape for metadata a host has already declared.

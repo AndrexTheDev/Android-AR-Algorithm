@@ -129,3 +129,20 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 ## Bounded edge-collapse QEM delivery simplification
 
 `simplifyMeshEdgeCollapseQem` adds a real bounded native topology simplifier for the delivery mesh. After each accepted collapse it rebuilds plane quadrics, adjacency, feature locks and candidate priorities from the current triangles. Only manifold interior edges with the exact two-vertex link condition may collapse, under measured quadric, cumulative displacement/UV, normal, area and topology bounds. Boundary, sharp, non-manifold, UV-seam and topologically ambiguous vertices stay locked; input, edge, evaluation and collapse budgets are fail-closed. `ReconstructionFusionPipeline` exposes the stage as an opt-in config with separate telemetry including maximum cumulative UV error, and `ReconstructionFusionOptions` exposes the same budgets and preservation flags to Kotlin. Native tests cover round-trip simplification, determinism, feature locks, cumulative position/UV drift, invalid configuration, budget truncation, source-mesh preservation and pipeline integration; JVM tests cover option defaults and invalid budgets. This changes topology but performs no physical validation, benchmark, quality upgrade or unconstrained topology optimization; the grade stays `unverified`.
+
+## Bounded host-supplied golden-suite plans
+
+`ArKernelGoldenSuitePlanBundle` adds a bounded canonical `ARKGOLDEN1` text
+contract for a host-declared CPU/delegate golden suite: fixed sixteen-key
+metadata order, 1–16 unique nine-field cases with contiguous indices, opaque
+lowercase SHA-256 frame digests, exactly one declared startup sentinel, exact
+`SEMANTIC_DETECTION`/`METRIC_DEPTH` tasks, bounded frame/output budgets and six
+canonical finite decimal tolerances. `ArKernelGoldenSuiteTolerances.options()`
+builds only the existing inert `InferenceSemanticConformanceOptions` object;
+the summarizer reports structural counts, budgets and frame maxima only. Five
+safety flags keep model loading, delegate execution, evidence-cache writes,
+automatic upload and device-farm corpora disabled. It verifies no artifact or
+signature, builds no factory or backend, runs no inference, sentinel or CPU
+fallback, performs no I/O and stays `unverified`; real golden frames, concrete
+adapter artifacts, factory implementations and device-farm corpus results
+remain host work.

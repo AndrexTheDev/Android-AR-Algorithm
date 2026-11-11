@@ -107,3 +107,7 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 ## Survey measurement adapters
 
 `ArKernelSurveyMeasurementTsv` adds a bounded canonical `ARKSURVEYTSV1` tab-separated transport adapter beside the existing CSV and JSON Lines adapters. It has one exact marker line, one exact header, 1–64 rows, unique opaque evidence IDs, exact reference kinds, finite numeric fields, explicit held-out flags, strict input/line/row budgets and fail-closed deterministic encode/parse. It measures no survey, runs no dimensional evaluator, performs no I/O, grants no quality grade and stays `unverified`; real survey evidence and binary USDZ/survey formats remain host work.
+
+## Field diagnostics redaction rules
+
+`ArKernelFieldDiagnosticsRedactionBundle` adds a bounded canonical `ARKREDACT1` text plan for host-declared redaction rules: fixed metadata order, 1–32 rules, unique opaque field IDs, `drop`/`hash` actions, opaque tokens/reasons, strict budgets, deterministic encode/parse and fail-closed rejection. It collects, redacts, uploads and verifies nothing, performs no I/O, grants no quality grade and stays `unverified`; real field workflows and physical target evidence remain host work.

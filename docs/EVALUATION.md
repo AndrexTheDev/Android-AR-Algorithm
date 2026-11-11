@@ -140,3 +140,9 @@ execution, device-farm run, I/O, upload or quality upgrade. Concrete adapter
 artifacts, factory implementations and device-farm corpus results remain open;
 `ARKRTAD1` is only a bounded transport shape for metadata a host has already
 supplied.
+
+## Bounded host-supplied field-diagnostics redaction rules
+
+`ArKernelFieldDiagnosticsRedactionBundle` adds a canonical `ARKREDACT1` text plan for bounded host-declared redaction rules. It has a fixed eleven-key metadata order, 1–32 rules, unique opaque field IDs, contiguous indices, opaque replacement tokens/reasons and the exact `drop`/`hash` action vocabulary. Input/line/rule budgets, BOM/CRLF tolerance with one optional final separator and a fail-closed `END` are enforced. Collection stays disabled, terminal text only and core upload disabled are mandatory, while host redaction, signature verification and independent targets remain explicit host requirements rather than implemented capabilities; the grade remains `unverified`.
+
+The pure summarizer reports only rule count, drop/hash counts and distinct field IDs/tokens. It performs no collection, redaction, upload, signature verification, target measurement, device validation, I/O or quality upgrade. Real field capture/redaction/upload workflows, cryptographic verification, independent physical targets and centimeter validation remain open; `ARKREDACT1` is only a bounded transport shape for rules a host has already supplied.

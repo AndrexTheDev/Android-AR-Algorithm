@@ -103,3 +103,7 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 ## Device thermal run schedule
 
 `DeviceThermalRunPlanner` produces a bounded deterministic 30-minute slot plan with unique sample IDs, repeat budgets, baseline/sustained/terminal phases and explicit `unverified` quality. `DeviceThermalRunLedger` accepts only host-supplied samples at those exact, strictly ordered slots and terminally reports completeness, critical thermal state and the configured frame-rate gate. It performs no thermal measurement, scan execution, I/O, upload, provider/rig integration or quality upgrade; real 30-minute thermal endurance and Mobly/device-farm evidence remain physical lab work.
+
+## Survey measurement adapters
+
+`ArKernelSurveyMeasurementTsv` adds a bounded canonical `ARKSURVEYTSV1` tab-separated transport adapter beside the existing CSV and JSON Lines adapters. It has one exact marker line, one exact header, 1–64 rows, unique opaque evidence IDs, exact reference kinds, finite numeric fields, explicit held-out flags, strict input/line/row budgets and fail-closed deterministic encode/parse. It measures no survey, runs no dimensional evaluator, performs no I/O, grants no quality grade and stays `unverified`; real survey evidence and binary USDZ/survey formats remain host work.

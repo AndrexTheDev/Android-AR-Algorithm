@@ -1,0 +1,5 @@
+ARKSURVEYTSV1
+evidence_id	reference_kind	reference_distance_m	reference_uncertainty_m	ax_m	ay_m	az_m	bx_m	by_m	bz_m	held_out
+scale-01	HELD_OUT_SCALE_BAR	1.0	0.001	0.0	0.0	0.0	1.0	0.0	0.0	true
+survey-02	SURVEYED_DISTANCE	2.0	0.002	0.0	0.0	0.0	0.0	2.0	0.0	true
+sensor-03	SENSOR_GROUND_TRUTH	1.0	0.0	1.0	1.0	1.0	1.0	1.0	2.0	false

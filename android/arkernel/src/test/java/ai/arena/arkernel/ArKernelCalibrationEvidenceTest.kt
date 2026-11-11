@@ -93,8 +93,8 @@ class ArKernelCalibrationEvidenceTest {
                 index,
                 "obs-" + index.toString().padStart(2, '0'),
                 ArKernelCalibrationProvenance.entries[index % 3],
-                kotlin.math.min(0.25 * (index + 1), 100.0),
-                kotlin.math.min(0.25 * (index + 1), 100.0),
+                minOf(0.25 * (index + 1), 100.0),
+                minOf(0.25 * (index + 1), 100.0),
                 0.0,
                 true,
             )

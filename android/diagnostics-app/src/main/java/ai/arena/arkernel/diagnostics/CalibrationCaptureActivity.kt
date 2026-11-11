@@ -387,7 +387,9 @@ class CalibrationCaptureActivity : android.app.Activity(), SensorEventListener {
             sqrt(maxOf(0.0, 1.0 - x * x - y * y - z * z))
         }
         val norm = sqrt(x * x + y * y + z * z + w * w)
-        if (norm <= 0.0 || !norm.isFinite()) return
+        if (norm <= 0.0 || norm.isNaN() || norm.isInfinite()) {
+            return
+        }
         val uncertainty = poseUncertaintyInput.text.toString()
             .trim().toDoubleOrNull() ?: return
         val pose = try {

@@ -23,6 +23,9 @@ private val CALIB_UNSIGNED = Regex("0|[1-9][0-9]*")
 private val CALIB_DECIMAL = Regex("(0|[1-9][0-9]{0,3})(\\.[0-9]{1,6})?")
 private val CALIB_SIGNED_DECIMAL =
     Regex("-?(0|[1-9][0-9]{0,3})(\\.[0-9]{1,6})?")
+private fun isFinite(value: Double): Boolean =
+    !value.isNaN() && !value.isInfinite()
+
 private val CALIB_KEYS = listOf(
     "version",
     "session_id",
@@ -54,7 +57,9 @@ enum class ArKernelCalibrationProvenance {
 
     companion object {
         fun fromWire(value: String): ArKernelCalibrationProvenance? =
-            entries.firstOrNull { it.wireName() == value }
+            ArKernelCalibrationProvenance.entries.firstOrNull {
+                it.wireName() == value
+            }
     }
 }
 
@@ -772,9 +777,6 @@ object ArKernelCalibrationEvidenceAdapter {
         if (value.startsWith("-") && parsed >= 0.0) return null
         return parsed
     }
-
-    private fun isFinite(value: Double): Boolean =
-        !value.isNaN() && !value.isInfinite()
 
     private fun decimal(value: Double): String {
         val bounded = kotlin.math.abs(value)

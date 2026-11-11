@@ -1684,6 +1684,251 @@ int main() {
   CHECK(holdout_text_is(TexturePhotometryRejection::kHoldoutRatioTooLarge,
                         "holdout ratio too large"));
 
+  // Optional bounded synthetic inverse-response linearization for photometry.
+  // A gamma-0.7 paired-exposure LUT from the native core is applied to observed
+  // channels before log-ratio equations; strict holdout validation remains.
+  auto make_response_lut = []() {
+    const double gamma = 0.7;
+    const double ratios[8] = {1.2, 1.35, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0};
+    std::vector<CameraResponsePair> pairs;
+    for (int r = 0; r < 8; ++r) {
+      const double ratio = ratios[r];
+      const double response = std::pow(ratio, gamma);
+      const double max_low = (0.96 / response < 0.5) ? (0.96 / response) : 0.5;
+      for (int k = 0; k < 8; ++k) {
+        const double fraction = (static_cast<double>(k) + 0.5) / 8.0;
+        const double low = 0.025 + (max_low - 0.025) * fraction;
+        CameraResponsePair pair;
+        pair.id = static_cast<std::uint64_t>(pairs.size() + 1);
+        pair.exposure_low_s = 1.0;
+        pair.exposure_high_s = ratio;
+        pair.intensity_low = low;
+        pair.intensity_high = response * low;
+        pairs.push_back(pair);
+      }
+    }
+    return estimateCameraResponseCurve(pairs);
+  };
+  const auto response_curve = make_response_lut();
+  CHECK(response_curve.accepted &&
+        response_curve.rejection == CameraResponseRejection::kNone &&
+        response_curve.inverse_response.size() == 64 &&
+        std::strcmp(response_curve.quality_grade, "unverified") == 0);
+  auto make_response_case = [](const std::string& regions) {
+    const int view_sequence[13] = {2, 1, 0, 3, 0, 2, 0, 1, 3, 1, 3, 2, 1};
+    const double scale[4] = {1.0, 0.8, 1.2, 0.6};
+    const double gamma = 0.7;
+    const double outlier_factor = 1.5;
+    const double scale_to_byte = 150.0;
+    PhotometryHoldoutCase result;
+    result.mesh.positions_m.resize(15);
+    for (int i = 0; i < 15; ++i) {
+      result.mesh.positions_m[i] = {static_cast<float>(i) * 0.1F,
+                                    static_cast<float>(i % 2), 2.0F};
+    }
+    for (int i = 0; i < 13; ++i) {
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 1));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 2));
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.views.push_back({static_cast<std::uint64_t>(101 + view),
+                              "response-view-" + std::to_string(view), 100, 100});
+    }
+    result.storage.resize(4);
+    for (int view = 0; view < 4; ++view) {
+      result.storage[view].resize(100 * 100 * 3);
+      for (int y = 0; y < 100; ++y) {
+        for (int x = 0; x < 100; ++x) {
+          const double radiance =
+              scale[view] * ((x >= 50) ? outlier_factor : 1.0);
+          const double intensity =
+              scale_to_byte * std::pow(radiance, gamma);
+          const auto byte = static_cast<std::uint8_t>(
+              std::llround(std::max(0.0, std::min(255.0, intensity))));
+          const std::size_t offset = (static_cast<std::size_t>(y) * 100 + x) * 3;
+          for (int channel = 0; channel < 3; ++channel) {
+            result.storage[view][offset + channel] = byte;
+          }
+        }
+      }
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.images.push_back({static_cast<std::uint64_t>(101 + view), 100, 100,
+                               300, TexturePixelFormat::kRgb8,
+                               result.storage[view].data(),
+                               result.storage[view].size()});
+    }
+    result.labels.resize(13);
+    for (int i = 0; i < 13; ++i) {
+      auto& label = result.labels[static_cast<std::size_t>(i)];
+      label.assigned = true;
+      label.view_index = static_cast<std::size_t>(view_sequence[i]);
+      label.frame_id = result.views[label.view_index].frame_id;
+      const float u = regions[static_cast<std::size_t>(i)] == 'O' ? 0.75F : 0.25F;
+      for (int corner = 0; corner < 3; ++corner) {
+        label.normalized_uv[static_cast<std::size_t>(corner)] = {u, 0.5F};
+      }
+    }
+    return result;
+  };
+  TexturePhotometryConfig response_config;
+  response_config.holdout_stride = 2;
+  response_config.require_holdout_validation = true;
+  response_config.min_holdout_equations = 4;
+  response_config.enable_response_linearization = true;
+  response_config.inverse_response_lut = response_curve.inverse_response;
+  const auto response_consistent_case = make_response_case(std::string(13, 'N'));
+  const auto response_linearized = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_config);
+  CHECK(response_linearized.input_valid && !response_linearized.truncated &&
+        response_linearized.error.empty() &&
+        response_linearized.holdout_accepted &&
+        response_linearized.holdout_validated &&
+        response_linearized.response_linearization_enabled &&
+        response_linearized.response_linearization_accepted &&
+        response_linearized.rejection == TexturePhotometryRejection::kNone);
+  CHECK(response_linearized.equations == 12 &&
+        response_linearized.response_lut_bins == 64 &&
+        response_linearized.response_linearized_samples ==
+            response_linearized.sample_tests &&
+        response_linearized.response_linearized_samples > 0 &&
+        std::isfinite(response_linearized.response_expansion) &&
+        response_linearized.response_expansion > 1.0 &&
+        response_linearized.response_expansion <=
+            response_config.max_response_expansion);
+  CHECK(std::fabs(response_linearized.corrections[1].rgb_gain[0] - 1.25) <
+            0.02 &&
+        std::fabs(response_linearized.corrections[2].rgb_gain[0] -
+                  100.0 / 120.0) < 0.02 &&
+        std::fabs(response_linearized.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 0.02);
+  auto response_raw_config = response_config;
+  response_raw_config.enable_response_linearization = false;
+  response_raw_config.inverse_response_lut.clear();
+  const auto response_raw = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_raw_config);
+  CHECK(response_raw.holdout_accepted && response_raw.error.empty() &&
+        !response_raw.response_linearization_enabled &&
+        response_raw.response_linearized_samples == 0 &&
+        std::fabs(response_raw.corrections[1].rgb_gain[0] - 1.25) > 0.05 &&
+        std::fabs(response_raw.corrections[3].rgb_gain[0] - 100.0 / 60.0) >
+            0.05);
+  const auto response_repeated = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_config);
+  CHECK(response_repeated.holdout_accepted &&
+        response_repeated.corrections[1].rgb_gain[0] ==
+            response_linearized.corrections[1].rgb_gain[0] &&
+        response_repeated.corrections[3].rgb_gain[0] ==
+            response_linearized.corrections[3].rgb_gain[0]);
+
+  const auto response_train_outlier_case =
+      make_response_case(std::string(5, 'N') + std::string(8, 'O'));
+  const auto response_train_outlier = estimateTexturePhotometry(
+      response_train_outlier_case.mesh, response_train_outlier_case.views,
+      response_train_outlier_case.labels, response_train_outlier_case.images,
+      response_config);
+  CHECK(response_train_outlier.holdout_accepted &&
+        response_train_outlier.response_linearization_accepted &&
+        response_train_outlier.downweighted_equations > 0 &&
+        std::fabs(response_train_outlier.corrections[1].rgb_gain[0] - 1.25) <
+            0.05 &&
+        std::fabs(response_train_outlier.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 0.05);
+  const auto response_holdout_outlier_case =
+      make_response_case(std::string(6, 'N') + std::string(7, 'O'));
+  const auto response_holdout_outlier = estimateTexturePhotometry(
+      response_holdout_outlier_case.mesh, response_holdout_outlier_case.views,
+      response_holdout_outlier_case.labels,
+      response_holdout_outlier_case.images, response_config);
+  CHECK(!response_holdout_outlier.holdout_accepted &&
+        response_holdout_outlier.response_linearization_accepted &&
+        response_holdout_outlier.rejection ==
+            TexturePhotometryRejection::kHoldoutResidualTooLarge &&
+        response_holdout_outlier.error ==
+            "texture photometry holdout residual too large" &&
+        response_holdout_outlier.corrections[1].rgb_gain[0] == 1.0);
+
+  auto response_rejected_with =
+      [&](const TexturePhotometryConfig& config,
+          TexturePhotometryRejection expected, const char* error) {
+        const auto result = estimateTexturePhotometry(
+            response_consistent_case.mesh, response_consistent_case.views,
+            response_consistent_case.labels, response_consistent_case.images,
+            config);
+        return !result.holdout_accepted &&
+               !result.response_linearization_accepted &&
+               result.rejection == expected && result.error == error &&
+               result.equations == 0 &&
+               result.response_linearized_samples == 0 &&
+               result.corrections[1].rgb_gain[0] == 1.0;
+      };
+  auto response_empty_lut_config = response_config;
+  response_empty_lut_config.inverse_response_lut.clear();
+  CHECK(response_rejected_with(
+      response_empty_lut_config,
+      TexturePhotometryRejection::kInvalidInverseResponseLut,
+      "texture photometry invalid inverse response LUT"));
+  auto response_nonmonotonic_config = response_config;
+  response_nonmonotonic_config.inverse_response_lut[10] =
+      response_nonmonotonic_config.inverse_response_lut[9] - 1.0;
+  CHECK(response_rejected_with(
+      response_nonmonotonic_config,
+      TexturePhotometryRejection::kInvalidInverseResponseLut,
+      "texture photometry invalid inverse response LUT"));
+  auto response_expansion_config = response_config;
+  response_expansion_config.max_response_expansion = 10.0;
+  CHECK(response_rejected_with(
+      response_expansion_config,
+      TexturePhotometryRejection::kInverseResponseExpansionTooLarge,
+      "texture photometry inverse response expansion too large"));
+
+  auto response_config_rejected =
+      [&](const TexturePhotometryConfig& config) {
+        try {
+          const auto ignored = estimateTexturePhotometry(
+              response_consistent_case.mesh, response_consistent_case.views,
+              response_consistent_case.labels, response_consistent_case.images,
+              config);
+          (void)ignored;
+        } catch (const std::invalid_argument&) {
+          return true;
+        }
+        return false;
+      };
+  auto response_bad_slope = response_config;
+  response_bad_slope.response_min_slope = 0.0;
+  CHECK(response_config_rejected(response_bad_slope));
+  auto response_bad_log = response_config;
+  response_bad_log.max_log_response =
+      std::numeric_limits<double>::quiet_NaN();
+  CHECK(response_config_rejected(response_bad_log));
+  auto response_bad_expansion = response_config;
+  response_bad_expansion.max_response_expansion = 0.0;
+  CHECK(response_config_rejected(response_bad_expansion));
+  auto response_disabled_bad_config = response_config;
+  response_disabled_bad_config.enable_response_linearization = false;
+  response_disabled_bad_config.response_min_slope = 0.0;
+  const auto response_disabled = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_disabled_bad_config);
+  CHECK(response_disabled.error.empty() &&
+        !response_disabled.response_linearization_enabled);
+  CHECK(std::strcmp(texturePhotometryRejectionText(
+                        TexturePhotometryRejection::kInvalidInverseResponseLut),
+                    "invalid inverse response LUT") == 0);
+  CHECK(std::strcmp(
+            texturePhotometryRejectionText(
+                TexturePhotometryRejection::kInverseResponseExpansionTooLarge),
+            "inverse response expansion too large") == 0);
+
   // The transaction-level texture graph stops on any truncated stage and only
   // exposes final mesh/pixels after selection, labels, layout, photometry,
   // baking and seam blending have all completed.
@@ -1716,6 +1961,16 @@ int main() {
           "texture photometry insufficient training evidence"&&
         holdout_pipeline.rgba8.empty()&&
         holdout_pipeline.mesh.positions_m.empty());
+  auto response_pipeline_config=texture_pipeline_config;
+  response_pipeline_config.photometry.enable_response_linearization=true;
+  const auto response_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},response_pipeline_config);
+  CHECK(response_pipeline.input_valid&&!response_pipeline.truncated&&
+        response_pipeline.stage==TexturePipelineStage::kPhotometry&&
+        response_pipeline.error==
+          "texture photometry invalid inverse response LUT"&&
+        response_pipeline.rgba8.empty()&&
+        response_pipeline.mesh.positions_m.empty());
   auto limited_texture_pipeline_config=texture_pipeline_config;
   limited_texture_pipeline_config.baking.max_pixel_tests=1;
   const auto limited_texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,

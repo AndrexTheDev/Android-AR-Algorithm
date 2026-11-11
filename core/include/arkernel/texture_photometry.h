@@ -19,6 +19,8 @@ enum class TexturePhotometryRejection {
   kHoldoutResidualTooLarge,
   kHoldoutRmseTooLarge,
   kHoldoutRatioTooLarge,
+  kInvalidInverseResponseLut,
+  kInverseResponseExpansionTooLarge,
 };
 
 struct TexturePhotometryConfig {
@@ -47,6 +49,14 @@ struct TexturePhotometryConfig {
   // Strict cross-validation is opt-in so existing bounded callers keep their
   // identity fallback when a scene has too little holdout evidence.
   bool require_holdout_validation{false};
+  // Optional synthetic inverse-response LUT, e.g. from the bounded
+  // `estimateCameraResponseCurve`. It is applied to observed channel values
+  // before log-ratio equations are formed; it is not physical calibration.
+  std::vector<double> inverse_response_lut;
+  bool enable_response_linearization{false};
+  double response_min_slope{1e-4};
+  double max_log_response{16.0};
+  double max_response_expansion{256.0};
 };
 
 struct TexturePhotometryResult {
@@ -65,13 +75,18 @@ struct TexturePhotometryResult {
   std::size_t connected_components{0};
   std::size_t constrained_views{0};
   std::size_t clamped_channels{0};
+  std::size_t response_lut_bins{0};
+  std::size_t response_linearized_samples{0};
   double training_rmse{0.0};
   double holdout_max_residual{0.0};
   double holdout_rmse{0.0};
   double holdout_ratio{0.0};
+  double response_expansion{0.0};
   bool robust_converged{false};
   bool holdout_validated{false};
   bool holdout_accepted{true};
+  bool response_linearization_enabled{false};
+  bool response_linearization_accepted{true};
   TexturePhotometryRejection rejection{TexturePhotometryRejection::kNone};
   bool input_valid{false};
   bool truncated{false};
@@ -84,9 +99,11 @@ struct TexturePhotometryResult {
 // without usable seam evidence stay at identity rather than being guessed.
 // A bounded Huber-weighted Jacobi solve downweights inconsistent training
 // equations, while an optional deterministic holdout split provides
-// fail-closed cross-validation. This is synthetic consistency evidence, stays
-// explicitly `unverified`, and is not a full Poisson/multiband seam solve,
-// calibrated camera-response model or reconstruction quality grade.
+// fail-closed cross-validation. An optional synthetic inverse-response LUT
+// linearizes observed channels before log-ratio equations; this is not
+// physical calibration. The result stays explicitly `unverified` and is not a
+// full Poisson/multiband seam solve, calibrated camera-response model or
+// reconstruction quality grade.
 TexturePhotometryResult estimateTexturePhotometry(
     const ReconstructionMesh& mesh,
     const std::vector<TextureViewReference>& views,

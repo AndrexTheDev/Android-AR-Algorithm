@@ -108,6 +108,44 @@ double huberWeight(double residual,double delta) {
   return std::min(1.0,delta/std::max(std::fabs(residual),1e-9));
 }
 
+struct InverseResponseCheck {
+  bool valid{false};
+  bool expansion_too_large{false};
+  double expansion{0.0};
+};
+
+InverseResponseCheck checkInverseResponseLut(
+    const std::vector<double>& lut,double min_slope,double max_log_response,
+    double max_expansion) {
+  InverseResponseCheck check;
+  if(lut.size()<16||lut.size()>256)return check;
+  for(const double value:lut)
+    if(!std::isfinite(value)||std::fabs(value)>max_log_response)return check;
+  for(std::size_t i=1;i<lut.size();++i)
+    if(!(lut[i]>=lut[i-1]+min_slope-1e-9))return check;
+  const double span=std::max(0.0,lut.back()-lut.front());
+  check.expansion=std::exp(std::min(span,max_log_response));
+  if(!std::isfinite(check.expansion)||check.expansion>max_expansion) {
+    check.expansion_too_large=true;
+    return check;
+  }
+  check.valid=true;
+  return check;
+}
+
+double linearizeResponseChannel(double channel,const std::vector<double>& lut,
+                                double max_log_response) {
+  const double intensity=std::max(0.0,std::min(1.0,channel/255.0));
+  const double position=intensity*static_cast<double>(lut.size()-1);
+  std::size_t first=static_cast<std::size_t>(std::floor(position));
+  if(first+1>=lut.size())first=lut.size()-2;
+  const double fraction=position-static_cast<double>(first);
+  const double raw=lut[first]*(1.0-fraction)+lut[first+1]*fraction;
+  const double bounded=std::max(-max_log_response,
+                                std::min(max_log_response,raw));
+  return std::exp(bounded);
+}
+
 void resetPhotometryCorrections(TexturePhotometryResult& result) {
   for(auto& correction:result.corrections) {
     correction.constrained=false;
@@ -145,6 +183,13 @@ TexturePhotometryResult estimateTexturePhotometry(
      config.max_holdout_rmse>1.0||
      !std::isfinite(config.max_holdout_ratio)||config.max_holdout_ratio<=0.0||
      config.max_holdout_ratio>32.0||
+     (config.enable_response_linearization&&
+      (!std::isfinite(config.response_min_slope)||
+       config.response_min_slope<=0.0||config.response_min_slope>1.0||
+       !std::isfinite(config.max_log_response)||
+       config.max_log_response<=0.0||config.max_log_response>32.0||
+       !std::isfinite(config.max_response_expansion)||
+       config.max_response_expansion<=0.0||config.max_response_expansion>1024.0))||
      !std::isfinite(config.min_usable_channel)||!std::isfinite(config.max_usable_channel)||
      config.min_usable_channel<0||config.max_usable_channel>255||
      config.min_usable_channel>=config.max_usable_channel||
@@ -174,6 +219,27 @@ TexturePhotometryResult estimateTexturePhotometry(
     if(view.frame_id==0||view.width<=0||view.height<=0||found==image_by_frame.end()||
        images[found->second].width!=view.width||images[found->second].height!=view.height) {
       result.error="missing or mismatched texture photometry image";return result;
+    }
+  }
+  result.input_valid=true;
+  if(config.enable_response_linearization) {
+    result.response_linearization_enabled=true;
+    const auto response=checkInverseResponseLut(config.inverse_response_lut,
+        config.response_min_slope,config.max_log_response,
+        config.max_response_expansion);
+    result.response_lut_bins=config.inverse_response_lut.size();
+    result.response_expansion=response.expansion;
+    if(!response.valid) {
+      result.holdout_accepted=false;
+      result.response_linearization_accepted=false;
+      result.rejection=response.expansion_too_large?
+          TexturePhotometryRejection::kInverseResponseExpansionTooLarge:
+          TexturePhotometryRejection::kInvalidInverseResponseLut;
+      result.error=response.expansion_too_large?
+          "texture photometry inverse response expansion too large":
+          "texture photometry invalid inverse response LUT";
+      resetPhotometryCorrections(result);
+      return result;
     }
   }
   std::map<EdgeKey,std::vector<EdgeUse>> edges;
@@ -237,8 +303,17 @@ TexturePhotometryResult estimateTexturePhotometry(
         usable=usable&&ca[channel]>=config.min_usable_channel&&ca[channel]<=config.max_usable_channel&&
                        cb[channel]>=config.min_usable_channel&&cb[channel]<=config.max_usable_channel;
       if(!usable){++result.rejected_samples;continue;}
-      for(std::size_t channel=0;channel<3;++channel)
-        ratios[channel].push_back(std::log(ca[channel])-std::log(cb[channel]));
+      for(std::size_t channel=0;channel<3;++channel) {
+        const double ca_value=config.enable_response_linearization?
+            linearizeResponseChannel(ca[channel],config.inverse_response_lut,
+                                     config.max_log_response):ca[channel];
+        const double cb_value=config.enable_response_linearization?
+            linearizeResponseChannel(cb[channel],config.inverse_response_lut,
+                                     config.max_log_response):cb[channel];
+        ratios[channel].push_back(std::log(ca_value)-std::log(cb_value));
+      }
+      if(config.enable_response_linearization)
+        ++result.response_linearized_samples;
     }
     if(result.truncated)break;
     if(ratios[0].empty())continue;
@@ -410,6 +485,10 @@ const char* texturePhotometryRejectionText(
       return "holdout rmse too large";
     case TexturePhotometryRejection::kHoldoutRatioTooLarge:
       return "holdout ratio too large";
+    case TexturePhotometryRejection::kInvalidInverseResponseLut:
+      return "invalid inverse response LUT";
+    case TexturePhotometryRejection::kInverseResponseExpansionTooLarge:
+      return "inverse response expansion too large";
   }
   return "unknown rejection";
 }

@@ -8,6 +8,17 @@
 
 namespace arkernel {
 
+/** Stable fail-closed reason for bounded global seam holdout validation. */
+enum class TextureGlobalSeamRejection {
+  kNone,
+  kInsufficientTrainingEvidence,
+  kInsufficientHoldoutEvidence,
+  kTrainingRmseTooLarge,
+  kHoldoutResidualTooLarge,
+  kHoldoutRmseTooLarge,
+  kHoldoutRatioTooLarge,
+};
+
 struct TextureSeamBlendingConfig {
   int blend_radius_px{4};
   std::size_t max_triangles{2000000};
@@ -58,6 +69,21 @@ struct TextureGlobalSeamConfig {
   double max_gain{2.0};
   double min_offset{-0.25};
   double max_offset{0.25};
+  // When require_holdout_validation is enabled, a deterministic sample split
+  // sends (sample index + 1) % holdout_stride == 0 to holdout; all other
+  // samples train the least-squares solve. Disabled validation trains on all
+  // samples, preserving the existing bounded solve.
+  std::size_t holdout_stride{4};
+  std::size_t min_training_samples{1};
+  std::size_t min_holdout_samples{2};
+  double max_training_rmse{0.20};
+  double max_holdout_residual{0.20};
+  double max_holdout_rmse{0.10};
+  double max_holdout_ratio{3.0};
+  // Strict cross-validation is opt-in so existing bounded callers keep their
+  // measured least-squares correction when a scene has too little holdout
+  // evidence.
+  bool require_holdout_validation{false};
 };
 
 struct TextureGlobalSeamTelemetry {
@@ -69,6 +95,15 @@ struct TextureGlobalSeamTelemetry {
   std::size_t pixel_updates{0};
   double residual_before{0.0};
   double residual_after{0.0};
+  std::size_t training_samples{0};
+  std::size_t holdout_samples{0};
+  double training_rmse{0.0};
+  double holdout_max_residual{0.0};
+  double holdout_rmse{0.0};
+  double holdout_ratio{0.0};
+  bool holdout_validated{false};
+  bool holdout_accepted{true};
+  TextureGlobalSeamRejection rejection{TextureGlobalSeamRejection::kNone};
   bool enabled{false};
   bool input_valid{false};
   bool truncated{false};
@@ -85,10 +120,15 @@ struct TextureGlobalSeamResult {
 
 // Solves one bounded global least-squares problem over all manifold atlas seam
 // pairs. Each patch gets a regularized per-channel gain/offset that minimizes
-// corrected color disagreement across every sampled seam correspondence. This
-// is not a full Poisson/multiband seam solve or a calibrated camera-response
-// model; alpha and transparent padding are preserved. Only opaque pixels in
-// owning patch rectangles are updated, under explicit work budgets.
+// corrected color disagreement across every sampled seam correspondence. An
+// optional deterministic train/holdout split fits only on training samples and
+// gates training RMSE, holdout maximum residual/RMSE and the holdout ratio;
+// rejected estimates fail closed with stable reasons and leave RGBA pixels
+// untouched. Strict validation is a core config option, not a new
+// Android/JNI/Kotlin envelope. This is not a full Poisson/multiband seam solve
+// or a calibrated camera-response model; alpha and transparent padding are
+// preserved. Only opaque pixels in owning patch rectangles are updated, under
+// explicit work budgets.
 TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
     const ReconstructionMesh& source_mesh,
     const TextureAtlasLayoutResult& layout,
@@ -97,5 +137,8 @@ TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
     int width,
     int height,
     TextureGlobalSeamConfig config = {});
+
+const char* textureGlobalSeamRejectionText(
+    TextureGlobalSeamRejection rejection);
 
 }  // namespace arkernel

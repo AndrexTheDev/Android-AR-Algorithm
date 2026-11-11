@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.util.Range
+import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -177,13 +178,27 @@ class Camera2FrameSource(
                         IllegalStateException("Camera disconnected"))
                 }
                 override fun onError(camera: CameraDevice, error: Int) {
+                    val classification =
+                        Camera2ServiceDeathInstrumentation.classifyStateCallbackError(error)
                     val transition = lifecycle.fail(lifecycleGeneration,
-                        Camera2LifecycleFailure.DEVICE_ERROR)
+                        classification?.lifecycleFailure
+                            ?: Camera2LifecycleFailure.DEVICE_ERROR)
                     camera.close()
                     reportLifecycleFailure(transition,
-                        IllegalStateException("Camera2 error $error"))
+                        IllegalStateException(classification?.let {
+                            "Camera2 service death ${it.reason} ($error)"
+                        } ?: "Camera2 error $error"))
                 }
             }, cameraHandler)
+        } catch (error: CameraAccessException) {
+            val classification =
+                Camera2ServiceDeathInstrumentation.classifyAccessException(error.reason)
+            if (classification != null) {
+                reportLifecycleFailure(lifecycle.fail(lifecycleGeneration,
+                    classification.lifecycleFailure), error)
+            }
+            stop()
+            throw error
         } catch (error: Throwable) {
             stop(); throw error
         }

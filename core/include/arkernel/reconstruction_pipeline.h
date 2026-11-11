@@ -25,6 +25,8 @@ struct ReconstructionPipelineConfig {
   MeshSimplificationConfig simplification{};
   MeshQuadricLodConfig quadric_lod{};
   bool enable_quadric_error_lod{false};
+  MeshEdgeCollapseQemConfig edge_collapse_qem{};
+  bool enable_edge_collapse_qem{false};
   std::size_t max_integrated_frames{2000};
 };
 
@@ -68,6 +70,21 @@ struct ReconstructionBuildTelemetry {
   double quadric_lod_initial_error_m2{0.0};
   double quadric_lod_final_error_m2{0.0};
   double quadric_lod_max_displacement_m{0.0};
+  bool edge_collapse_qem_enabled{false};
+  bool edge_collapse_qem_truncated{false};
+  std::size_t edge_collapse_qem_input_vertices{0};
+  std::size_t edge_collapse_qem_output_vertices{0};
+  std::size_t edge_collapse_qem_output_triangles{0};
+  std::size_t edge_collapse_qem_accepted_collapses{0};
+  std::size_t edge_collapse_qem_rejected_collapses{0};
+  std::size_t edge_collapse_qem_evaluated_collapses{0};
+  std::size_t edge_collapse_qem_locked_vertices{0};
+  std::size_t edge_collapse_qem_removed_degenerate_triangles{0};
+  std::size_t edge_collapse_qem_removed_duplicate_triangles{0};
+  double edge_collapse_qem_initial_error_m2{0.0};
+  double edge_collapse_qem_final_error_m2{0.0};
+  double edge_collapse_qem_max_displacement_m{0.0};
+  double edge_collapse_qem_max_uv_error{0.0};
   bool fusion_truncated{false};
   bool meshing_truncated{false};
   bool filtering_truncated{false};

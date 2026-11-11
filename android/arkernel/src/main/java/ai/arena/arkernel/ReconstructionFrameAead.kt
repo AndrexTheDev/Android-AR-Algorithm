@@ -166,15 +166,28 @@ data class ReconstructionFrameRetentionAction(
     val reason: String,
 )
 
+/** Bounded explicit retention action sink; the host owns when to apply actions. */
+interface ArKernelRetentionActionSink {
+    val authenticatedEncryption: Boolean
+    fun clearFrames(deleteKey: Boolean): Boolean
+    fun deleteEncryptionKey(): Boolean
+}
+
 /**
  * Host-facing retention control for temporary scans. It turns a terminal
  * publication outcome or an explicit release into a bounded action; the host
- * decides when to show UI and call [apply]. Localized app UI remains separate.
+ * decides when to show UI and call [apply]. A bounded action sink keeps the
+ * policy logic independently testable. Localized app UI remains separate.
  */
 class ReconstructionFrameRetentionController(
-    private val archive: ReconstructionFrameArchive,
+    private val actionSink: ArKernelRetentionActionSink,
     private val policy: ReconstructionFrameRetentionPolicy = ReconstructionFrameRetentionPolicy(),
 ) {
+    constructor(
+        archive: ReconstructionFrameArchive,
+        policy: ReconstructionFrameRetentionPolicy = ReconstructionFrameRetentionPolicy(),
+    ) : this(archive as ArKernelRetentionActionSink, policy)
+
     fun afterPublication(complete: Boolean): ReconstructionFrameRetentionAction {
         val deleteFrames = complete &&
             policy.mode == ReconstructionFrameRetentionMode.DELETE_AFTER_PUBLICATION
@@ -189,14 +202,14 @@ class ReconstructionFrameRetentionController(
     }
 
     fun apply(action: ReconstructionFrameRetentionAction): Boolean = when {
-        action.deleteFrames -> archive.clear(action.deleteEncryptionKey)
-        action.deleteEncryptionKey -> archive.deleteEncryptionKey()
+        action.deleteFrames -> actionSink.clearFrames(action.deleteEncryptionKey)
+        action.deleteEncryptionKey -> actionSink.deleteEncryptionKey()
         else -> true
     }
 
     private fun action(deleteFrames: Boolean, reason: String): ReconstructionFrameRetentionAction {
         val deleteKey = deleteFrames && policy.deleteEncryptionKey &&
-            archive.authenticatedEncryption
+            actionSink.authenticatedEncryption
         return ReconstructionFrameRetentionAction(deleteFrames, deleteKey, reason)
     }
 }

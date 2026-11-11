@@ -1,0 +1,13 @@
+ARKLOOP1
+version=1
+ledger_id=loop.candidates.v1
+revision=1
+candidate_count=2
+pose_graph_optimization_disabled=true
+global_bundle_adjustment_disabled=true
+physical_ground_truth_disabled=true
+automatic_map_mutation_disabled=true
+quality_grade=unverified
+candidate=0|loop-01|kf-001|kf-050|0.25|0.01|30|proposed
+candidate=1|loop-02|kf-002|kf-051|0.5|0.02|20|proposed
+END

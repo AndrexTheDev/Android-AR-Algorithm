@@ -136,4 +136,62 @@ MeshQuadricLodResult simplifyMeshQuadricError(
     const ReconstructionMesh& input,
     MeshQuadricLodConfig config = {});
 
+struct MeshEdgeCollapseQemConfig {
+  // Each accepted collapse minimizes the summed endpoint plane quadric at a
+  // regularized optimal position, clamped to the endpoint bounding box.
+  double max_edge_quadric_error_m2{1e-4};
+  double max_displacement_m{0.02};
+  double sharp_edge_angle_degrees{35.0};
+  double max_uv_error{0.01};
+  double min_triangle_area_m2{1e-12};
+  double regularization{1e-9};
+  double min_normal_dot{0.0};
+  bool preserve_boundaries{true};
+  bool preserve_non_manifold{true};
+  bool preserve_sharp_edges{true};
+  bool preserve_uv_seams{true};
+  std::size_t max_input_vertices{1000000};
+  std::size_t max_input_triangles{2000000};
+  std::size_t max_unique_edges{3000000};
+  std::size_t max_collapses{4096};
+  std::size_t max_evaluations{1000000};
+};
+
+struct MeshEdgeCollapseQemResult {
+  ReconstructionMesh mesh;
+  std::size_t input_vertices{0};
+  std::size_t input_triangles{0};
+  std::size_t output_vertices{0};
+  std::size_t output_triangles{0};
+  std::size_t locked_vertices{0};
+  std::size_t boundary_edges{0};
+  std::size_t sharp_edges{0};
+  std::size_t non_manifold_edges{0};
+  std::size_t candidate_edges{0};
+  std::size_t evaluated_collapses{0};
+  std::size_t accepted_collapses{0};
+  std::size_t rejected_collapses{0};
+  std::size_t removed_degenerate_triangles{0};
+  std::size_t removed_duplicate_triangles{0};
+  double initial_quadric_error_m2{0.0};
+  double final_quadric_error_m2{0.0};
+  double max_observed_displacement_m{0.0};
+  double max_observed_uv_error{0.0};
+  bool input_valid{false};
+  bool truncated{false};
+  std::string error;
+};
+
+// Bounded deterministic edge-collapse QEM simplification. After each accepted
+// collapse the incident-plane quadrics, adjacency, feature locks and candidate
+// priorities are rebuilt from the current triangles. Only manifold interior
+// edges with the exact two-vertex link condition may collapse, under measured
+// quadric, cumulative displacement/UV, normal, area and topology bounds.
+// Feature vertices are locked and every budget exhaustion is reported as
+// truncation. This is a bounded delivery-mesh simplifier, not an unconstrained
+// dynamic topology optimizer or an assessed quality upgrade.
+MeshEdgeCollapseQemResult simplifyMeshEdgeCollapseQem(
+    const ReconstructionMesh& input,
+    MeshEdgeCollapseQemConfig config = {});
+
 }  // namespace arkernel

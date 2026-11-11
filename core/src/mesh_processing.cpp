@@ -8,6 +8,7 @@
 #include <numeric>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -163,6 +164,50 @@ Vec3 clampToBox(const Vec3& point, const Vec3& minimum, const Vec3& maximum) {
   return {std::max(minimum.x, std::min(maximum.x, point.x)),
           std::max(minimum.y, std::min(maximum.y, point.y)),
           std::max(minimum.z, std::min(maximum.z, point.z))};
+}
+
+struct FaceGeometry {
+  Vec3 normal{};
+  double normal_norm{0.0};
+  double area_m2{0.0};
+};
+
+FaceGeometry faceGeometry(const std::array<std::uint32_t, 3>& triangle,
+                          const std::vector<Vec3>& positions,
+                          std::uint32_t override_vertex,
+                          const Vec3& override_position) {
+  const auto corner = [&](std::size_t index) -> Vec3 {
+    const std::uint32_t vertex = triangle[index];
+    return vertex == override_vertex ? override_position : positions[vertex];
+  };
+  const Vec3 a = corner(0), b = corner(1), c = corner(2);
+  const Vec3 ab = b - a, ac = c - a;
+  const Vec3 normal{ab.y * ac.z - ab.z * ac.y,
+                    ab.z * ac.x - ab.x * ac.z,
+                    ab.x * ac.y - ab.y * ac.x};
+  const double normal_norm = normal.norm();
+  return {normal, normal_norm, 0.5 * normal_norm};
+}
+
+Vec3 unitNormal(const FaceGeometry& geometry) {
+  return geometry.normal_norm > 1e-12
+             ? geometry.normal * (1.0 / geometry.normal_norm)
+             : Vec3{};
+}
+
+Vec3f toVec3f(const Vec3& value) {
+  return {static_cast<float>(value.x), static_cast<float>(value.y),
+          static_cast<float>(value.z)};
+}
+
+Vec3 vec3Min(const Vec3& first, const Vec3& second) {
+  return {std::min(first.x, second.x), std::min(first.y, second.y),
+          std::min(first.z, second.z)};
+}
+
+Vec3 vec3Max(const Vec3& first, const Vec3& second) {
+  return {std::max(first.x, second.x), std::max(first.y, second.y),
+          std::max(first.z, second.z)};
 }
 
 }  // namespace
@@ -1257,6 +1302,677 @@ MeshQuadricLodResult simplifyMeshQuadricError(
         result.mesh, {config.max_input_vertices, config.max_input_triangles});
     if (!output_validation.valid) result.error = output_validation.error;
   }
+  return result;
+}
+
+
+// Bounded deterministic edge-collapse QEM simplification. Unlike the measured
+// clustering LOD, this stage changes topology: each accepted collapse replaces
+// one endpoint, removes the two incident triangles, rebuilds plane quadrics
+// and recomputes feature locks from the current triangles. Cumulative original
+// position/UV bounds prevent representative chains from drifting past a
+// per-collapse budget.
+MeshEdgeCollapseQemResult simplifyMeshEdgeCollapseQem(
+    const ReconstructionMesh& input, MeshEdgeCollapseQemConfig config) {
+  if (!std::isfinite(config.max_edge_quadric_error_m2) ||
+      config.max_edge_quadric_error_m2 <= 0.0 ||
+      config.max_edge_quadric_error_m2 > 100.0 ||
+      !std::isfinite(config.max_displacement_m) ||
+      config.max_displacement_m <= 0.0 || config.max_displacement_m > 10.0 ||
+      !std::isfinite(config.sharp_edge_angle_degrees) ||
+      config.sharp_edge_angle_degrees <= 0.0 ||
+      config.sharp_edge_angle_degrees >= 180.0 ||
+      !std::isfinite(config.max_uv_error) || config.max_uv_error < 0.0 ||
+      config.max_uv_error > 2.0 ||
+      !std::isfinite(config.min_triangle_area_m2) ||
+      config.min_triangle_area_m2 <= 0.0 ||
+      !std::isfinite(config.regularization) || config.regularization <= 0.0 ||
+      config.regularization > 1.0 ||
+      !std::isfinite(config.min_normal_dot) ||
+      config.min_normal_dot < -1.0 || config.min_normal_dot > 1.0 ||
+      config.max_input_vertices == 0 ||
+      config.max_input_vertices > 5000000 ||
+      config.max_input_triangles == 0 ||
+      config.max_input_triangles > 5000000 ||
+      config.max_unique_edges == 0 ||
+      config.max_unique_edges > 6000000 || config.max_collapses == 0 ||
+      config.max_collapses > 1000000 || config.max_evaluations == 0 ||
+      config.max_evaluations > 100000000) {
+    throw std::invalid_argument("Invalid edge-collapse QEM configuration");
+  }
+
+  MeshEdgeCollapseQemResult result;
+  result.input_vertices = input.positions_m.size();
+  result.input_triangles = input.triangle_indices.size() / 3;
+  const auto validation = validateMesh(
+      input, {config.max_input_vertices, config.max_input_triangles});
+  if (!validation.valid) {
+    result.error = validation.error;
+    return result;
+  }
+  result.input_valid = true;
+
+  const std::size_t triangle_count = result.input_triangles;
+  const std::size_t vertex_count = result.input_vertices;
+  const bool has_texcoords = !input.texcoords.empty();
+  const double sharp_cosine = std::cos(
+      config.sharp_edge_angle_degrees * 3.14159265358979323846 / 180.0);
+  const std::uint32_t kNoOverride =
+      std::numeric_limits<std::uint32_t>::max();
+
+  struct EdgeCollapseUse {
+    std::size_t first_triangle{0};
+    std::size_t second_triangle{0};
+    std::size_t count{0};
+  };
+  struct Candidate {
+    double error{0.0};
+    std::uint32_t u{0};
+    std::uint32_t v{0};
+    Vec3 position{};
+    std::size_t first_triangle{0};
+    std::size_t second_triangle{0};
+  };
+  struct TriangleKey {
+    std::array<std::uint32_t, 3> indices{};
+    bool operator==(const TriangleKey& other) const {
+      return indices == other.indices;
+    }
+  };
+  struct TriangleHash {
+    std::size_t operator()(const TriangleKey& triangle) const {
+      std::size_t seed = triangle.indices[0];
+      for (int i = 1; i < 3; ++i) {
+        seed ^= static_cast<std::size_t>(triangle.indices[i]) +
+                0x9e3779b9U + (seed << 6) + (seed >> 2);
+      }
+      return seed;
+    }
+  };
+
+  std::vector<Vec3> positions;
+  positions.reserve(vertex_count);
+  for (const auto& position : input.positions_m) {
+    positions.push_back({position.x, position.y, position.z});
+  }
+  std::vector<std::array<std::uint32_t, 3>> active_triangles;
+  active_triangles.reserve(triangle_count);
+  for (std::size_t triangle = 0; triangle < triangle_count; ++triangle) {
+    active_triangles.push_back(
+        {input.triangle_indices[triangle * 3],
+         input.triangle_indices[triangle * 3 + 1],
+         input.triangle_indices[triangle * 3 + 2]});
+  }
+  std::vector<std::uint32_t> merged_into(vertex_count);
+  std::iota(merged_into.begin(), merged_into.end(), 0U);
+  std::vector<std::vector<std::uint32_t>> group_members(vertex_count);
+  for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
+    group_members[vertex].push_back(static_cast<std::uint32_t>(vertex));
+  }
+  std::vector<bool> alive(vertex_count, true);
+  std::vector<Quadric> quadrics(vertex_count);
+
+  const auto recomputeQuadrics = [&]() {
+    quadrics.assign(vertex_count, Quadric{});
+    for (const auto& triangle : active_triangles) {
+      const FaceGeometry geometry =
+          faceGeometry(triangle, positions, kNoOverride, Vec3{});
+      if (!std::isfinite(geometry.normal_norm) ||
+          geometry.area_m2 < config.min_triangle_area_m2) {
+        continue;
+      }
+      const Quadric plane = planeQuadric(
+          unitNormal(geometry), toVec3f(positions[triangle[0]]));
+      for (const std::uint32_t vertex : triangle) {
+        quadrics[vertex] += plane;
+      }
+    }
+  };
+  const auto uvDistance = [&](std::uint32_t first,
+                              std::uint32_t second) -> double {
+    if (!has_texcoords) return 0.0;
+    return std::hypot(
+        static_cast<double>(input.texcoords[first].x) -
+            input.texcoords[second].x,
+        static_cast<double>(input.texcoords[first].y) -
+            input.texcoords[second].y);
+  };
+  const auto originalPosition = [&](std::uint32_t vertex) -> Vec3 {
+    return {input.positions_m[vertex].x, input.positions_m[vertex].y,
+            input.positions_m[vertex].z};
+  };
+  const auto truncatedResult =
+      [&](const char* message) -> MeshEdgeCollapseQemResult {
+    result.truncated = true;
+    result.error = message;
+    return result;
+  };
+  const auto addCandidateEdges = [&](std::size_t value) -> bool {
+    if (value > std::numeric_limits<std::size_t>::max() -
+                   result.candidate_edges) {
+      result.truncated = true;
+      result.error = "edge-collapse QEM evaluation budget exceeded";
+      return false;
+    }
+    result.candidate_edges += value;
+    return true;
+  };
+
+  recomputeQuadrics();
+  for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
+    result.initial_quadric_error_m2 +=
+        quadricError(quadrics[vertex], positions[vertex]);
+  }
+
+  bool first_iteration = true;
+  while (result.accepted_collapses < config.max_collapses) {
+    std::vector<FaceGeometry> face_geometries(active_triangles.size());
+    std::vector<bool> valid_faces(active_triangles.size(), false);
+    DisjointSet triangle_components(active_triangles.size());
+    std::vector<std::unordered_set<std::uint32_t>> neighbors(vertex_count);
+    std::unordered_map<EdgeKey, EdgeCollapseUse, EdgeHash> edges;
+    edges.reserve(std::min(config.max_unique_edges,
+                           active_triangles.size() * 3));
+    for (std::size_t triangle = 0; triangle < active_triangles.size();
+         ++triangle) {
+      const auto& indices = active_triangles[triangle];
+      const FaceGeometry geometry =
+          faceGeometry(indices, positions, kNoOverride, Vec3{});
+      face_geometries[triangle] = geometry;
+      valid_faces[triangle] = std::isfinite(geometry.normal_norm) &&
+                              geometry.area_m2 >=
+                                  config.min_triangle_area_m2;
+      for (int edge = 0; edge < 3; ++edge) {
+        const EdgeKey key =
+            edgeKey(indices[edge], indices[(edge + 1) % 3]);
+        auto existing = edges.find(key);
+        if (existing == edges.end()) {
+          if (edges.size() >= config.max_unique_edges) {
+            return truncatedResult("edge-collapse QEM edge budget exceeded");
+          }
+          edges.emplace(key,
+                        EdgeCollapseUse{triangle, triangle, 1});
+        } else {
+          triangle_components.unite(
+              triangle, existing->second.first_triangle);
+          if (existing->second.count == 1) {
+            existing->second.second_triangle = triangle;
+          }
+          ++existing->second.count;
+        }
+        neighbors[key.first].insert(key.second);
+        neighbors[key.second].insert(key.first);
+      }
+    }
+
+    std::vector<bool> locked(vertex_count, false);
+    for (const auto& item : edges) {
+      const std::uint32_t u = item.first.first;
+      const std::uint32_t v = item.first.second;
+      const bool boundary = item.second.count == 1;
+      const bool non_manifold = item.second.count > 2;
+      bool sharp = false;
+      if (item.second.count == 2 &&
+          valid_faces[item.second.first_triangle] &&
+          valid_faces[item.second.second_triangle]) {
+        const Vec3 first_normal =
+            unitNormal(face_geometries[item.second.first_triangle]);
+        const Vec3 second_normal =
+            unitNormal(face_geometries[item.second.second_triangle]);
+        const double cosine =
+            first_normal.x * second_normal.x +
+            first_normal.y * second_normal.y +
+            first_normal.z * second_normal.z;
+        sharp = cosine < sharp_cosine;
+      }
+      const bool uv_seam = has_texcoords &&
+                           config.preserve_uv_seams &&
+                           uvDistance(u, v) > config.max_uv_error;
+      if (first_iteration) {
+        if (boundary) ++result.boundary_edges;
+        if (non_manifold) ++result.non_manifold_edges;
+        if (sharp) ++result.sharp_edges;
+      }
+      if ((boundary && config.preserve_boundaries) ||
+          (non_manifold && config.preserve_non_manifold) ||
+          (sharp && config.preserve_sharp_edges) ||
+          (uv_seam && config.preserve_uv_seams)) {
+        locked[u] = true;
+        locked[v] = true;
+      }
+    }
+    std::vector<std::size_t> vertex_component(
+        vertex_count, std::numeric_limits<std::size_t>::max());
+    for (std::size_t triangle = 0; triangle < active_triangles.size();
+         ++triangle) {
+      const std::size_t root = triangle_components.find(triangle);
+      for (int corner = 0; corner < 3; ++corner) {
+        const std::uint32_t vertex = active_triangles[triangle][corner];
+        if (vertex_component[vertex] ==
+            std::numeric_limits<std::size_t>::max()) {
+          vertex_component[vertex] = root;
+        } else if (vertex_component[vertex] != root) {
+          locked[vertex] = true;
+        }
+      }
+    }
+    for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
+      if (vertex_component[vertex] ==
+          std::numeric_limits<std::size_t>::max()) {
+        locked[vertex] = true;
+      }
+    }
+    if (first_iteration) {
+      result.locked_vertices = static_cast<std::size_t>(
+          std::count(locked.begin(), locked.end(), true));
+      first_iteration = false;
+    }
+
+    std::vector<Candidate> candidates;
+    for (const auto& item : edges) {
+      if (item.second.count != 2) continue;
+      const std::uint32_t u = item.first.first;
+      const std::uint32_t v = item.first.second;
+      if (!alive[u] || !alive[v] || locked[u] || locked[v]) continue;
+      bool sharp = false;
+      if (valid_faces[item.second.first_triangle] &&
+          valid_faces[item.second.second_triangle]) {
+        const Vec3 first_normal =
+            unitNormal(face_geometries[item.second.first_triangle]);
+        const Vec3 second_normal =
+            unitNormal(face_geometries[item.second.second_triangle]);
+        const double cosine =
+            first_normal.x * second_normal.x +
+            first_normal.y * second_normal.y +
+            first_normal.z * second_normal.z;
+        sharp = cosine < sharp_cosine;
+      }
+      const bool uv_seam = has_texcoords &&
+                           config.preserve_uv_seams &&
+                           uvDistance(u, v) > config.max_uv_error;
+      if ((config.preserve_sharp_edges && sharp) ||
+          (config.preserve_uv_seams && uv_seam)) {
+        continue;
+      }
+      Quadric combined = quadrics[u];
+      combined += quadrics[v];
+      const Vec3 midpoint = (positions[u] + positions[v]) * 0.5;
+      const Vec3 optimum = optimalQuadricPosition(
+          combined, midpoint, config.regularization);
+      const Vec3 clamped = clampToBox(
+          optimum, vec3Min(positions[u], positions[v]),
+          vec3Max(positions[u], positions[v]));
+      const double error = quadricError(combined, clamped);
+      if (!std::isfinite(error) ||
+          error > config.max_edge_quadric_error_m2 ||
+          (clamped - positions[u]).norm() > config.max_displacement_m ||
+          (clamped - positions[v]).norm() > config.max_displacement_m) {
+        continue;
+      }
+      bool cumulative_ok = true;
+      for (const std::uint32_t member : group_members[u]) {
+        if ((clamped - originalPosition(member)).norm() >
+            config.max_displacement_m) {
+          cumulative_ok = false;
+          break;
+        }
+      }
+      if (cumulative_ok) {
+        for (const std::uint32_t member : group_members[v]) {
+          if ((clamped - originalPosition(member)).norm() >
+              config.max_displacement_m) {
+            cumulative_ok = false;
+            break;
+          }
+        }
+      }
+      if (!cumulative_ok) continue;
+      // A group representative can change when its endpoint is the larger
+      // index of a later collapse. Check every original UV in both groups
+      // against the new representative UV, not only the two endpoint UVs.
+      if (has_texcoords && config.preserve_uv_seams) {
+        bool cumulative_uv_ok = true;
+        for (const std::uint32_t member : group_members[u]) {
+          if (uvDistance(member, u) > config.max_uv_error) {
+            cumulative_uv_ok = false;
+            break;
+          }
+        }
+        if (cumulative_uv_ok) {
+          for (const std::uint32_t member : group_members[v]) {
+            if (uvDistance(member, u) > config.max_uv_error) {
+              cumulative_uv_ok = false;
+              break;
+            }
+          }
+        }
+        if (!cumulative_uv_ok) continue;
+      }
+      candidates.push_back(Candidate{error, u, v, clamped,
+                                     item.second.first_triangle,
+                                     item.second.second_triangle});
+    }
+    if (!addCandidateEdges(candidates.size())) {
+      return truncatedResult("edge-collapse QEM evaluation budget exceeded");
+    }
+    std::sort(candidates.begin(), candidates.end(),
+              [](const Candidate& first, const Candidate& second) {
+                if (first.error != second.error) {
+                  return first.error < second.error;
+                }
+                if (first.u != second.u) return first.u < second.u;
+                return first.v < second.v;
+              });
+
+    bool accepted_this_iteration = false;
+    for (const auto& candidate : candidates) {
+      if (result.evaluated_collapses >= config.max_evaluations) {
+        return truncatedResult(
+            "edge-collapse QEM evaluation budget exceeded");
+      }
+      ++result.evaluated_collapses;
+
+      const std::array<std::size_t, 2> incident{
+          candidate.first_triangle, candidate.second_triangle};
+      std::uint32_t opposite[2]{0, 0};
+      std::size_t opposite_count = 0;
+      bool link_ok = true;
+      for (const std::size_t triangle : incident) {
+        const auto& indices = active_triangles[triangle];
+        std::uint32_t third = kNoOverride;
+        int endpoint_count = 0;
+        for (const std::uint32_t vertex : indices) {
+          if (vertex == candidate.u || vertex == candidate.v) {
+            ++endpoint_count;
+          } else {
+            third = vertex;
+          }
+        }
+        if (endpoint_count != 2 || third == kNoOverride) {
+          link_ok = false;
+          break;
+        }
+        opposite[opposite_count++] = third;
+      }
+      if (!link_ok || opposite_count != 2 ||
+          opposite[0] == opposite[1]) {
+        ++result.rejected_collapses;
+        continue;
+      }
+      std::vector<std::uint32_t> common;
+      for (const std::uint32_t neighbor : neighbors[candidate.u]) {
+        if (neighbors[candidate.v].find(neighbor) !=
+            neighbors[candidate.v].end()) {
+          common.push_back(neighbor);
+        }
+      }
+      std::sort(common.begin(), common.end());
+      const std::uint32_t opposite_low =
+          std::min(opposite[0], opposite[1]);
+      const std::uint32_t opposite_high =
+          std::max(opposite[0], opposite[1]);
+      if (common.size() != 2 || common[0] != opposite_low ||
+          common[1] != opposite_high) {
+        ++result.rejected_collapses;
+        continue;
+      }
+
+      std::vector<std::array<std::uint32_t, 3>> tentative;
+      tentative.reserve(active_triangles.size());
+      std::unordered_set<TriangleKey, TriangleHash> unique;
+      unique.reserve(active_triangles.size());
+      std::size_t removed_degenerate = 0;
+      std::size_t removed_duplicate = 0;
+      bool collapse_ok = true;
+      for (std::size_t triangle = 0; triangle < active_triangles.size();
+           ++triangle) {
+        const auto original = active_triangles[triangle];
+        auto mapped = original;
+        bool had_v = false;
+        bool had_u = false;
+        for (int corner = 0; corner < 3; ++corner) {
+          if (original[corner] == candidate.v) {
+            mapped[corner] = candidate.u;
+            had_v = true;
+          }
+          if (original[corner] == candidate.u) had_u = true;
+        }
+        const bool had_both = had_v && had_u;
+        if (had_both) {
+          ++removed_degenerate;
+          continue;
+        }
+        if (has_texcoords && config.preserve_uv_seams && had_v) {
+          const double delta_u =
+              static_cast<double>(input.texcoords[candidate.v].x) -
+              input.texcoords[candidate.u].x;
+          const double delta_v =
+              static_cast<double>(input.texcoords[candidate.v].y) -
+              input.texcoords[candidate.u].y;
+          if (std::hypot(delta_u, delta_v) > config.max_uv_error) {
+            collapse_ok = false;
+            break;
+          }
+        }
+        if (mapped[0] == mapped[1] || mapped[0] == mapped[2] ||
+            mapped[1] == mapped[2]) {
+          ++removed_degenerate;
+          continue;
+        }
+        const FaceGeometry original_geometry = face_geometries[triangle];
+        const FaceGeometry tentative_geometry = faceGeometry(
+            mapped, positions, candidate.u, candidate.position);
+        if (!std::isfinite(tentative_geometry.normal_norm) ||
+            tentative_geometry.area_m2 < config.min_triangle_area_m2) {
+          collapse_ok = false;
+          break;
+        }
+        bool contains_u = false;
+        for (const std::uint32_t vertex : mapped) {
+          if (vertex == candidate.u) {
+            contains_u = true;
+            break;
+          }
+        }
+        if (contains_u && valid_faces[triangle]) {
+          const Vec3 original_unit = unitNormal(original_geometry);
+          const Vec3 tentative_unit = unitNormal(tentative_geometry);
+          const double dot =
+              original_unit.x * tentative_unit.x +
+              original_unit.y * tentative_unit.y +
+              original_unit.z * tentative_unit.z;
+          if (dot < config.min_normal_dot) {
+            collapse_ok = false;
+            break;
+          }
+        }
+        auto canonical = mapped;
+        std::sort(canonical.begin(), canonical.end());
+        if (!unique.emplace(TriangleKey{canonical}).second) {
+          ++removed_duplicate;
+          collapse_ok = false;
+          break;
+        }
+        tentative.push_back(mapped);
+      }
+      if (!collapse_ok || tentative.empty()) {
+        ++result.rejected_collapses;
+        continue;
+      }
+
+      std::unordered_map<EdgeKey, std::size_t, EdgeHash> tentative_edges;
+      tentative_edges.reserve(std::min(config.max_unique_edges,
+                                       tentative.size() * 3));
+      for (const auto& indices : tentative) {
+        for (int edge = 0; edge < 3; ++edge) {
+          const EdgeKey key =
+              edgeKey(indices[edge], indices[(edge + 1) % 3]);
+          auto found = tentative_edges.find(key);
+          if (found == tentative_edges.end()) {
+            if (tentative_edges.size() >= config.max_unique_edges) {
+              return truncatedResult(
+                  "edge-collapse QEM edge budget exceeded");
+            }
+            tentative_edges.emplace(key, std::size_t{1});
+          } else {
+            ++found->second;
+          }
+        }
+      }
+      for (const auto& item : tentative_edges) {
+        if (item.second > 2) {
+          collapse_ok = false;
+          break;
+        }
+      }
+      if (!collapse_ok) {
+        ++result.rejected_collapses;
+        continue;
+      }
+
+      ++result.accepted_collapses;
+      result.removed_degenerate_triangles += removed_degenerate;
+      result.removed_duplicate_triangles += removed_duplicate;
+      active_triangles = std::move(tentative);
+      positions[candidate.u] = candidate.position;
+      alive[candidate.v] = false;
+      merged_into[candidate.v] = candidate.u;
+      for (const std::uint32_t member : group_members[candidate.v]) {
+        group_members[candidate.u].push_back(member);
+      }
+      group_members[candidate.v].clear();
+      recomputeQuadrics();
+      accepted_this_iteration = true;
+      break;
+    }
+    if (!accepted_this_iteration) break;
+    if (result.accepted_collapses >= config.max_collapses) {
+      return truncatedResult("edge-collapse QEM collapse budget exceeded");
+    }
+  }
+
+  for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
+    if (alive[vertex]) {
+      result.final_quadric_error_m2 +=
+          quadricError(quadrics[vertex], positions[vertex]);
+    }
+  }
+  for (std::size_t vertex = 0; vertex < vertex_count; ++vertex) {
+    std::uint32_t root = static_cast<std::uint32_t>(vertex);
+    std::size_t steps = 0;
+    while (merged_into[root] != root) {
+      root = merged_into[root];
+      if (++steps > vertex_count) {
+        result.error = "edge-collapse QEM representative chain is invalid";
+        return result;
+      }
+    }
+    if (!alive[root]) {
+      result.error = "edge-collapse QEM representative is inactive";
+      return result;
+    }
+    const Vec3 original =
+        originalPosition(static_cast<std::uint32_t>(vertex));
+    result.max_observed_displacement_m = std::max(
+        result.max_observed_displacement_m,
+        (positions[root] - original).norm());
+    if (has_texcoords) {
+      result.max_observed_uv_error = std::max(
+          result.max_observed_uv_error,
+          uvDistance(static_cast<std::uint32_t>(vertex), root));
+    }
+  }
+
+  result.mesh.name = input.name;
+  result.mesh.base_color_texture = input.base_color_texture;
+  std::unordered_set<TriangleKey, TriangleHash> final_unique;
+  final_unique.reserve(active_triangles.size());
+  std::vector<std::array<std::uint32_t, 3>> final_triangles;
+  final_triangles.reserve(active_triangles.size());
+  for (const auto& indices : active_triangles) {
+    if (indices[0] == indices[1] || indices[0] == indices[2] ||
+        indices[1] == indices[2]) {
+      ++result.removed_degenerate_triangles;
+      continue;
+    }
+    const FaceGeometry geometry =
+        faceGeometry(indices, positions, kNoOverride, Vec3{});
+    if (!std::isfinite(geometry.normal_norm) ||
+        geometry.area_m2 < config.min_triangle_area_m2) {
+      ++result.removed_degenerate_triangles;
+      continue;
+    }
+    auto canonical = indices;
+    std::sort(canonical.begin(), canonical.end());
+    if (!final_unique.emplace(TriangleKey{canonical}).second) {
+      ++result.removed_duplicate_triangles;
+      continue;
+    }
+    final_triangles.push_back(indices);
+  }
+  if (final_triangles.empty()) {
+    result.error = "edge-collapse QEM produced an empty mesh";
+    return result;
+  }
+
+  std::vector<std::uint32_t> remap(vertex_count, kNoOverride);
+  for (const auto& indices : final_triangles) {
+    for (int corner = 0; corner < 3; ++corner) {
+      const std::uint32_t old_index = indices[corner];
+      std::uint32_t& new_index = remap[old_index];
+      if (new_index == kNoOverride) {
+        new_index = static_cast<std::uint32_t>(
+            result.mesh.positions_m.size());
+        result.mesh.positions_m.push_back(
+            toVec3f(positions[old_index]));
+        if (has_texcoords) {
+          result.mesh.texcoords.push_back(input.texcoords[old_index]);
+        }
+      }
+      result.mesh.triangle_indices.push_back(new_index);
+    }
+  }
+
+  std::vector<Vec3> normal_sums(result.mesh.positions_m.size());
+  std::vector<Vec3> normal_fallbacks(result.mesh.positions_m.size());
+  for (const auto& indices : final_triangles) {
+    const FaceGeometry geometry =
+        faceGeometry(indices, positions, kNoOverride, Vec3{});
+    const std::uint32_t ia = remap[indices[0]];
+    const std::uint32_t ib = remap[indices[1]];
+    const std::uint32_t ic = remap[indices[2]];
+    for (const std::uint32_t index : {ia, ib, ic}) {
+      normal_sums[index] += geometry.normal;
+      if (normal_fallbacks[index].norm() < 1e-12) {
+        normal_fallbacks[index] = geometry.normal;
+      }
+    }
+  }
+  result.mesh.normals.reserve(result.mesh.positions_m.size());
+  for (std::size_t vertex = 0; vertex < normal_sums.size(); ++vertex) {
+    Vec3 normal = normal_sums[vertex];
+    double norm = normal.norm();
+    if (!std::isfinite(norm) || norm < 1e-12) {
+      normal = normal_fallbacks[vertex];
+      norm = normal.norm();
+    }
+    if (!std::isfinite(norm) || norm < 1e-12) {
+      result.mesh.normals.clear();
+      break;
+    }
+    result.mesh.normals.push_back({static_cast<float>(normal.x / norm),
+                                   static_cast<float>(normal.y / norm),
+                                   static_cast<float>(normal.z / norm)});
+  }
+  result.output_vertices = result.mesh.positions_m.size();
+  result.output_triangles = result.mesh.triangle_indices.size() / 3;
+  if (result.mesh.positions_m.empty()) {
+    result.error = "edge-collapse QEM produced an empty mesh";
+    return result;
+  }
+  const auto output_validation = validateMesh(
+      result.mesh, {config.max_input_vertices, config.max_input_triangles});
+  if (!output_validation.valid) result.error = output_validation.error;
   return result;
 }
 

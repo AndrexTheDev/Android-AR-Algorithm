@@ -1,0 +1,15 @@
+ARKREDACT1
+version=1
+plan_id=field.redaction.v1
+revision=1
+rule_count=2
+collection_opt_in=false
+terminal_text_only=true
+core_upload_disabled=true
+host_redaction_required=true
+host_signature_verification_required=true
+independent_targets_required=true
+quality_grade=unverified
+rule=0|error_text|drop|dropped|privacy
+rule=1|capability_signature|hash|hash.v1|identity
+END

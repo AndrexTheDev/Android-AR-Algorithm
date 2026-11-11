@@ -31,6 +31,9 @@ ReconstructionFusionPipeline::ReconstructionFusionPipeline(
   if (config_.enable_quadric_error_lod) {
     (void)simplifyMeshQuadricError(empty_mesh, config_.quadric_lod);
   }
+  if (config_.enable_edge_collapse_qem) {
+    (void)simplifyMeshEdgeCollapseQem(empty_mesh, config_.edge_collapse_qem);
+  }
 }
 
 ReconstructionIntegrationResult ReconstructionFusionPipeline::status(
@@ -163,11 +166,53 @@ ReconstructionBuildResult ReconstructionFusionPipeline::build() const {
     result.telemetry.simplified_triangles =
         result.simplified_mesh.triangle_indices.size() / 3;
   }
+  if (config_.enable_edge_collapse_qem) {
+    MeshEdgeCollapseQemResult qem = simplifyMeshEdgeCollapseQem(
+        result.simplified_mesh, config_.edge_collapse_qem);
+    result.telemetry.edge_collapse_qem_enabled = true;
+    result.telemetry.edge_collapse_qem_truncated = qem.truncated;
+    result.telemetry.edge_collapse_qem_input_vertices = qem.input_vertices;
+    result.telemetry.edge_collapse_qem_output_vertices =
+        qem.output_vertices;
+    result.telemetry.edge_collapse_qem_output_triangles =
+        qem.output_triangles;
+    result.telemetry.edge_collapse_qem_accepted_collapses =
+        qem.accepted_collapses;
+    result.telemetry.edge_collapse_qem_rejected_collapses =
+        qem.rejected_collapses;
+    result.telemetry.edge_collapse_qem_evaluated_collapses =
+        qem.evaluated_collapses;
+    result.telemetry.edge_collapse_qem_locked_vertices =
+        qem.locked_vertices;
+    result.telemetry.edge_collapse_qem_removed_degenerate_triangles =
+        qem.removed_degenerate_triangles;
+    result.telemetry.edge_collapse_qem_removed_duplicate_triangles =
+        qem.removed_duplicate_triangles;
+    result.telemetry.edge_collapse_qem_initial_error_m2 =
+        qem.initial_quadric_error_m2;
+    result.telemetry.edge_collapse_qem_final_error_m2 =
+        qem.final_quadric_error_m2;
+    result.telemetry.edge_collapse_qem_max_displacement_m =
+        qem.max_observed_displacement_m;
+    result.telemetry.edge_collapse_qem_max_uv_error =
+        qem.max_observed_uv_error;
+    if (!qem.input_valid || !qem.error.empty() || qem.truncated) {
+      result.error = qem.error.empty() ?
+          "Edge-collapse QEM did not complete" : qem.error;
+      return result;
+    }
+    result.simplified_mesh = std::move(qem.mesh);
+    result.telemetry.simplified_vertices =
+        result.simplified_mesh.positions_m.size();
+    result.telemetry.simplified_triangles =
+        result.simplified_mesh.triangle_indices.size() / 3;
+  }
   result.telemetry.complete = !result.telemetry.fusion_truncated &&
       !result.telemetry.meshing_truncated &&
       !result.telemetry.filtering_truncated &&
       !result.telemetry.simplification_truncated &&
-      !result.telemetry.quadric_lod_truncated;
+      !result.telemetry.quadric_lod_truncated &&
+      !result.telemetry.edge_collapse_qem_truncated;
   return result;
 }
 

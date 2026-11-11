@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="arkernel_retention_title">Temporary scan retention</string>
+    <string name="arkernel_retention_explanation">Choose when temporary colour and depth frames are deleted. Nothing is deleted without an explicit confirmation.</string>
+    <string name="arkernel_retention_warning">Deletion cannot be undone.</string>
+    <string name="arkernel_retention_mode_keep_label">Keep frames</string>
+    <string name="arkernel_retention_mode_keep_description">Data stays on this device until the app explicitly releases it.</string>
+    <string name="arkernel_retention_mode_after_publication_label">Delete after successful publication</string>
+    <string name="arkernel_retention_mode_after_publication_description">Delete frames only if the reconstruction was published successfully.</string>
+    <string name="arkernel_retention_mode_explicit_release_label">Delete on explicit release</string>
+    <string name="arkernel_retention_mode_explicit_release_description">Delete frames when the app explicitly releases the scan.</string>
+    <string name="arkernel_retention_delete_key_label">Also delete encryption key</string>
+    <string name="arkernel_retention_delete_key_description">Encrypted frames can no longer be read after deletion.</string>
+    <string name="arkernel_retention_delete_key_unavailable">Key deletion is unavailable because encrypted frames were not enabled or frames are kept.</string>
+    <string name="arkernel_retention_confirm_label">Save choice</string>
+    <string name="arkernel_retention_cancel_label">Cancel</string>
+    <string name="arkernel_retention_action_kept">Retained frames remain on this device.</string>
+    <string name="arkernel_retention_action_frames_deleted">Retained frames were deleted.</string>
+    <string name="arkernel_retention_action_frames_and_key_deleted">Retained frames and the encryption key were deleted.</string>
+    <string name="arkernel_retention_action_key_deleted_only">Only the encryption key was deleted. Existing encrypted frames can no longer be read.</string>
+</resources>

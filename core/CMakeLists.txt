@@ -2,6 +2,7 @@ add_library(arkernel STATIC
     src/bundle_adjustment.cpp
     src/c_api.cpp
     src/camera_model.cpp
+    src/camera_response.cpp
     src/clock_aligner.cpp
     src/core_engine.cpp
     src/depth_postprocessor.cpp

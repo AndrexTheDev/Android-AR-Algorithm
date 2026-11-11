@@ -33,6 +33,18 @@ data class ReconstructionFusionOptions(
     val maxQuadricLodDisplacementMeters: Double = 0.02,
     val quadricRegularization: Double = 1e-9,
     val maxQuadricEvaluations: Long = 10_000_000,
+    /** Optional bounded edge-collapse QEM delivery simplification. */
+    val enableEdgeCollapseQem: Boolean = false,
+    val maxEdgeCollapseErrorSquareMeters: Double = 1e-4,
+    val maxEdgeCollapseDisplacementMeters: Double = 0.02,
+    val edgeCollapseRegularization: Double = 1e-9,
+    val edgeCollapseMinNormalDot: Double = 0.0,
+    val maxEdgeCollapseEvaluations: Long = 1_000_000,
+    val maxEdgeCollapseCollapses: Long = 4_096,
+    val edgeCollapsePreserveBoundaries: Boolean = true,
+    val edgeCollapsePreserveNonManifold: Boolean = true,
+    val edgeCollapsePreserveSharpEdges: Boolean = true,
+    val edgeCollapsePreserveUvSeams: Boolean = true,
     val maxGlbBytesPerMesh: Long = 128L * 1024L * 1024L,
     val maxRawMeshBytes: Int = 128 * 1024 * 1024,
 ) {
@@ -51,6 +63,32 @@ data class ReconstructionFusionOptions(
             quadricRegularization <= 1.0) { "Invalid quadric regularization" }
         require(maxQuadricEvaluations in 1L..100_000_000L) {
             "Invalid quadric evaluation budget"
+        }
+        require(maxEdgeCollapseErrorSquareMeters > 0.0 &&
+            maxEdgeCollapseErrorSquareMeters.isFinite() &&
+            maxEdgeCollapseErrorSquareMeters <= 100.0) {
+            "Invalid edge-collapse QEM error budget"
+        }
+        require(maxEdgeCollapseDisplacementMeters > 0.0 &&
+            maxEdgeCollapseDisplacementMeters.isFinite() &&
+            maxEdgeCollapseDisplacementMeters <= 10.0) {
+            "Invalid edge-collapse QEM displacement budget"
+        }
+        require(edgeCollapseRegularization > 0.0 &&
+            edgeCollapseRegularization.isFinite() &&
+            edgeCollapseRegularization <= 1.0) {
+            "Invalid edge-collapse QEM regularization"
+        }
+        require(edgeCollapseMinNormalDot >= -1.0 &&
+            edgeCollapseMinNormalDot <= 1.0 &&
+            edgeCollapseMinNormalDot.isFinite()) {
+            "Invalid edge-collapse QEM normal dot gate"
+        }
+        require(maxEdgeCollapseEvaluations in 1L..100_000_000L) {
+            "Invalid edge-collapse QEM evaluation budget"
+        }
+        require(maxEdgeCollapseCollapses in 1L..1_000_000L) {
+            "Invalid edge-collapse QEM collapse budget"
         }
     }
 }
@@ -126,6 +164,22 @@ data class ReconstructionBuildOutput(
     val quadricLodInitialErrorSquareMeters: Double,
     val quadricLodFinalErrorSquareMeters: Double,
     val quadricLodMaxDisplacementMeters: Double,
+    val edgeCollapseQemEnabled: Boolean,
+    val edgeCollapseQemTruncated: Boolean,
+    val edgeCollapseQemInputVertices: Long,
+    val edgeCollapseQemOutputVertices: Long,
+    val edgeCollapseQemOutputTriangles: Long,
+    val edgeCollapseQemAcceptedCollapses: Long,
+    val edgeCollapseQemRejectedCollapses: Long,
+    val edgeCollapseQemEvaluatedCollapses: Long,
+    val edgeCollapseQemLockedVertices: Long,
+    val edgeCollapseQemRemovedDegenerateTriangles: Long,
+    val edgeCollapseQemRemovedDuplicateTriangles: Long,
+    val edgeCollapseQemInitialErrorSquareMeters: Double,
+    val edgeCollapseQemFinalErrorSquareMeters: Double,
+    val edgeCollapseQemMaxDisplacementMeters: Double,
+    /** Maximum cumulative UV error of the optional QEM stage. */
+    val edgeCollapseQemMaxUvError: Double,
 )
 
 /**
@@ -133,9 +187,10 @@ data class ReconstructionBuildOutput(
  *
  * Calls are synchronous and serialized. Buffers must be direct, native-order,
  * alive and immutable until integrate returns. Unknown depth remains unknown;
- * this class performs neither model inference nor hole filling. An optional
- * measured quadric-error LOD may refine only the delivery mesh; the filtered
- * source mesh used for texturing is never replaced.
+ * this class performs neither model inference nor hole filling. Optional
+ * measured quadric-error LOD and bounded edge-collapse QEM may refine only the
+ * delivery mesh; the filtered source mesh used for texturing is never replaced.
+ * QEM telemetry includes measured cumulative displacement and UV error.
  */
 class ReconstructionFusionPipeline(
     options: ReconstructionFusionOptions = ReconstructionFusionOptions(),
@@ -151,14 +206,24 @@ class ReconstructionFusionPipeline(
             options.minComponentTriangles, options.maxUniqueEdges, options.maxClusters,
             options.maxGlbBytesPerMesh,
             if (options.enableQuadricErrorLod) 1L else 0L,
-            options.maxQuadricEvaluations),
+            options.maxQuadricEvaluations,
+            if (options.enableEdgeCollapseQem) 1L else 0L,
+            options.maxEdgeCollapseEvaluations,
+            options.maxEdgeCollapseCollapses,
+            (if (options.edgeCollapsePreserveBoundaries) 1L else 0L) +
+                (if (options.edgeCollapsePreserveNonManifold) 2L else 0L) +
+                (if (options.edgeCollapsePreserveSharpEdges) 4L else 0L) +
+                (if (options.edgeCollapsePreserveUvSeams) 8L else 0L)),
         doubleArrayOf(options.voxelSizeMeters, options.truncationDistanceMeters,
             options.minDepthMeters, options.maxDepthMeters, options.minConfidence,
             options.defaultUncertaintyMeters, options.minComponentAreaSquareMeters,
             options.simplificationCellSizeMeters, options.maxSimplificationErrorMeters,
             options.sharpEdgeAngleDegrees, options.maxUvError,
             options.maxQuadricErrorSquareMeters,
-            options.maxQuadricLodDisplacementMeters, options.quadricRegularization),
+            options.maxQuadricLodDisplacementMeters, options.quadricRegularization,
+            options.maxEdgeCollapseErrorSquareMeters,
+            options.maxEdgeCollapseDisplacementMeters,
+            options.edgeCollapseRegularization, options.edgeCollapseMinNormalDot),
     ).also { require(it != 0L) { "Invalid reconstruction fusion options" } }
 
     @Synchronized
@@ -200,8 +265,8 @@ class ReconstructionFusionPipeline(
     @Synchronized
     fun build(): ReconstructionBuildOutput {
         check(nativeHandle != 0L) { "Reconstruction fusion pipeline is closed" }
-        val metadata = LongArray(28)
-        val values = DoubleArray(4)
+        val metadata = LongArray(39)
+        val values = DoubleArray(8)
         val meshes = nativeBuild(nativeHandle, metadata, values)
             ?: error("Native reconstruction build failed")
         check(meshes.size == 2)
@@ -212,7 +277,11 @@ class ReconstructionFusionPipeline(
             metadata[14], metadata[15], metadata[16], metadata[17], metadata[18],
             values[0], metadata[19] != 0L, metadata[20] != 0L,
             metadata[21], metadata[22], metadata[23], metadata[24], metadata[25],
-            metadata[26], metadata[27], values[1], values[2], values[3])
+            metadata[26], metadata[27], values[1], values[2], values[3],
+            metadata[28] != 0L, metadata[29] != 0L,
+            metadata[30], metadata[31], metadata[32], metadata[33], metadata[34],
+            metadata[35], metadata[36], metadata[37], metadata[38],
+            values[4], values[5], values[6], values[7])
     }
 
     /**

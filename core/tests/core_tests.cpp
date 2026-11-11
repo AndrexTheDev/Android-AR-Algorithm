@@ -1,13 +1,19 @@
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 #include "arkernel/bundle_adjustment.h"
 #include "arkernel/c_api.h"
 #include "arkernel/camera_model.h"
+#include "arkernel/camera_response.h"
 #include "arkernel/clock_aligner.h"
 #include "arkernel/core_engine.h"
 #include "arkernel/depth_postprocessor.h"
@@ -714,6 +720,143 @@ int main() {
         evaluation_limited_mesh.truncated&&
         evaluation_limited_mesh.error=="quadric LOD evaluation budget exceeded");
 
+
+  // Bounded deterministic edge-collapse QEM simplification changes topology:
+  // quadrics, adjacency, feature locks and priorities are rebuilt after each
+  // accepted collapse. The planar fan below has exactly one safe collapse.
+  ReconstructionMesh qem_mesh;
+  qem_mesh.positions_m={{0,0,0},{1,-1,0},{1,1,0},{-1,1,0},{-1,-1,0}};
+  qem_mesh.normals.assign(5,{0,0,1});
+  qem_mesh.texcoords.assign(5,{0.5F,0.5F});
+  qem_mesh.triangle_indices={0,1,2,0,2,3,0,3,4,0,4,1};
+  qem_mesh.base_color_texture={"qem-atlas.png","image/png"};
+  MeshEdgeCollapseQemConfig qem_config;
+  qem_config.max_edge_quadric_error_m2=1e-3;
+  qem_config.max_displacement_m=2.0;
+  qem_config.max_uv_error=0.1;
+  qem_config.preserve_boundaries=false;
+  qem_config.preserve_sharp_edges=false;
+  qem_config.preserve_uv_seams=false;
+  qem_config.max_collapses=8;
+  const auto qem_result=simplifyMeshEdgeCollapseQem(qem_mesh,qem_config);
+  CHECK(qem_result.input_valid&&!qem_result.truncated&&
+        qem_result.error.empty()&&
+        qem_result.accepted_collapses>0&&
+        qem_result.boundary_edges==4&&
+        qem_result.non_manifold_edges==0&&
+        qem_result.locked_vertices==0&&
+        qem_result.output_vertices<qem_result.input_vertices&&
+        qem_result.output_triangles<qem_result.input_triangles&&
+        qem_result.removed_degenerate_triangles>=2&&
+        qem_result.max_observed_displacement_m<=2.000001&&
+        std::isfinite(qem_result.max_observed_uv_error)&&
+        qem_result.max_observed_uv_error<=0.100001&&
+        std::isfinite(qem_result.initial_quadric_error_m2)&&
+        std::isfinite(qem_result.final_quadric_error_m2)&&
+        qem_result.mesh.texcoords.size()==
+          qem_result.mesh.positions_m.size()&&
+        qem_result.mesh.base_color_texture.uri=="qem-atlas.png"&&
+        validateMesh(qem_result.mesh).valid);
+  const auto repeated_qem_result=simplifyMeshEdgeCollapseQem(qem_mesh,qem_config);
+  CHECK(repeated_qem_result.mesh.triangle_indices==
+          qem_result.mesh.triangle_indices&&
+        repeated_qem_result.mesh.positions_m.size()==
+          qem_result.mesh.positions_m.size());
+  auto boundary_qem_config=qem_config;
+  boundary_qem_config.preserve_boundaries=true;
+  const auto boundary_qem=simplifyMeshEdgeCollapseQem(qem_mesh,
+                                                      boundary_qem_config);
+  CHECK(boundary_qem.input_valid&&boundary_qem.accepted_collapses==0&&
+        boundary_qem.locked_vertices>=4&&
+        boundary_qem.output_vertices==boundary_qem.input_vertices&&
+        validateMesh(boundary_qem.mesh).valid);
+  auto strict_qem_config=qem_config;
+  strict_qem_config.max_displacement_m=0.01;
+  const auto strict_qem=simplifyMeshEdgeCollapseQem(qem_mesh,
+                                                    strict_qem_config);
+  CHECK(strict_qem.input_valid&&!strict_qem.truncated&&
+        strict_qem.accepted_collapses==0&&
+        strict_qem.candidate_edges==0&&
+        strict_qem.output_vertices==strict_qem.input_vertices&&
+        strict_qem.max_observed_displacement_m<=1e-6&&
+        validateMesh(strict_qem.mesh).valid);
+  auto invalid_qem_config=qem_config;
+  invalid_qem_config.min_normal_dot=2.0;
+  bool rejected_qem_config=false;
+  try{simplifyMeshEdgeCollapseQem(qem_mesh,invalid_qem_config);}
+  catch(const std::invalid_argument&){rejected_qem_config=true;}
+  CHECK(rejected_qem_config);
+  auto evaluation_limited_qem_config=qem_config;
+  evaluation_limited_qem_config.max_evaluations=1;
+  const auto evaluation_limited_qem=simplifyMeshEdgeCollapseQem(
+    qem_mesh,evaluation_limited_qem_config);
+  CHECK(evaluation_limited_qem.input_valid&&
+        evaluation_limited_qem.truncated&&
+        evaluation_limited_qem.evaluated_collapses==1&&
+        evaluation_limited_qem.error==
+          "edge-collapse QEM evaluation budget exceeded");
+  auto collapse_limited_qem_config=qem_config;
+  collapse_limited_qem_config.max_collapses=1;
+  const auto collapse_limited_qem=simplifyMeshEdgeCollapseQem(
+    qem_mesh,collapse_limited_qem_config);
+  CHECK(collapse_limited_qem.input_valid&&
+        collapse_limited_qem.truncated&&
+        collapse_limited_qem.accepted_collapses==1&&
+        collapse_limited_qem.error==
+          "edge-collapse QEM collapse budget exceeded");
+
+  // A representative chain must not accumulate UV drift beyond the seam
+  // budget. This deterministic 4x4 grid reproduces a group whose endpoint UVs
+  // are close while an earlier group member is 0.05 away from the new
+  // representative; the cumulative guard rejects that collapse.
+  ReconstructionMesh qem_uv_mesh;
+  const float qem_uv_values[16]={0.025F,0.05F,0.05F,0.025F,
+                                 0.075F,0.025F,0.025F,0.0F,
+                                 0.0F,0.0F,0.0F,0.0F,
+                                 0.025F,0.075F,0.1F,0.0F};
+  const float qem_uv_z[16]={-0.323597F,0.165359F,-0.289814F,-0.0831541F,
+                            0.131825F,0.200851F,-0.206078F,-0.00580457F,
+                            0.308016F,0.391847F,0.110441F,0.287327F,
+                            -0.0238668F,-0.0043734F,0.268743F,0.398012F};
+  for (int vertex=0;vertex<16;++vertex) {
+    const float x=static_cast<float>(vertex%4);
+    const float y=static_cast<float>(vertex/4);
+    qem_uv_mesh.positions_m.push_back({x,y,qem_uv_z[vertex]});
+    qem_uv_mesh.normals.push_back({0.0F,0.0F,1.0F});
+    qem_uv_mesh.texcoords.push_back({qem_uv_values[vertex],0.0F});
+  }
+  for (int row=0;row<3;++row) {
+    for (int column=0;column<3;++column) {
+      const auto a=static_cast<std::uint32_t>(row*4+column);
+      const auto b=static_cast<std::uint32_t>((row+1)*4+column);
+      const auto d=static_cast<std::uint32_t>((row+1)*4+column+1);
+      const auto e=static_cast<std::uint32_t>(row*4+column+1);
+      qem_uv_mesh.triangle_indices.insert(
+          qem_uv_mesh.triangle_indices.end(),{a,b,d,a,d,e});
+    }
+  }
+  MeshEdgeCollapseQemConfig qem_uv_config;
+  qem_uv_config.max_edge_quadric_error_m2=100.0;
+  qem_uv_config.max_displacement_m=10.0;
+  qem_uv_config.sharp_edge_angle_degrees=90.0;
+  qem_uv_config.max_uv_error=0.03;
+  qem_uv_config.min_normal_dot=-1.0;
+  qem_uv_config.preserve_boundaries=false;
+  qem_uv_config.preserve_non_manifold=false;
+  qem_uv_config.preserve_sharp_edges=false;
+  qem_uv_config.preserve_uv_seams=true;
+  qem_uv_config.max_collapses=100;
+  qem_uv_config.max_evaluations=100000;
+  const auto qem_uv_result=simplifyMeshEdgeCollapseQem(
+      qem_uv_mesh,qem_uv_config);
+  CHECK(qem_uv_result.input_valid&&qem_uv_result.error.empty()&&
+        !qem_uv_result.truncated&&
+        qem_uv_result.accepted_collapses>0&&
+        qem_uv_result.output_vertices<qem_uv_result.input_vertices&&
+        std::isfinite(qem_uv_result.max_observed_uv_error)&&
+        qem_uv_result.max_observed_uv_error<=0.030001&&
+        validateMesh(qem_uv_result.mesh).valid);
+
   // The fusion pipeline owns temporal ordering, sticky truncation evidence and
   // both the filtered source mesh and its independent delivery simplification.
   ReconstructionPipelineConfig pipeline_config;
@@ -796,6 +939,71 @@ int main() {
         quadric_pipeline_mesh.telemetry.quadric_lod_max_displacement_m<=0.120001&&
         validateMesh(quadric_pipeline_mesh.source_mesh).valid&&
         validateMesh(quadric_pipeline_mesh.simplified_mesh).valid);
+
+
+  // The optional edge-collapse QEM stage is wired into the delivery pipeline
+  // with its own telemetry, constructor validation and sticky truncation.
+  auto qem_pipeline_config=pipeline_config;
+  qem_pipeline_config.enable_edge_collapse_qem=true;
+  MeshEdgeCollapseQemConfig pipeline_qem_config;
+  pipeline_qem_config.max_edge_quadric_error_m2=1e-3;
+  pipeline_qem_config.max_displacement_m=0.12;
+  pipeline_qem_config.max_uv_error=0.1;
+  pipeline_qem_config.preserve_boundaries=false;
+  pipeline_qem_config.max_collapses=4096;
+  qem_pipeline_config.edge_collapse_qem=pipeline_qem_config;
+  ReconstructionFusionPipeline qem_pipeline(qem_pipeline_config);
+  CHECK(qem_pipeline.integrate(1000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  CHECK(qem_pipeline.integrate(2000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  const auto qem_pipeline_mesh=qem_pipeline.build();
+  CHECK(qem_pipeline_mesh.error.empty()&&
+        qem_pipeline_mesh.telemetry.complete&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_enabled&&
+        !qem_pipeline_mesh.telemetry.edge_collapse_qem_truncated&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_accepted_collapses>0&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_output_vertices<
+          qem_pipeline_mesh.telemetry.edge_collapse_qem_input_vertices&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_output_vertices==
+          qem_pipeline_mesh.simplified_mesh.positions_m.size()&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_output_triangles==
+          qem_pipeline_mesh.simplified_mesh.triangle_indices.size()/3&&
+        std::isfinite(qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_initial_error_m2)&&
+        std::isfinite(qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_final_error_m2)&&
+        qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_max_displacement_m<=0.120001&&
+        std::isfinite(qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_max_uv_error)&&
+        qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_max_uv_error<=0.100001&&
+        qem_pipeline_mesh.source_mesh.positions_m.size()==
+          pipeline_mesh.source_mesh.positions_m.size()&&
+        qem_pipeline_mesh.source_mesh.texcoords.size()==
+          pipeline_mesh.source_mesh.texcoords.size()&&
+        qem_pipeline_mesh.source_mesh.triangle_indices==
+          pipeline_mesh.source_mesh.triangle_indices&&
+        validateMesh(qem_pipeline_mesh.source_mesh).valid&&
+        validateMesh(qem_pipeline_mesh.simplified_mesh).valid);
+  auto invalid_qem_pipeline_config=qem_pipeline_config;
+  invalid_qem_pipeline_config.edge_collapse_qem.min_normal_dot=2.0;
+  bool rejected_qem_pipeline_config=false;
+  try{ReconstructionFusionPipeline invalid_qem_pipeline(
+    invalid_qem_pipeline_config);}
+  catch(const std::invalid_argument&){rejected_qem_pipeline_config=true;}
+  CHECK(rejected_qem_pipeline_config);
+  auto truncated_qem_pipeline_config=qem_pipeline_config;
+  truncated_qem_pipeline_config.edge_collapse_qem.max_collapses=1;
+  ReconstructionFusionPipeline truncated_qem_pipeline(
+    truncated_qem_pipeline_config);
+  CHECK(truncated_qem_pipeline.integrate(
+    1000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  CHECK(truncated_qem_pipeline.integrate(
+    2000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  const auto truncated_qem_build=truncated_qem_pipeline.build();
+  CHECK(!truncated_qem_build.telemetry.complete&&
+        truncated_qem_build.telemetry.edge_collapse_qem_truncated&&
+        !truncated_qem_build.error.empty());
 
   // Texture source selection uses calibrated projection, facing, image support
   // and measured depth visibility without mutating the source mesh or building an atlas.
@@ -1173,6 +1381,11 @@ int main() {
         global_seam_texture.telemetry.error.empty()&&
         global_seam_texture.telemetry.seam_pairs==1&&
         global_seam_texture.telemetry.sampled_pairs>0&&
+        global_seam_texture.telemetry.training_samples==
+          global_seam_texture.telemetry.sampled_pairs&&
+        global_seam_texture.telemetry.holdout_samples==0&&
+        !global_seam_texture.telemetry.holdout_validated&&
+        global_seam_texture.telemetry.holdout_accepted&&
         global_seam_texture.telemetry.iterations>0&&
         global_seam_texture.telemetry.constrained_patches>0&&
         global_seam_texture.telemetry.pixel_updates>0&&
@@ -1181,6 +1394,198 @@ int main() {
         global_seam_texture.rgba8!=uneven_texture.rgba8);
   for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
     CHECK(global_seam_texture.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  // A deterministic train/holdout split can now gate the global seam solve.
+  // Accepted strict validation fits only on training samples and preserves
+  // alpha; rejected validation fails closed with identity RGBA pixels.
+  auto global_accepted_config=global_seam_config;
+  global_accepted_config.require_holdout_validation=true;
+  const auto global_accepted_result=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_accepted_config);
+  CHECK(global_accepted_result.telemetry.input_valid&&
+        !global_accepted_result.telemetry.truncated&&
+        global_accepted_result.telemetry.error.empty()&&
+        global_accepted_result.telemetry.sampled_pairs==
+          global_seam_texture.telemetry.sampled_pairs&&
+        global_accepted_result.telemetry.training_samples>0&&
+        global_accepted_result.telemetry.holdout_samples>=
+          global_accepted_config.min_holdout_samples&&
+        global_accepted_result.telemetry.training_samples+
+          global_accepted_result.telemetry.holdout_samples==
+          global_accepted_result.telemetry.sampled_pairs&&
+        global_accepted_result.telemetry.holdout_validated&&
+        global_accepted_result.telemetry.holdout_accepted&&
+        global_accepted_result.telemetry.rejection==TextureGlobalSeamRejection::kNone&&
+        global_accepted_result.telemetry.training_rmse>0.0&&
+        global_accepted_result.telemetry.training_rmse<
+          global_accepted_config.max_training_rmse&&
+        global_accepted_result.telemetry.holdout_max_residual>0.0&&
+        global_accepted_result.telemetry.holdout_max_residual<
+          global_accepted_config.max_holdout_residual&&
+        global_accepted_result.telemetry.holdout_rmse>0.0&&
+        global_accepted_result.telemetry.holdout_rmse<
+          global_accepted_config.max_holdout_rmse&&
+        global_accepted_result.telemetry.holdout_ratio>0.0&&
+        global_accepted_result.telemetry.holdout_ratio<
+          global_accepted_config.max_holdout_ratio&&
+        global_accepted_result.telemetry.residual_after<=
+          global_accepted_result.telemetry.residual_before+1e-9&&
+        global_accepted_result.telemetry.pixel_updates>0&&
+        global_accepted_result.rgba8!=uneven_texture.rgba8);
+  for(std::size_t pixel=0;pixel<uneven_texture.rgba8.size()/4;++pixel)
+    CHECK(global_accepted_result.rgba8[pixel*4+3]==uneven_texture.rgba8[pixel*4+3]);
+  const auto global_accepted_repeat=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_accepted_config);
+  CHECK(global_accepted_repeat.rgba8==global_accepted_result.rgba8&&
+        global_accepted_repeat.telemetry.training_rmse==
+          global_accepted_result.telemetry.training_rmse&&
+        global_accepted_repeat.telemetry.holdout_rmse==
+          global_accepted_result.telemetry.holdout_rmse&&
+        global_accepted_repeat.telemetry.holdout_ratio==
+          global_accepted_result.telemetry.holdout_ratio);
+  const auto checkRejectedGlobalSeam=[&](const TextureGlobalSeamConfig& config,
+      TextureGlobalSeamRejection reason,const char* error,
+      const char* reason_text) -> bool {
+    const auto rejected=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+        photometry_layout,photometry_labels,uneven_texture.rgba8,
+        uneven_texture.width,uneven_texture.height,config);
+    const bool ok=rejected.telemetry.input_valid&&
+          !rejected.telemetry.truncated&&
+          rejected.telemetry.error==error&&
+          rejected.telemetry.holdout_validated&&
+          !rejected.telemetry.holdout_accepted&&
+          rejected.telemetry.rejection==reason&&
+          std::string(textureGlobalSeamRejectionText(reason))==reason_text&&
+          rejected.telemetry.pixel_updates==0&&
+          rejected.telemetry.constrained_patches==0&&
+          rejected.rgba8==uneven_texture.rgba8;
+    if(!ok)std::cerr<<"FAIL global seam rejection: "<<error<<"\n";
+    return ok;
+  };
+  auto global_insufficient_training_config=global_accepted_config;
+  global_insufficient_training_config.min_training_samples=1000;
+  CHECK(checkRejectedGlobalSeam(global_insufficient_training_config,
+      TextureGlobalSeamRejection::kInsufficientTrainingEvidence,
+      "global texture seam insufficient training evidence",
+      "insufficient training evidence"));
+  auto global_insufficient_holdout_config=global_accepted_config;
+  global_insufficient_holdout_config.min_holdout_samples=1000;
+  CHECK(checkRejectedGlobalSeam(global_insufficient_holdout_config,
+      TextureGlobalSeamRejection::kInsufficientHoldoutEvidence,
+      "global texture seam insufficient holdout evidence",
+      "insufficient holdout evidence"));
+  auto global_training_rmse_config=global_accepted_config;
+  global_training_rmse_config.max_training_rmse=1e-6;
+  CHECK(checkRejectedGlobalSeam(global_training_rmse_config,
+      TextureGlobalSeamRejection::kTrainingRmseTooLarge,
+      "global texture seam training rmse too large",
+      "training rmse too large"));
+  auto global_holdout_residual_config=global_accepted_config;
+  global_holdout_residual_config.max_holdout_residual=1e-6;
+  CHECK(checkRejectedGlobalSeam(global_holdout_residual_config,
+      TextureGlobalSeamRejection::kHoldoutResidualTooLarge,
+      "global texture seam holdout residual too large",
+      "holdout residual too large"));
+  auto global_holdout_rmse_config=global_accepted_config;
+  global_holdout_rmse_config.max_holdout_rmse=1e-6;
+  CHECK(checkRejectedGlobalSeam(global_holdout_rmse_config,
+      TextureGlobalSeamRejection::kHoldoutRmseTooLarge,
+      "global texture seam holdout rmse too large",
+      "holdout rmse too large"));
+  auto global_holdout_ratio_config=global_accepted_config;
+  global_holdout_ratio_config.max_holdout_ratio=0.5;
+  CHECK(checkRejectedGlobalSeam(global_holdout_ratio_config,
+      TextureGlobalSeamRejection::kHoldoutRatioTooLarge,
+      "global texture seam holdout ratio too large",
+      "holdout ratio too large"));
+  CHECK(std::string(textureGlobalSeamRejectionText(
+      TextureGlobalSeamRejection::kNone))=="none");
+  // A measured holdout-only pixel outlier leaves training RMSE unchanged but
+  // exceeds the holdout gates; strict validation returns the exact input atlas.
+  std::vector<std::uint8_t> holdout_outlier_pixels=uneven_texture.rgba8;
+  constexpr std::size_t kGlobalSeamHoldoutOutlierPixel=6682;
+  CHECK(kGlobalSeamHoldoutOutlierPixel<holdout_outlier_pixels.size()/4&&
+        holdout_outlier_pixels[kGlobalSeamHoldoutOutlierPixel*4+3]!=0);
+  const int global_outlier_value=static_cast<int>(
+      holdout_outlier_pixels[kGlobalSeamHoldoutOutlierPixel*4])+100;
+  holdout_outlier_pixels[kGlobalSeamHoldoutOutlierPixel*4]=
+      static_cast<std::uint8_t>(std::max(0,std::min(255,global_outlier_value)));
+  const auto holdout_outlier_strict=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,holdout_outlier_pixels,
+      uneven_texture.width,uneven_texture.height,global_accepted_config);
+  CHECK(holdout_outlier_strict.telemetry.input_valid&&
+        !holdout_outlier_strict.telemetry.truncated&&
+        holdout_outlier_strict.telemetry.error==
+          "global texture seam holdout residual too large"&&
+        holdout_outlier_strict.telemetry.holdout_validated&&
+        !holdout_outlier_strict.telemetry.holdout_accepted&&
+        holdout_outlier_strict.telemetry.rejection==
+          TextureGlobalSeamRejection::kHoldoutResidualTooLarge&&
+        std::abs(holdout_outlier_strict.telemetry.training_rmse-
+                 global_accepted_result.telemetry.training_rmse)<1e-9&&
+        holdout_outlier_strict.telemetry.holdout_max_residual>
+          global_accepted_config.max_holdout_residual&&
+        holdout_outlier_strict.telemetry.holdout_rmse>
+          global_accepted_config.max_holdout_rmse&&
+        holdout_outlier_strict.telemetry.holdout_ratio>
+          global_accepted_config.max_holdout_ratio&&
+        holdout_outlier_strict.telemetry.pixel_updates==0&&
+        holdout_outlier_strict.telemetry.constrained_patches==0&&
+        holdout_outlier_strict.rgba8==holdout_outlier_pixels);
+  const auto holdout_outlier_unchecked=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,holdout_outlier_pixels,
+      uneven_texture.width,uneven_texture.height,global_seam_config);
+  CHECK(holdout_outlier_unchecked.telemetry.error.empty()&&
+        !holdout_outlier_unchecked.telemetry.holdout_validated&&
+        holdout_outlier_unchecked.telemetry.holdout_accepted&&
+        holdout_outlier_unchecked.telemetry.holdout_samples==0&&
+        holdout_outlier_unchecked.telemetry.pixel_updates>0&&
+        holdout_outlier_unchecked.rgba8!=holdout_outlier_pixels);
+  auto global_disabled_config=global_accepted_config;
+  global_disabled_config.require_holdout_validation=false;
+  global_disabled_config.min_training_samples=1000;
+  global_disabled_config.min_holdout_samples=1000;
+  global_disabled_config.max_training_rmse=1e-6;
+  global_disabled_config.max_holdout_residual=1e-6;
+  global_disabled_config.max_holdout_rmse=1e-6;
+  global_disabled_config.max_holdout_ratio=1e-6;
+  const auto global_disabled_result=optimizeTextureAtlasSeamsGlobally(texture_mesh,
+      photometry_layout,photometry_labels,uneven_texture.rgba8,
+      uneven_texture.width,uneven_texture.height,global_disabled_config);
+  CHECK(global_disabled_result.telemetry.input_valid&&
+        !global_disabled_result.telemetry.truncated&&
+        global_disabled_result.telemetry.error.empty()&&
+        !global_disabled_result.telemetry.holdout_validated&&
+        global_disabled_result.telemetry.holdout_accepted&&
+        global_disabled_result.telemetry.rejection==TextureGlobalSeamRejection::kNone&&
+        global_disabled_result.telemetry.pixel_updates>0&&
+        global_disabled_result.rgba8!=uneven_texture.rgba8);
+  auto global_invalid_holdout_stride=global_seam_config;
+  global_invalid_holdout_stride.holdout_stride=1;
+  bool global_rejected_holdout_stride=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,global_invalid_holdout_stride);}
+  catch(const std::invalid_argument&){global_rejected_holdout_stride=true;}
+  CHECK(global_rejected_holdout_stride);
+  auto global_invalid_training_rmse=global_seam_config;
+  global_invalid_training_rmse.max_training_rmse=0.0;
+  bool global_rejected_training_rmse=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,global_invalid_training_rmse);}
+  catch(const std::invalid_argument&){global_rejected_training_rmse=true;}
+  CHECK(global_rejected_training_rmse);
+  auto global_invalid_min_training=global_seam_config;
+  global_invalid_min_training.min_training_samples=0;
+  bool global_rejected_min_training=false;
+  try{optimizeTextureAtlasSeamsGlobally(texture_mesh,photometry_layout,
+      photometry_labels,uneven_texture.rgba8,uneven_texture.width,
+      uneven_texture.height,global_invalid_min_training);}
+  catch(const std::invalid_argument&){global_rejected_min_training=true;}
+  CHECK(global_rejected_min_training);
+
   auto invalid_global_config=global_seam_config;
   invalid_global_config.samples_per_seam=0;
   bool rejected_global_config=false;
@@ -1217,6 +1622,510 @@ int main() {
         limited_photometry.sample_tests==1&&
         limited_photometry.error=="texture photometry sample budget exceeded");
 
+  // Bounded deterministic holdout-validated robust photometry. A synthetic
+  // triangle strip supplies twelve seam equations; an opt-in strict split
+  // cross-validates Huber-weighted per-view RGB gains and fails closed.
+  struct PhotometryHoldoutCase {
+    ReconstructionMesh mesh;
+    std::vector<TextureViewReference> views;
+    std::vector<TriangleTextureView> labels;
+    std::vector<std::vector<std::uint8_t>> storage;
+    std::vector<TextureSourceImageView> images;
+  };
+  auto make_holdout_case = [](const std::string& regions) {
+    const int view_sequence[13] = {2, 1, 0, 3, 0, 2, 0, 1, 3, 1, 3, 2, 1};
+    const double base[4] = {100.0, 80.0, 120.0, 60.0};
+    const double outlier_factor = 1.5;
+    PhotometryHoldoutCase result;
+    result.mesh.positions_m.resize(15);
+    for (int i = 0; i < 15; ++i) {
+      result.mesh.positions_m[i] = {static_cast<float>(i) * 0.1F,
+                                    static_cast<float>(i % 2), 2.0F};
+    }
+    for (int i = 0; i < 13; ++i) {
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 1));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 2));
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.views.push_back({static_cast<std::uint64_t>(101 + view),
+                              "holdout-view-" + std::to_string(view), 100, 100});
+    }
+    result.storage.resize(4);
+    for (int view = 0; view < 4; ++view) {
+      result.storage[view].resize(100 * 100 * 3);
+      for (int y = 0; y < 100; ++y) {
+        for (int x = 0; x < 100; ++x) {
+          const double value =
+              base[view] * ((x >= 50) ? outlier_factor : 1.0);
+          const auto byte = static_cast<std::uint8_t>(std::llround(value));
+          const std::size_t offset = (static_cast<std::size_t>(y) * 100 + x) * 3;
+          for (int channel = 0; channel < 3; ++channel) {
+            result.storage[view][offset + channel] = byte;
+          }
+        }
+      }
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.images.push_back({static_cast<std::uint64_t>(101 + view), 100, 100,
+                               300, TexturePixelFormat::kRgb8,
+                               result.storage[view].data(),
+                               result.storage[view].size()});
+    }
+    result.labels.resize(13);
+    for (int i = 0; i < 13; ++i) {
+      auto& label = result.labels[static_cast<std::size_t>(i)];
+      label.assigned = true;
+      label.view_index = static_cast<std::size_t>(view_sequence[i]);
+      label.frame_id = result.views[label.view_index].frame_id;
+      const float u = regions[static_cast<std::size_t>(i)] == 'O' ? 0.75F : 0.25F;
+      for (int corner = 0; corner < 3; ++corner) {
+        label.normalized_uv[static_cast<std::size_t>(corner)] = {u, 0.5F};
+      }
+    }
+    return result;
+  };
+  TexturePhotometryConfig holdout_config;
+  holdout_config.holdout_stride = 2;
+  holdout_config.require_holdout_validation = true;
+  holdout_config.min_holdout_equations = 4;
+  const auto holdout_consistent_case = make_holdout_case(std::string(13, 'N'));
+  const auto holdout_consistent = estimateTexturePhotometry(
+      holdout_consistent_case.mesh, holdout_consistent_case.views,
+      holdout_consistent_case.labels, holdout_consistent_case.images,
+      holdout_config);
+  CHECK(holdout_consistent.input_valid && !holdout_consistent.truncated &&
+        holdout_consistent.error.empty() && holdout_consistent.holdout_accepted &&
+        holdout_consistent.holdout_validated &&
+        holdout_consistent.rejection == TexturePhotometryRejection::kNone);
+  CHECK(holdout_consistent.equations == 12 &&
+        holdout_consistent.training_equations == 6 &&
+        holdout_consistent.holdout_equations == 6 &&
+        holdout_consistent.robust_iterations >= 1 &&
+        holdout_consistent.robust_converged &&
+        holdout_consistent.downweighted_equations == 0);
+  CHECK(holdout_consistent.training_rmse < 1e-9 &&
+        holdout_consistent.holdout_rmse < 1e-9 &&
+        holdout_consistent.holdout_max_residual < 1e-9 &&
+        holdout_consistent.holdout_ratio < 1e-9);
+  CHECK(holdout_consistent.corrections.size() == 4);
+  for (const auto& correction : holdout_consistent.corrections) {
+    CHECK(correction.constrained && correction.supporting_equations > 0);
+  }
+  CHECK(std::fabs(holdout_consistent.corrections[0].rgb_gain[0] - 1.0) < 1e-9 &&
+        std::fabs(holdout_consistent.corrections[1].rgb_gain[0] - 1.25) < 1e-9 &&
+        std::fabs(holdout_consistent.corrections[2].rgb_gain[0] -
+                  100.0 / 120.0) < 1e-9 &&
+        std::fabs(holdout_consistent.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 1e-9);
+  CHECK(std::strcmp(texturePhotometryRejectionText(
+                        TexturePhotometryRejection::kNone),
+                    "none") == 0);
+
+  const auto holdout_train_outlier_case =
+      make_holdout_case(std::string(5, 'N') + std::string(8, 'O'));
+  const auto holdout_train_outlier = estimateTexturePhotometry(
+      holdout_train_outlier_case.mesh, holdout_train_outlier_case.views,
+      holdout_train_outlier_case.labels, holdout_train_outlier_case.images,
+      holdout_config);
+  CHECK(holdout_train_outlier.holdout_accepted &&
+        holdout_train_outlier.holdout_validated &&
+        holdout_train_outlier.robust_converged &&
+        holdout_train_outlier.downweighted_equations > 0 &&
+        holdout_train_outlier.training_rmse <=
+            holdout_config.max_training_rmse &&
+        holdout_train_outlier.holdout_max_residual <=
+            holdout_config.max_holdout_residual &&
+        holdout_train_outlier.holdout_rmse <=
+            holdout_config.max_holdout_rmse &&
+        holdout_train_outlier.holdout_ratio <=
+            holdout_config.max_holdout_ratio);
+  CHECK(std::fabs(holdout_train_outlier.corrections[1].rgb_gain[0] - 1.25) <
+            0.05 &&
+        std::fabs(holdout_train_outlier.corrections[2].rgb_gain[0] -
+                  100.0 / 120.0) < 0.05 &&
+        std::fabs(holdout_train_outlier.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 0.05);
+
+  const auto holdout_rejected_case =
+      make_holdout_case(std::string(6, 'N') + std::string(7, 'O'));
+  const auto holdout_rejected = estimateTexturePhotometry(
+      holdout_rejected_case.mesh, holdout_rejected_case.views,
+      holdout_rejected_case.labels, holdout_rejected_case.images,
+      holdout_config);
+  CHECK(!holdout_rejected.holdout_accepted &&
+        holdout_rejected.holdout_validated &&
+        holdout_rejected.rejection ==
+            TexturePhotometryRejection::kHoldoutResidualTooLarge &&
+        holdout_rejected.error ==
+            "texture photometry holdout residual too large" &&
+        holdout_rejected.holdout_max_residual >
+            holdout_config.max_holdout_residual &&
+        holdout_rejected.holdout_rmse > holdout_config.max_holdout_rmse &&
+        holdout_rejected.holdout_ratio > holdout_config.max_holdout_ratio);
+  for (const auto& correction : holdout_rejected.corrections) {
+    CHECK(!correction.constrained && correction.supporting_equations == 0 &&
+          correction.rgb_gain[0] == 1.0 && correction.rgb_gain[1] == 1.0 &&
+          correction.rgb_gain[2] == 1.0);
+  }
+  CHECK(std::strcmp(texturePhotometryRejectionText(
+                        TexturePhotometryRejection::kHoldoutResidualTooLarge),
+                    "holdout residual too large") == 0);
+
+  auto holdout_config_rejected =
+      [&](const TexturePhotometryConfig& config) {
+        try {
+          const auto ignored = estimateTexturePhotometry(
+              holdout_consistent_case.mesh, holdout_consistent_case.views,
+              holdout_consistent_case.labels, holdout_consistent_case.images,
+              config);
+          (void)ignored;
+        } catch (const std::invalid_argument&) {
+          return true;
+        }
+        return false;
+      };
+  auto holdout_rejected_with =
+      [&](const PhotometryHoldoutCase& data,
+          const TexturePhotometryConfig& config,
+          TexturePhotometryRejection expected) {
+        const auto result = estimateTexturePhotometry(
+            data.mesh, data.views, data.labels, data.images, config);
+        return !result.holdout_accepted && result.rejection == expected &&
+               !result.error.empty() && result.corrections[1].rgb_gain[0] == 1.0;
+      };
+  auto holdout_sparse_config = holdout_config;
+  holdout_sparse_config.min_holdout_equations = 7;
+  CHECK(holdout_rejected_with(
+      holdout_consistent_case, holdout_sparse_config,
+      TexturePhotometryRejection::kInsufficientHoldoutEvidence));
+  auto holdout_training_config = holdout_config;
+  holdout_training_config.min_training_equations = 7;
+  CHECK(holdout_rejected_with(
+      holdout_consistent_case, holdout_training_config,
+      TexturePhotometryRejection::kInsufficientTrainingEvidence));
+  auto holdout_slow_config = holdout_config;
+  holdout_slow_config.solver_iterations = 1;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_slow_config,
+      TexturePhotometryRejection::kRobustSolverDidNotConverge));
+  auto holdout_train_rmse_config = holdout_config;
+  holdout_train_rmse_config.max_training_rmse = 0.01;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_train_rmse_config,
+      TexturePhotometryRejection::kTrainingRmseTooLarge));
+  auto holdout_max_residual_config = holdout_config;
+  holdout_max_residual_config.max_holdout_residual = 1e-9;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_max_residual_config,
+      TexturePhotometryRejection::kHoldoutResidualTooLarge));
+  auto holdout_rmse_config = holdout_config;
+  holdout_rmse_config.max_holdout_rmse = 1e-9;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_rmse_config,
+      TexturePhotometryRejection::kHoldoutRmseTooLarge));
+  auto holdout_ratio_config = holdout_config;
+  holdout_ratio_config.max_holdout_ratio = 1e-9;
+  CHECK(holdout_rejected_with(
+      holdout_train_outlier_case, holdout_ratio_config,
+      TexturePhotometryRejection::kHoldoutRatioTooLarge));
+
+  auto holdout_disabled_config = holdout_config;
+  holdout_disabled_config.require_holdout_validation = false;
+  const auto holdout_disabled = estimateTexturePhotometry(
+      holdout_rejected_case.mesh, holdout_rejected_case.views,
+      holdout_rejected_case.labels, holdout_rejected_case.images,
+      holdout_disabled_config);
+  CHECK(holdout_disabled.holdout_accepted &&
+        !holdout_disabled.holdout_validated &&
+        holdout_disabled.error.empty() &&
+        holdout_disabled.rejection == TexturePhotometryRejection::kNone &&
+        holdout_disabled.corrections[1].rgb_gain[0] > 1.0);
+
+  auto holdout_bad_stride = holdout_config;
+  holdout_bad_stride.holdout_stride = 1;
+  CHECK(holdout_config_rejected(holdout_bad_stride));
+  auto holdout_bad_training = holdout_config;
+  holdout_bad_training.min_training_equations = 0;
+  CHECK(holdout_config_rejected(holdout_bad_training));
+  auto holdout_bad_budget = holdout_config;
+  holdout_bad_budget.min_holdout_equations =
+      holdout_bad_budget.max_equations + 1;
+  CHECK(holdout_config_rejected(holdout_bad_budget));
+  auto holdout_bad_iterations = holdout_config;
+  holdout_bad_iterations.solver_iterations = 129;
+  CHECK(holdout_config_rejected(holdout_bad_iterations));
+  auto holdout_bad_huber = holdout_config;
+  holdout_bad_huber.huber_delta =
+      std::numeric_limits<double>::quiet_NaN();
+  CHECK(holdout_config_rejected(holdout_bad_huber));
+  auto holdout_bad_ratio = holdout_config;
+  holdout_bad_ratio.max_holdout_ratio = 0.0;
+  CHECK(holdout_config_rejected(holdout_bad_ratio));
+
+  auto holdout_text_is = [](TexturePhotometryRejection value,
+                            const char* expected) {
+    return std::strcmp(texturePhotometryRejectionText(value), expected) == 0;
+  };
+  CHECK(holdout_text_is(TexturePhotometryRejection::kInsufficientTrainingEvidence,
+                        "insufficient training evidence"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kInsufficientHoldoutEvidence,
+                        "insufficient holdout evidence"));
+  CHECK(holdout_text_is(
+      TexturePhotometryRejection::kRobustSolverDidNotConverge,
+      "robust solver did not converge"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kTrainingRmseTooLarge,
+                        "training rmse too large"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kHoldoutRmseTooLarge,
+                        "holdout rmse too large"));
+  CHECK(holdout_text_is(TexturePhotometryRejection::kHoldoutRatioTooLarge,
+                        "holdout ratio too large"));
+
+  // Optional bounded synthetic inverse-response linearization for photometry.
+  // A gamma-0.7 paired-exposure LUT from the native core is applied to observed
+  // channels before log-ratio equations; strict holdout validation remains.
+  auto make_response_lut = []() {
+    const double gamma = 0.7;
+    const double ratios[8] = {1.2, 1.35, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0};
+    std::vector<CameraResponsePair> pairs;
+    for (int r = 0; r < 8; ++r) {
+      const double ratio = ratios[r];
+      const double response = std::pow(ratio, gamma);
+      const double max_low = (0.96 / response < 0.5) ? (0.96 / response) : 0.5;
+      for (int k = 0; k < 8; ++k) {
+        const double fraction = (static_cast<double>(k) + 0.5) / 8.0;
+        const double low = 0.025 + (max_low - 0.025) * fraction;
+        CameraResponsePair pair;
+        pair.id = static_cast<std::uint64_t>(pairs.size() + 1);
+        pair.exposure_low_s = 1.0;
+        pair.exposure_high_s = ratio;
+        pair.intensity_low = low;
+        pair.intensity_high = response * low;
+        pairs.push_back(pair);
+      }
+    }
+    return estimateCameraResponseCurve(pairs);
+  };
+  const auto response_curve = make_response_lut();
+  CHECK(response_curve.accepted &&
+        response_curve.rejection == CameraResponseRejection::kNone &&
+        response_curve.inverse_response.size() == 64 &&
+        std::strcmp(response_curve.quality_grade, "unverified") == 0);
+  auto make_response_case = [](const std::string& regions) {
+    const int view_sequence[13] = {2, 1, 0, 3, 0, 2, 0, 1, 3, 1, 3, 2, 1};
+    const double scale[4] = {1.0, 0.8, 1.2, 0.6};
+    const double gamma = 0.7;
+    const double outlier_factor = 1.5;
+    const double scale_to_byte = 150.0;
+    PhotometryHoldoutCase result;
+    result.mesh.positions_m.resize(15);
+    for (int i = 0; i < 15; ++i) {
+      result.mesh.positions_m[i] = {static_cast<float>(i) * 0.1F,
+                                    static_cast<float>(i % 2), 2.0F};
+    }
+    for (int i = 0; i < 13; ++i) {
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 1));
+      result.mesh.triangle_indices.push_back(static_cast<std::uint32_t>(i + 2));
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.views.push_back({static_cast<std::uint64_t>(101 + view),
+                              "response-view-" + std::to_string(view), 100, 100});
+    }
+    result.storage.resize(4);
+    for (int view = 0; view < 4; ++view) {
+      result.storage[view].resize(100 * 100 * 3);
+      for (int y = 0; y < 100; ++y) {
+        for (int x = 0; x < 100; ++x) {
+          const double radiance =
+              scale[view] * ((x >= 50) ? outlier_factor : 1.0);
+          const double intensity =
+              scale_to_byte * std::pow(radiance, gamma);
+          const auto byte = static_cast<std::uint8_t>(
+              std::llround(std::max(0.0, std::min(255.0, intensity))));
+          const std::size_t offset = (static_cast<std::size_t>(y) * 100 + x) * 3;
+          for (int channel = 0; channel < 3; ++channel) {
+            result.storage[view][offset + channel] = byte;
+          }
+        }
+      }
+    }
+    for (int view = 0; view < 4; ++view) {
+      result.images.push_back({static_cast<std::uint64_t>(101 + view), 100, 100,
+                               300, TexturePixelFormat::kRgb8,
+                               result.storage[view].data(),
+                               result.storage[view].size()});
+    }
+    result.labels.resize(13);
+    for (int i = 0; i < 13; ++i) {
+      auto& label = result.labels[static_cast<std::size_t>(i)];
+      label.assigned = true;
+      label.view_index = static_cast<std::size_t>(view_sequence[i]);
+      label.frame_id = result.views[label.view_index].frame_id;
+      const float u = regions[static_cast<std::size_t>(i)] == 'O' ? 0.75F : 0.25F;
+      for (int corner = 0; corner < 3; ++corner) {
+        label.normalized_uv[static_cast<std::size_t>(corner)] = {u, 0.5F};
+      }
+    }
+    return result;
+  };
+  TexturePhotometryConfig response_config;
+  response_config.holdout_stride = 2;
+  response_config.require_holdout_validation = true;
+  response_config.min_holdout_equations = 4;
+  response_config.enable_response_linearization = true;
+  response_config.inverse_response_lut = response_curve.inverse_response;
+  const auto response_consistent_case = make_response_case(std::string(13, 'N'));
+  const auto response_linearized = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_config);
+  CHECK(response_linearized.input_valid && !response_linearized.truncated &&
+        response_linearized.error.empty() &&
+        response_linearized.holdout_accepted &&
+        response_linearized.holdout_validated &&
+        response_linearized.response_linearization_enabled &&
+        response_linearized.response_linearization_accepted &&
+        response_linearized.rejection == TexturePhotometryRejection::kNone);
+  CHECK(response_linearized.equations == 12 &&
+        response_linearized.response_lut_bins == 64 &&
+        response_linearized.response_linearized_samples ==
+            response_linearized.sample_tests &&
+        response_linearized.response_linearized_samples > 0 &&
+        std::isfinite(response_linearized.response_expansion) &&
+        response_linearized.response_expansion > 1.0 &&
+        response_linearized.response_expansion <=
+            response_config.max_response_expansion);
+  CHECK(std::fabs(response_linearized.corrections[1].rgb_gain[0] - 1.25) <
+            0.02 &&
+        std::fabs(response_linearized.corrections[2].rgb_gain[0] -
+                  100.0 / 120.0) < 0.02 &&
+        std::fabs(response_linearized.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 0.02);
+  auto response_raw_config = response_config;
+  response_raw_config.enable_response_linearization = false;
+  response_raw_config.inverse_response_lut.clear();
+  const auto response_raw = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_raw_config);
+  CHECK(response_raw.holdout_accepted && response_raw.error.empty() &&
+        !response_raw.response_linearization_enabled &&
+        response_raw.response_linearized_samples == 0 &&
+        std::fabs(response_raw.corrections[1].rgb_gain[0] - 1.25) > 0.05 &&
+        std::fabs(response_raw.corrections[3].rgb_gain[0] - 100.0 / 60.0) >
+            0.05);
+  const auto response_repeated = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_config);
+  CHECK(response_repeated.holdout_accepted &&
+        response_repeated.corrections[1].rgb_gain[0] ==
+            response_linearized.corrections[1].rgb_gain[0] &&
+        response_repeated.corrections[3].rgb_gain[0] ==
+            response_linearized.corrections[3].rgb_gain[0]);
+
+  const auto response_train_outlier_case =
+      make_response_case(std::string(5, 'N') + std::string(8, 'O'));
+  const auto response_train_outlier = estimateTexturePhotometry(
+      response_train_outlier_case.mesh, response_train_outlier_case.views,
+      response_train_outlier_case.labels, response_train_outlier_case.images,
+      response_config);
+  CHECK(response_train_outlier.holdout_accepted &&
+        response_train_outlier.response_linearization_accepted &&
+        response_train_outlier.downweighted_equations > 0 &&
+        std::fabs(response_train_outlier.corrections[1].rgb_gain[0] - 1.25) <
+            0.05 &&
+        std::fabs(response_train_outlier.corrections[3].rgb_gain[0] -
+                  100.0 / 60.0) < 0.05);
+  const auto response_holdout_outlier_case =
+      make_response_case(std::string(6, 'N') + std::string(7, 'O'));
+  const auto response_holdout_outlier = estimateTexturePhotometry(
+      response_holdout_outlier_case.mesh, response_holdout_outlier_case.views,
+      response_holdout_outlier_case.labels,
+      response_holdout_outlier_case.images, response_config);
+  CHECK(!response_holdout_outlier.holdout_accepted &&
+        response_holdout_outlier.response_linearization_accepted &&
+        response_holdout_outlier.rejection ==
+            TexturePhotometryRejection::kHoldoutResidualTooLarge &&
+        response_holdout_outlier.error ==
+            "texture photometry holdout residual too large" &&
+        response_holdout_outlier.corrections[1].rgb_gain[0] == 1.0);
+
+  auto response_rejected_with =
+      [&](const TexturePhotometryConfig& config,
+          TexturePhotometryRejection expected, const char* error) {
+        const auto result = estimateTexturePhotometry(
+            response_consistent_case.mesh, response_consistent_case.views,
+            response_consistent_case.labels, response_consistent_case.images,
+            config);
+        return !result.holdout_accepted &&
+               !result.response_linearization_accepted &&
+               result.rejection == expected && result.error == error &&
+               result.equations == 0 &&
+               result.response_linearized_samples == 0 &&
+               result.corrections[1].rgb_gain[0] == 1.0;
+      };
+  auto response_empty_lut_config = response_config;
+  response_empty_lut_config.inverse_response_lut.clear();
+  CHECK(response_rejected_with(
+      response_empty_lut_config,
+      TexturePhotometryRejection::kInvalidInverseResponseLut,
+      "texture photometry invalid inverse response LUT"));
+  auto response_nonmonotonic_config = response_config;
+  response_nonmonotonic_config.inverse_response_lut[10] =
+      response_nonmonotonic_config.inverse_response_lut[9] - 1.0;
+  CHECK(response_rejected_with(
+      response_nonmonotonic_config,
+      TexturePhotometryRejection::kInvalidInverseResponseLut,
+      "texture photometry invalid inverse response LUT"));
+  auto response_expansion_config = response_config;
+  response_expansion_config.max_response_expansion = 10.0;
+  CHECK(response_rejected_with(
+      response_expansion_config,
+      TexturePhotometryRejection::kInverseResponseExpansionTooLarge,
+      "texture photometry inverse response expansion too large"));
+
+  auto response_config_rejected =
+      [&](const TexturePhotometryConfig& config) {
+        try {
+          const auto ignored = estimateTexturePhotometry(
+              response_consistent_case.mesh, response_consistent_case.views,
+              response_consistent_case.labels, response_consistent_case.images,
+              config);
+          (void)ignored;
+        } catch (const std::invalid_argument&) {
+          return true;
+        }
+        return false;
+      };
+  auto response_bad_slope = response_config;
+  response_bad_slope.response_min_slope = 0.0;
+  CHECK(response_config_rejected(response_bad_slope));
+  auto response_bad_log = response_config;
+  response_bad_log.max_log_response =
+      std::numeric_limits<double>::quiet_NaN();
+  CHECK(response_config_rejected(response_bad_log));
+  auto response_bad_expansion = response_config;
+  response_bad_expansion.max_response_expansion = 0.0;
+  CHECK(response_config_rejected(response_bad_expansion));
+  auto response_disabled_bad_config = response_config;
+  response_disabled_bad_config.enable_response_linearization = false;
+  response_disabled_bad_config.response_min_slope = 0.0;
+  const auto response_disabled = estimateTexturePhotometry(
+      response_consistent_case.mesh, response_consistent_case.views,
+      response_consistent_case.labels, response_consistent_case.images,
+      response_disabled_bad_config);
+  CHECK(response_disabled.error.empty() &&
+        !response_disabled.response_linearization_enabled);
+  CHECK(std::strcmp(texturePhotometryRejectionText(
+                        TexturePhotometryRejection::kInvalidInverseResponseLut),
+                    "invalid inverse response LUT") == 0);
+  CHECK(std::strcmp(
+            texturePhotometryRejectionText(
+                TexturePhotometryRejection::kInverseResponseExpansionTooLarge),
+            "inverse response expansion too large") == 0);
+
   // The transaction-level texture graph stops on any truncated stage and only
   // exposes final mesh/pixels after selection, labels, layout, photometry,
   // baking and seam blending have all completed.
@@ -1237,6 +2146,28 @@ int main() {
         texture_pipeline.telemetry.assigned_triangles==2&&
         texture_pipeline.telemetry.atlas_patches==1&&
         texture_pipeline.telemetry.rasterized_pixels>0);
+  auto holdout_pipeline_config=texture_pipeline_config;
+  holdout_pipeline_config.photometry.holdout_stride=2;
+  holdout_pipeline_config.photometry.require_holdout_validation=true;
+  holdout_pipeline_config.photometry.min_holdout_equations=2;
+  const auto holdout_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},holdout_pipeline_config);
+  CHECK(holdout_pipeline.input_valid&&!holdout_pipeline.truncated&&
+        holdout_pipeline.stage==TexturePipelineStage::kPhotometry&&
+        holdout_pipeline.error==
+          "texture photometry insufficient training evidence"&&
+        holdout_pipeline.rgba8.empty()&&
+        holdout_pipeline.mesh.positions_m.empty());
+  auto response_pipeline_config=texture_pipeline_config;
+  response_pipeline_config.photometry.enable_response_linearization=true;
+  const auto response_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},response_pipeline_config);
+  CHECK(response_pipeline.input_valid&&!response_pipeline.truncated&&
+        response_pipeline.stage==TexturePipelineStage::kPhotometry&&
+        response_pipeline.error==
+          "texture photometry invalid inverse response LUT"&&
+        response_pipeline.rgba8.empty()&&
+        response_pipeline.mesh.positions_m.empty());
   auto limited_texture_pipeline_config=texture_pipeline_config;
   limited_texture_pipeline_config.baking.max_pixel_tests=1;
   const auto limited_texture_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
@@ -1257,6 +2188,33 @@ int main() {
         global_pipeline.global_seam.seam_pairs==0&&
         global_pipeline.telemetry.global_seam_pairs==0&&
         global_pipeline.rgba8==texture_pipeline.rgba8);
+  auto strict_global_pipeline_config=global_pipeline_config;
+  strict_global_pipeline_config.global_seam.require_holdout_validation=true;
+  const auto strict_global_pipeline=buildTextureAtlas(texture_mesh,no_depth_candidate,
+      {pipeline_image},strict_global_pipeline_config);
+  CHECK(strict_global_pipeline.input_valid&&
+        !strict_global_pipeline.truncated&&
+        strict_global_pipeline.stage==TexturePipelineStage::kSeamBlending&&
+        strict_global_pipeline.error==
+          "global texture seam insufficient training evidence"&&
+        strict_global_pipeline.rgba8.empty()&&
+        strict_global_pipeline.mesh.positions_m.empty()&&
+        strict_global_pipeline.global_seam.enabled&&
+        strict_global_pipeline.global_seam.holdout_validated&&
+        !strict_global_pipeline.global_seam.holdout_accepted&&
+        strict_global_pipeline.global_seam.rejection==
+          TextureGlobalSeamRejection::kInsufficientTrainingEvidence&&
+        strict_global_pipeline.global_seam.pixel_updates==0&&
+        strict_global_pipeline.telemetry.global_seam_pixel_updates==0);
+  auto disabled_global_bad_config=global_pipeline_config;
+  disabled_global_bad_config.enable_global_seam_optimization=false;
+  disabled_global_bad_config.global_seam.holdout_stride=1;
+  const auto disabled_global_bad_pipeline=buildTextureAtlas(texture_mesh,
+      no_depth_candidate,{pipeline_image},disabled_global_bad_config);
+  CHECK(disabled_global_bad_pipeline.stage==TexturePipelineStage::kComplete&&
+        disabled_global_bad_pipeline.error.empty()&&
+        !disabled_global_bad_pipeline.global_seam.enabled&&
+        disabled_global_bad_pipeline.rgba8==texture_pipeline.rgba8);
 
   // Calibrated inverse-depth plane sweep recovers a synthetic textured plane.
   constexpr int mvs_width=64,mvs_height=48;
@@ -2674,6 +3632,395 @@ int main() {
   auto result = engine.processFrame({30, 1, 1, 1, PixelFormat::kGray8, &frame_pixel, 1});
   CHECK(raw->imu_count == 2);
   CHECK(result.tracking.state == TrackingState::kTracking);
+  // Bounded native camera-response linearity estimator.
+  auto make_response_samples = []() {
+    const double black = 0.05;
+    const double low_exposure = 0.01;
+    const double low_intensity[8] = {
+        0.10, 0.20, 0.30, 0.45, 0.10, 0.16, 0.22, 0.32};
+    const double ratio[8] = {2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0};
+    std::vector<CameraResponsePair> samples;
+    samples.reserve(8);
+    for (int i = 0; i < 8; ++i) {
+      CameraResponsePair sample;
+      sample.id = static_cast<std::uint64_t>(i + 1);
+      sample.exposure_low_s = low_exposure;
+      sample.exposure_high_s = low_exposure * ratio[i];
+      sample.intensity_low = low_intensity[i];
+      sample.intensity_high = black + ratio[i] * (low_intensity[i] - black);
+      samples.push_back(sample);
+    }
+    return samples;
+  };
+  auto samples = make_response_samples();
+  auto accepted = estimateCameraResponseLinearity(samples);
+  CHECK(accepted.accepted);
+  CHECK(accepted.rejection == CameraResponseRejection::kNone);
+  CHECK(accepted.sample_count == 8);
+  CHECK(std::fabs(accepted.black_level - 0.05) < 1e-9);
+  CHECK(accepted.min_slope > 0.0);
+  CHECK(accepted.max_slope >= accepted.min_slope);
+  CHECK(accepted.max_residual < 1e-9);
+  CHECK(accepted.rmse < 1e-9);
+  CHECK(std::strcmp(accepted.quality_grade, "unverified") == 0);
+  CHECK(std::strcmp(cameraResponseRejectionText(accepted.rejection), "none") == 0);
+
+  auto too_few = samples;
+  too_few.resize(7);
+  CHECK(estimateCameraResponseLinearity(too_few).rejection ==
+        CameraResponseRejection::kTooFewSamples);
+  auto too_many = samples;
+  for (std::uint64_t id = 9; id <= 65; ++id) {
+    auto copy = samples[static_cast<std::size_t>((id - 9) % samples.size())];
+    copy.id = id;
+    too_many.push_back(copy);
+  }
+  CHECK(estimateCameraResponseLinearity(too_many).rejection ==
+        CameraResponseRejection::kTooManySamples);
+  auto invalid_id = samples;
+  invalid_id[0].id = 0;
+  CHECK(estimateCameraResponseLinearity(invalid_id).rejection ==
+        CameraResponseRejection::kInvalidId);
+  auto duplicate_id = samples;
+  duplicate_id[1].id = duplicate_id[0].id;
+  CHECK(estimateCameraResponseLinearity(duplicate_id).rejection ==
+        CameraResponseRejection::kDuplicateId);
+  auto non_finite = samples;
+  non_finite[0].intensity_high = std::numeric_limits<double>::quiet_NaN();
+  CHECK(estimateCameraResponseLinearity(non_finite).rejection ==
+        CameraResponseRejection::kNonFiniteInput);
+  auto invalid_exposure = samples;
+  invalid_exposure[0].exposure_low_s = 0.0;
+  CHECK(estimateCameraResponseLinearity(invalid_exposure).rejection ==
+        CameraResponseRejection::kInvalidExposure);
+  auto invalid_ratio = samples;
+  invalid_ratio[0].exposure_high_s = 0.0105;
+  CHECK(estimateCameraResponseLinearity(invalid_ratio).rejection ==
+        CameraResponseRejection::kInvalidExposureRatio);
+  auto invalid_intensity = samples;
+  invalid_intensity[0].intensity_low = 0.99;
+  CHECK(estimateCameraResponseLinearity(invalid_intensity).rejection ==
+        CameraResponseRejection::kInvalidIntensity);
+
+  auto one_ratio = samples;
+  for (std::size_t i = 0; i < one_ratio.size(); ++i) {
+    one_ratio[i].exposure_high_s = 0.02;
+    one_ratio[i].intensity_high =
+        0.05 + 2.0 * (one_ratio[i].intensity_low - 0.05);
+  }
+  CHECK(estimateCameraResponseLinearity(one_ratio).rejection ==
+        CameraResponseRejection::kInsufficientRatioDiversity);
+
+  auto flat_intensity = samples;
+  for (std::size_t i = 0; i < flat_intensity.size(); ++i) {
+    flat_intensity[i].intensity_low = 0.20;
+    const double ratio_value = flat_intensity[i].exposure_high_s /
+                               flat_intensity[i].exposure_low_s;
+    flat_intensity[i].intensity_high =
+        0.05 + ratio_value * (0.20 - 0.05);
+  }
+  CHECK(estimateCameraResponseLinearity(flat_intensity).rejection ==
+        CameraResponseRejection::kInsufficientIntensitySpan);
+
+  auto inconsistent_black = samples;
+  inconsistent_black[0].intensity_high += 0.05;
+  CHECK(estimateCameraResponseLinearity(inconsistent_black).rejection ==
+        CameraResponseRejection::kInconsistentBlackLevel);
+
+  auto residual_too_large = samples;
+  residual_too_large[4].intensity_high += 0.03;
+  CHECK(estimateCameraResponseLinearity(residual_too_large).rejection ==
+        CameraResponseRejection::kResidualTooLarge);
+
+  auto non_positive_slope = samples;
+  non_positive_slope[0].intensity_low = 0.04;
+  non_positive_slope[0].intensity_high = 0.03;
+  CHECK(estimateCameraResponseLinearity(non_positive_slope).rejection ==
+        CameraResponseRejection::kNonPositiveSlope);
+
+  auto rmse_too_large = samples;
+  for (std::size_t i = 0; i < rmse_too_large.size(); ++i) {
+    rmse_too_large[i].intensity_high += (i % 2 == 0) ? 0.019 : -0.019;
+  }
+  CHECK(estimateCameraResponseLinearity(rmse_too_large).rejection ==
+        CameraResponseRejection::kRmseTooLarge);
+  CHECK(std::strcmp(
+            cameraResponseRejectionText(CameraResponseRejection::kRmseTooLarge),
+            "linearity rmse too large") == 0);
+
+  // Bounded deterministic synthetic nonlinear inverse-response LUT.
+  auto make_curve_nonlinear_pairs = []() {
+    const double gamma = 0.7;
+    const double ratios[8] = {1.2, 1.35, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0};
+    std::vector<CameraResponsePair> pairs;
+    for (int r = 0; r < 8; ++r) {
+      const double ratio = ratios[r];
+      const double response = std::pow(ratio, gamma);
+      const double max_low = (0.96 / response < 0.5) ? (0.96 / response) : 0.5;
+      for (int k = 0; k < 8; ++k) {
+        const double fraction = (static_cast<double>(k) + 0.5) / 8.0;
+        const double low = 0.025 + (max_low - 0.025) * fraction;
+        CameraResponsePair pair;
+        pair.id = static_cast<std::uint64_t>(pairs.size() + 1);
+        pair.exposure_low_s = 1.0;
+        pair.exposure_high_s = ratio;
+        pair.intensity_low = low;
+        pair.intensity_high = response * low;
+        pairs.push_back(pair);
+      }
+    }
+    return pairs;
+  };
+  auto make_curve_sparse_pairs = []() {
+    const double gamma = 0.7;
+    const double ratios[4] = {1.2, 1.5, 3.0, 6.0};
+    std::vector<CameraResponsePair> pairs;
+    for (int r = 0; r < 4; ++r) {
+      const double ratio = ratios[r];
+      const double response = std::pow(ratio, gamma);
+      const double max_low = (0.96 / response < 0.5) ? (0.96 / response) : 0.5;
+      for (int k = 0; k < 8; ++k) {
+        const double fraction = (static_cast<double>(k) + 0.5) / 8.0;
+        const double low = 0.025 + (max_low - 0.025) * fraction;
+        CameraResponsePair pair;
+        pair.id = static_cast<std::uint64_t>(pairs.size() + 1);
+        pair.exposure_low_s = 1.0;
+        pair.exposure_high_s = ratio;
+        pair.intensity_low = low;
+        pair.intensity_high = response * low;
+        pairs.push_back(pair);
+      }
+    }
+    return pairs;
+  };
+  const auto curve_nonlinear_pairs = make_curve_nonlinear_pairs();
+  const CameraResponseCurveConfig curve_config;
+  const auto curve_accepted =
+      estimateCameraResponseCurve(curve_nonlinear_pairs, curve_config);
+  CHECK(curve_accepted.accepted);
+  CHECK(curve_accepted.solver_converged);
+  CHECK(curve_accepted.rejection == CameraResponseRejection::kNone);
+  CHECK(curve_accepted.sample_count == curve_nonlinear_pairs.size());
+  CHECK(curve_accepted.bin_count == curve_config.bins);
+  CHECK(curve_accepted.training_samples >= curve_config.min_samples);
+  CHECK(curve_accepted.holdout_samples >= 2);
+  CHECK(curve_accepted.training_samples + curve_accepted.holdout_samples ==
+        curve_accepted.sample_count);
+  CHECK(curve_accepted.covered_bins >= curve_config.min_covered_bins);
+  CHECK(curve_accepted.covered_bins <= curve_config.bins);
+  CHECK(curve_accepted.iterations > 0);
+  CHECK(curve_accepted.iterations <= curve_config.max_iterations);
+  CHECK(curve_accepted.monotonic_projections > 0);
+  CHECK(curve_accepted.monotonic_projections <= curve_accepted.iterations);
+  CHECK(curve_accepted.rmse <= curve_config.convergence_rmse);
+  CHECK(curve_accepted.max_residual <= curve_config.max_residual);
+  CHECK(curve_accepted.rmse <= curve_config.max_rmse);
+  CHECK(curve_accepted.max_cross_validation_residual <=
+        curve_config.max_cross_validation_residual);
+  CHECK(curve_accepted.cross_validation_rmse <=
+        curve_config.max_cross_validation_rmse);
+  CHECK(curve_accepted.cross_validation_ratio <=
+        curve_config.max_cross_validation_ratio);
+  CHECK(curve_accepted.inverse_response.size() == curve_config.bins);
+  CHECK(std::fabs(curve_accepted.inverse_response[0]) < 1e-9);
+  for (std::size_t i = 0; i < curve_accepted.inverse_response.size(); ++i) {
+    CHECK(std::isfinite(curve_accepted.inverse_response[i]));
+    if (i > 0) {
+      CHECK(curve_accepted.inverse_response[i] >=
+            curve_accepted.inverse_response[i - 1] + curve_config.min_slope -
+                1e-9);
+    }
+  }
+  CHECK(std::strcmp(curve_accepted.quality_grade, "unverified") == 0);
+  CHECK(std::strcmp(cameraResponseRejectionText(curve_accepted.rejection),
+                    "none") == 0);
+  const auto curve_repeated =
+      estimateCameraResponseCurve(curve_nonlinear_pairs, curve_config);
+  CHECK(curve_repeated.accepted);
+  CHECK(curve_repeated.inverse_response == curve_accepted.inverse_response);
+  CHECK(curve_repeated.rmse == curve_accepted.rmse);
+  CHECK(curve_repeated.cross_validation_rmse ==
+        curve_accepted.cross_validation_rmse);
+  CHECK(curve_repeated.iterations == curve_accepted.iterations);
+
+  // The old linear estimator cannot absorb this synthetic nonlinear response.
+  const auto curve_linear = estimateCameraResponseLinearity(curve_nonlinear_pairs);
+  CHECK(!curve_linear.accepted);
+  CHECK(curve_linear.rejection ==
+        CameraResponseRejection::kInconsistentBlackLevel);
+
+  // A curve_sparse holdout must fail closed instead of extrapolating from training.
+  const auto curve_sparse_pairs = make_curve_sparse_pairs();
+  const auto curve_sparse = estimateCameraResponseCurve(curve_sparse_pairs, curve_config);
+  CHECK(!curve_sparse.accepted);
+  CHECK(curve_sparse.solver_converged);
+  CHECK(curve_sparse.rejection ==
+        CameraResponseRejection::kCrossValidationResidualTooLarge);
+  CHECK(curve_sparse.rmse <= curve_config.max_rmse);
+  CHECK(curve_sparse.cross_validation_rmse >
+        curve_config.max_cross_validation_rmse);
+  CHECK(curve_sparse.max_cross_validation_residual >
+        curve_config.max_cross_validation_residual);
+  CHECK(curve_sparse.inverse_response.empty());
+
+  auto curve_rejected_with = [&](const CameraResponseCurveConfig& config,
+                           CameraResponseRejection expected) {
+    const auto result = estimateCameraResponseCurve(curve_nonlinear_pairs, config);
+    return !result.accepted && result.rejection == expected &&
+           result.inverse_response.empty();
+  };
+  auto curve_config_rejected = [&](const CameraResponseCurveConfig& config) {
+    try {
+      const auto result = estimateCameraResponseCurve(curve_nonlinear_pairs, config);
+      (void)result;
+    } catch (const std::invalid_argument&) {
+      return true;
+    }
+    return false;
+  };
+
+  auto curve_too_few_pairs = curve_nonlinear_pairs;
+  curve_too_few_pairs.resize(curve_config.min_samples - 1);
+  CHECK(estimateCameraResponseCurve(curve_too_few_pairs, curve_config).rejection ==
+        CameraResponseRejection::kTooFewSamples);
+  auto curve_too_many_pairs = curve_nonlinear_pairs;
+  for (std::uint64_t id = 65; id <= curve_config.max_samples + 1; ++id) {
+    auto copy = curve_nonlinear_pairs[static_cast<std::size_t>((id - 65) %
+                                                        curve_nonlinear_pairs.size())];
+    copy.id = id;
+    curve_too_many_pairs.push_back(copy);
+  }
+  CHECK(estimateCameraResponseCurve(curve_too_many_pairs, curve_config).rejection ==
+        CameraResponseRejection::kTooManySamples);
+  auto curve_zero_id = curve_nonlinear_pairs;
+  curve_zero_id[0].id = 0;
+  CHECK(estimateCameraResponseCurve(curve_zero_id, curve_config).rejection ==
+        CameraResponseRejection::kInvalidId);
+  auto curve_duplicate_id = curve_nonlinear_pairs;
+  curve_duplicate_id[1].id = curve_duplicate_id[0].id;
+  CHECK(estimateCameraResponseCurve(curve_duplicate_id, curve_config).rejection ==
+        CameraResponseRejection::kDuplicateId);
+  auto curve_non_finite_pair = curve_nonlinear_pairs;
+  curve_non_finite_pair[0].intensity_high =
+      std::numeric_limits<double>::quiet_NaN();
+  CHECK(estimateCameraResponseCurve(curve_non_finite_pair, curve_config).rejection ==
+        CameraResponseRejection::kNonFiniteInput);
+  auto curve_invalid_exposure = curve_nonlinear_pairs;
+  curve_invalid_exposure[0].exposure_low_s = 0.0;
+  CHECK(estimateCameraResponseCurve(curve_invalid_exposure, curve_config).rejection ==
+        CameraResponseRejection::kInvalidExposure);
+  auto curve_invalid_ratio = curve_nonlinear_pairs;
+  curve_invalid_ratio[0].exposure_high_s = 1.05;
+  CHECK(estimateCameraResponseCurve(curve_invalid_ratio, curve_config).rejection ==
+        CameraResponseRejection::kInvalidExposureRatio);
+  auto curve_invalid_intensity = curve_nonlinear_pairs;
+  curve_invalid_intensity[0].intensity_low = 0.99;
+  CHECK(estimateCameraResponseCurve(curve_invalid_intensity, curve_config).rejection ==
+        CameraResponseRejection::kInvalidIntensity);
+  auto curve_zero_gap = curve_nonlinear_pairs;
+  curve_zero_gap[0].intensity_high = curve_zero_gap[0].intensity_low;
+  CHECK(estimateCameraResponseCurve(curve_zero_gap, curve_config).rejection ==
+        CameraResponseRejection::kInvalidIntensity);
+  auto curve_one_ratio = curve_nonlinear_pairs;
+  for (auto& pair : curve_one_ratio) pair.exposure_high_s = 2.0;
+  CHECK(estimateCameraResponseCurve(curve_one_ratio, curve_config).rejection ==
+        CameraResponseRejection::kInsufficientRatioDiversity);
+  auto curve_flat_intensity = curve_nonlinear_pairs;
+  for (auto& pair : curve_flat_intensity) {
+    pair.intensity_low = 0.20;
+    pair.intensity_high = 0.35;
+  }
+  CHECK(estimateCameraResponseCurve(curve_flat_intensity, curve_config)
+            .rejection == CameraResponseRejection::kInsufficientIntensitySpan);
+
+  auto curve_holdout_pairs = curve_nonlinear_pairs;
+  curve_holdout_pairs.resize(12);
+  auto curve_holdout_config = curve_config;
+  curve_holdout_config.min_samples = 8;
+  curve_holdout_config.holdout_stride = 16;
+  CHECK(estimateCameraResponseCurve(curve_holdout_pairs, curve_holdout_config).rejection ==
+        CameraResponseRejection::kInsufficientHoldoutEvidence);
+
+  auto curve_coverage_config = curve_config;
+  curve_coverage_config.min_covered_bins = 60;
+  CHECK(curve_rejected_with(curve_coverage_config,
+                      CameraResponseRejection::kInsufficientBinCoverage));
+  auto curve_solver_config = curve_config;
+  curve_solver_config.max_iterations = 16;
+  curve_solver_config.convergence_rmse = 1e-12;
+  curve_solver_config.convergence_delta = 1e-12;
+  CHECK(curve_rejected_with(curve_solver_config,
+                      CameraResponseRejection::kSolverDidNotConverge));
+  auto curve_residual_config = curve_config;
+  curve_residual_config.max_residual = 1e-9;
+  CHECK(curve_rejected_with(curve_residual_config,
+                      CameraResponseRejection::kCurveResidualTooLarge));
+  auto curve_rmse_config = curve_config;
+  curve_rmse_config.max_rmse = 1e-9;
+  CHECK(curve_rejected_with(curve_rmse_config,
+                      CameraResponseRejection::kCurveRmseTooLarge));
+  auto curve_cv_residual_config = curve_config;
+  curve_cv_residual_config.max_cross_validation_residual = 1e-9;
+  CHECK(curve_rejected_with(
+      curve_cv_residual_config,
+      CameraResponseRejection::kCrossValidationResidualTooLarge));
+  auto curve_cv_rmse_config = curve_config;
+  curve_cv_rmse_config.max_cross_validation_rmse = 1e-9;
+  CHECK(curve_rejected_with(curve_cv_rmse_config,
+                      CameraResponseRejection::kCrossValidationRmseTooLarge));
+  auto curve_cv_ratio_config = curve_config;
+  curve_cv_ratio_config.max_cross_validation_ratio = 1.01;
+  CHECK(curve_rejected_with(
+      curve_cv_ratio_config,
+      CameraResponseRejection::kCrossValidationRatioTooLarge));
+
+  auto curve_bad_bins = curve_config;
+  curve_bad_bins.bins = 8;
+  CHECK(curve_config_rejected(curve_bad_bins));
+  auto curve_bad_coverage = curve_config;
+  curve_bad_coverage.min_covered_bins = curve_bad_coverage.bins + 1;
+  CHECK(curve_config_rejected(curve_bad_coverage));
+  auto curve_bad_budget = curve_config;
+  curve_bad_budget.max_samples = curve_bad_budget.min_samples - 1;
+  CHECK(curve_config_rejected(curve_bad_budget));
+  auto curve_bad_smoothness = curve_config;
+  curve_bad_smoothness.smoothness = std::numeric_limits<double>::quiet_NaN();
+  CHECK(curve_config_rejected(curve_bad_smoothness));
+  auto curve_bad_iterations = curve_config;
+  curve_bad_iterations.max_iterations = 8;
+  CHECK(curve_config_rejected(curve_bad_iterations));
+
+  auto curve_rejection_text_is = [](CameraResponseRejection value,
+                              const char* expected) {
+    return std::strcmp(cameraResponseRejectionText(value), expected) == 0;
+  };
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kInsufficientBinCoverage,
+      "insufficient response bin coverage"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kInsufficientHoldoutEvidence,
+      "insufficient holdout evidence"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kNonMonotonicResponse,
+      "non-monotonic response estimate"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCurveResidualTooLarge,
+      "response curve residual too large"));
+  CHECK(curve_rejection_text_is(CameraResponseRejection::kCurveRmseTooLarge,
+                          "response curve rmse too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCrossValidationResidualTooLarge,
+      "cross-validation residual too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCrossValidationRmseTooLarge,
+      "cross-validation rmse too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kCrossValidationRatioTooLarge,
+      "cross-validation ratio too large"));
+  CHECK(curve_rejection_text_is(
+      CameraResponseRejection::kSolverDidNotConverge,
+      "response curve solver did not converge"));
+
   std::cout << "All AR kernel tests passed\n";
   return 0;
 }

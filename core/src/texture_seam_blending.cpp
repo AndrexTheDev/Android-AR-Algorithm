@@ -266,6 +266,30 @@ double seamResidual(const std::vector<SeamSample>& samples,
   return sum/(static_cast<double>(samples.size())*3.0);
 }
 
+struct SeamMetrics {
+  double rmse{0.0};
+  double max_residual{0.0};
+};
+
+SeamMetrics seamMetrics(const std::vector<SeamSample>& samples,
+                        const std::vector<std::array<double,3>>& gains,
+                        const std::vector<std::array<double,3>>& offsets) {
+  SeamMetrics metrics;
+  if(samples.empty())return metrics;
+  double sum=0.0;
+  for(const auto& sample:samples)for(std::size_t channel=0;channel<3;++channel) {
+    const double a=gains[sample.patch_a][channel]*sample.color_a[channel]+
+                   offsets[sample.patch_a][channel];
+    const double b=gains[sample.patch_b][channel]*sample.color_b[channel]+
+                   offsets[sample.patch_b][channel];
+    const double residual=a-b;
+    sum+=residual*residual;
+    metrics.max_residual=std::max(metrics.max_residual,std::abs(residual));
+  }
+  metrics.rmse=std::sqrt(sum/(static_cast<double>(samples.size())*3.0));
+  return metrics;
+}
+
 }  // namespace
 
 TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
@@ -286,7 +310,18 @@ TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
      !std::isfinite(config.min_gain)||!std::isfinite(config.max_gain)||
      config.min_gain<=0.0||config.min_gain>=config.max_gain||
      !std::isfinite(config.min_offset)||!std::isfinite(config.max_offset)||
-     config.min_offset>=config.max_offset) {
+     config.min_offset>=config.max_offset||
+     config.holdout_stride<2||config.holdout_stride>16||
+     config.min_training_samples==0||config.min_training_samples>1000000000||
+     config.min_holdout_samples>1000000000||
+     !std::isfinite(config.max_training_rmse)||config.max_training_rmse<=0.0||
+     config.max_training_rmse>1.0||
+     !std::isfinite(config.max_holdout_residual)||
+     config.max_holdout_residual<=0.0||config.max_holdout_residual>1.0||
+     !std::isfinite(config.max_holdout_rmse)||config.max_holdout_rmse<=0.0||
+     config.max_holdout_rmse>1.0||
+     !std::isfinite(config.max_holdout_ratio)||config.max_holdout_ratio<=0.0||
+     config.max_holdout_ratio>32.0) {
     throw std::invalid_argument("Invalid global texture seam configuration");
   }
   TextureGlobalSeamResult result;
@@ -420,58 +455,80 @@ TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
     }
   }
   result.telemetry.sampled_pairs=samples.size();
+  std::vector<SeamSample> training,holdout;
+  if(config.require_holdout_validation) {
+    training.reserve(samples.size());holdout.reserve(samples.size());
+    for(std::size_t i=0;i<samples.size();++i) {
+      if((i+1)%config.holdout_stride==0)holdout.push_back(samples[i]);
+      else training.push_back(samples[i]);
+    }
+  } else {
+    // Preserve the existing bounded global solve exactly when strict
+    // cross-validation is not requested: no sample is withheld by default.
+    training=samples;
+  }
+  result.telemetry.training_samples=training.size();
+  result.telemetry.holdout_samples=holdout.size();
   result.rgba8=rgba8;
-  if(samples.empty())return result;
 
   const std::size_t patch_count=layout.patches.size();
   std::vector<std::array<double,3>> gains(patch_count),offsets(patch_count);
   for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
     gains[patch][channel]=1.0;offsets[patch][channel]=0.0;
   }
-  result.telemetry.residual_before=seamResidual(samples,gains,offsets);
-  for(std::size_t iteration=0;iteration<config.max_iterations;++iteration) {
-    std::vector<PatchSystem> systems(patch_count);
-    for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
-      systems[patch].a00[channel]=config.regularization;
-      systems[patch].a11[channel]=config.regularization;
-      systems[patch].b0[channel]=config.regularization;
-    }
-    for(const auto& sample:samples)for(std::size_t channel=0;channel<3;++channel) {
-      const double target_a=gains[sample.patch_b][channel]*sample.color_b[channel]+
-                            offsets[sample.patch_b][channel];
-      const double target_b=gains[sample.patch_a][channel]*sample.color_a[channel]+
-                            offsets[sample.patch_a][channel];
-      addEquation(systems[sample.patch_a],channel,sample.color_a[channel],target_a);
-      addEquation(systems[sample.patch_b],channel,sample.color_b[channel],target_b);
-    }
-    std::vector<std::array<double,3>> next_gains=gains,next_offsets=offsets;
-    double maximum_delta=0.0;
-    for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
-      const auto& system=systems[patch];
-      const double determinant=system.a00[channel]*system.a11[channel]-
-                               system.a01[channel]*system.a01[channel];
-      double gain=gains[patch][channel],offset=offsets[patch][channel];
-      if(std::isfinite(determinant)&&determinant>1e-12) {
-        gain=(system.b0[channel]*system.a11[channel]-
-              system.b1[channel]*system.a01[channel])/determinant;
-        offset=(system.a00[channel]*system.b1[channel]-
-                system.a01[channel]*system.b0[channel])/determinant;
+  result.telemetry.residual_before=seamResidual(training,gains,offsets);
+  if(!training.empty()) {
+    for(std::size_t iteration=0;iteration<config.max_iterations;++iteration) {
+      std::vector<PatchSystem> systems(patch_count);
+      for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
+        systems[patch].a00[channel]=config.regularization;
+        systems[patch].a11[channel]=config.regularization;
+        systems[patch].b0[channel]=config.regularization;
       }
-      if(!std::isfinite(gain))gain=gains[patch][channel];
-      if(!std::isfinite(offset))offset=offsets[patch][channel];
-      gain=std::max(config.min_gain,std::min(config.max_gain,gain));
-      offset=std::max(config.min_offset,std::min(config.max_offset,offset));
-      maximum_delta=std::max(maximum_delta,std::abs(gain-gains[patch][channel]));
-      maximum_delta=std::max(maximum_delta,std::abs(offset-offsets[patch][channel]));
-      next_gains[patch][channel]=gain;next_offsets[patch][channel]=offset;
+      for(const auto& sample:training)for(std::size_t channel=0;channel<3;++channel) {
+        const double target_a=gains[sample.patch_b][channel]*sample.color_b[channel]+
+                              offsets[sample.patch_b][channel];
+        const double target_b=gains[sample.patch_a][channel]*sample.color_a[channel]+
+                              offsets[sample.patch_a][channel];
+        addEquation(systems[sample.patch_a],channel,sample.color_a[channel],target_a);
+        addEquation(systems[sample.patch_b],channel,sample.color_b[channel],target_b);
+      }
+      std::vector<std::array<double,3>> next_gains=gains,next_offsets=offsets;
+      double maximum_delta=0.0;
+      for(std::size_t patch=0;patch<patch_count;++patch)for(std::size_t channel=0;channel<3;++channel) {
+        const auto& system=systems[patch];
+        const double determinant=system.a00[channel]*system.a11[channel]-
+                                 system.a01[channel]*system.a01[channel];
+        double gain=gains[patch][channel],offset=offsets[patch][channel];
+        if(std::isfinite(determinant)&&determinant>1e-12) {
+          gain=(system.b0[channel]*system.a11[channel]-
+                system.b1[channel]*system.a01[channel])/determinant;
+          offset=(system.a00[channel]*system.b1[channel]-
+                  system.a01[channel]*system.b0[channel])/determinant;
+        }
+        if(!std::isfinite(gain))gain=gains[patch][channel];
+        if(!std::isfinite(offset))offset=offsets[patch][channel];
+        gain=std::max(config.min_gain,std::min(config.max_gain,gain));
+        offset=std::max(config.min_offset,std::min(config.max_offset,offset));
+        maximum_delta=std::max(maximum_delta,std::abs(gain-gains[patch][channel]));
+        maximum_delta=std::max(maximum_delta,std::abs(offset-offsets[patch][channel]));
+        next_gains[patch][channel]=gain;next_offsets[patch][channel]=offset;
+      }
+      gains=std::move(next_gains);offsets=std::move(next_offsets);
+      result.telemetry.iterations=iteration+1;
+      if(maximum_delta<=config.convergence_delta)break;
     }
-    gains=std::move(next_gains);offsets=std::move(next_offsets);
-    result.telemetry.iterations=iteration+1;
-    if(maximum_delta<=config.convergence_delta)break;
   }
-  result.telemetry.residual_after=seamResidual(samples,gains,offsets);
+  result.telemetry.residual_after=seamResidual(training,gains,offsets);
+  const auto training_metrics=seamMetrics(training,gains,offsets);
+  const auto holdout_metrics=seamMetrics(holdout,gains,offsets);
+  result.telemetry.training_rmse=training_metrics.rmse;
+  result.telemetry.holdout_max_residual=holdout_metrics.max_residual;
+  result.telemetry.holdout_rmse=holdout_metrics.rmse;
+  result.telemetry.holdout_ratio=holdout_metrics.rmse/
+      std::max(training_metrics.rmse,1e-6);
   std::vector<bool> constrained(patch_count,false);
-  for(const auto& sample:samples) {
+  for(const auto& sample:training) {
     constrained[sample.patch_a]=true;constrained[sample.patch_b]=true;
   }
   for(std::size_t patch=0;patch<patch_count;++patch) {
@@ -483,6 +540,49 @@ TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
     }
     if(changed)++result.telemetry.constrained_patches;
   }
+  if(config.require_holdout_validation) {
+    result.telemetry.holdout_validated=true;
+    const auto reject=[&](TextureGlobalSeamRejection reason,const char* error) {
+      result.telemetry.holdout_accepted=false;
+      result.telemetry.rejection=reason;
+      result.telemetry.error=error;
+      result.telemetry.constrained_patches=0;
+      result.telemetry.pixel_updates=0;
+      result.rgba8=rgba8;
+    };
+    if(training.size()<config.min_training_samples) {
+      reject(TextureGlobalSeamRejection::kInsufficientTrainingEvidence,
+             "global texture seam insufficient training evidence");
+    } else if(holdout.size()<config.min_holdout_samples) {
+      reject(TextureGlobalSeamRejection::kInsufficientHoldoutEvidence,
+             "global texture seam insufficient holdout evidence");
+    } else if(!std::isfinite(result.telemetry.training_rmse)||
+              result.telemetry.training_rmse>config.max_training_rmse) {
+      reject(TextureGlobalSeamRejection::kTrainingRmseTooLarge,
+             "global texture seam training rmse too large");
+    } else if(!std::isfinite(result.telemetry.holdout_max_residual)||
+              result.telemetry.holdout_max_residual>config.max_holdout_residual) {
+      reject(TextureGlobalSeamRejection::kHoldoutResidualTooLarge,
+             "global texture seam holdout residual too large");
+    } else if(!std::isfinite(result.telemetry.holdout_rmse)||
+              result.telemetry.holdout_rmse>config.max_holdout_rmse) {
+      reject(TextureGlobalSeamRejection::kHoldoutRmseTooLarge,
+             "global texture seam holdout rmse too large");
+    } else if(!std::isfinite(result.telemetry.holdout_ratio)||
+              result.telemetry.holdout_ratio>config.max_holdout_ratio) {
+      reject(TextureGlobalSeamRejection::kHoldoutRatioTooLarge,
+             "global texture seam holdout ratio too large");
+    } else {
+      result.telemetry.holdout_accepted=true;
+      result.telemetry.rejection=TextureGlobalSeamRejection::kNone;
+    }
+  } else {
+    result.telemetry.holdout_accepted=true;
+    result.telemetry.holdout_validated=false;
+    result.telemetry.rejection=TextureGlobalSeamRejection::kNone;
+  }
+  if(!result.telemetry.holdout_accepted)return result;
+  if(training.empty())return result;
   for(std::size_t patch_index=0;patch_index<patch_count;++patch_index) {
     const auto& patch=layout.patches[patch_index];
     for(int y=patch.atlas_y_px;y<patch.atlas_y_px+patch.atlas_height_px;++y) {
@@ -506,6 +606,27 @@ TextureGlobalSeamResult optimizeTextureAtlasSeamsGlobally(
     }
   }
   return result;
+}
+
+const char* textureGlobalSeamRejectionText(
+    TextureGlobalSeamRejection rejection) {
+  switch(rejection) {
+    case TextureGlobalSeamRejection::kNone:
+      return "none";
+    case TextureGlobalSeamRejection::kInsufficientTrainingEvidence:
+      return "insufficient training evidence";
+    case TextureGlobalSeamRejection::kInsufficientHoldoutEvidence:
+      return "insufficient holdout evidence";
+    case TextureGlobalSeamRejection::kTrainingRmseTooLarge:
+      return "training rmse too large";
+    case TextureGlobalSeamRejection::kHoldoutResidualTooLarge:
+      return "holdout residual too large";
+    case TextureGlobalSeamRejection::kHoldoutRmseTooLarge:
+      return "holdout rmse too large";
+    case TextureGlobalSeamRejection::kHoldoutRatioTooLarge:
+      return "holdout ratio too large";
+  }
+  return "unknown rejection";
 }
 
 }  // namespace arkernel

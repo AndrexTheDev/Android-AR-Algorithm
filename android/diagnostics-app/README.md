@@ -33,7 +33,7 @@ eindeutig dem verwendeten Plan zugeordnet bleibt.
 ## APK bekommen
 
 1. Auf GitHub den Actions-Lauf des Branches
-   `arena/4033116d-android-ar-algorithm` öffnen.
+   `arena/78b73a98-android-ar-algorithm` öffnen.
 2. Artefakt `arkernel-diagnostics-apk` herunterladen.
 3. `arkernel-diagnostics-debug.apk` auf das Gerät kopieren, „Unbekannte Quellen“
    für die Installation erlauben und installieren. Es ist ein Debug-Build, kein
@@ -42,8 +42,11 @@ eindeutig dem verwendeten Plan zugeordnet bleibt.
 Alternativ liegt die Datei dauerhaft als Release-Asset bereit:
 <https://github.com/AndrexTheDev/Android-AR-Algorithm/releases/tag/diagnostics-apk-latest>
 (`arkernel-diagnostics-debug.apk`). Die CI aktualisiert dieses Asset bei jedem
-Push auf den aktiven Branch. Ein Update ersetzt dieselbe installierte App;
-`applicationId` und Dateiname bleiben stabil.
+erfolgreichen Push auf den aktiven Branch. Ein Update ersetzt dieselbe
+installierte App; `applicationId` und Dateiname bleiben stabil. Für den
+Kalibrierungs-Bildschirm muss die installierte App mindestens
+`2.2-calibration` sein – im Zweifel das aktuelle Asset neu installieren.
+Die Vorprüfung auf dem Gerät ersetzt keine Auswertung hier im Chat.
 
 ## Bedienung auf dem Gerät
 

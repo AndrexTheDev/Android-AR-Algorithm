@@ -7,7 +7,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private data class AdaptiveRejectionCase(
+private data class CampaignRejectionCase(
     val name: String,
     val text: String,
     val reason: ArKernelCampaignRejection,
@@ -137,17 +137,17 @@ class ArKernelCampaignPlanTest {
     fun everyMalformedOrUnsafeVariantFailsClosedWithoutPartialBundle() {
         val text = ArKernelCampaignPlanAdapter.encode(sampleBundle())
         val cases = listOf(
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "inputTooLarge",
                 "x".repeat(16_385),
                 ArKernelCampaignRejection.INPUT_TOO_LARGE,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "empty",
                 "",
                 ArKernelCampaignRejection.EMPTY_PLAN,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "badHeader",
                 replaceLine(
                         text,
@@ -156,7 +156,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_HEADER,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "headerWithSpace",
                 replaceLine(
                         text,
@@ -165,7 +165,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_HEADER,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "badVersion",
                 replaceOnce(
                         text,
@@ -174,7 +174,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_VALUE,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "badProtocol",
                 replaceOnce(
                         text,
@@ -183,7 +183,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_PROTOCOL,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "assessedQualityInput",
                 replaceOnce(
                         text,
@@ -192,7 +192,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_QUALITY,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidBoolean",
                 replaceOnce(
                         text,
@@ -201,7 +201,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_BOOLEAN,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "scaleBarNotRequired",
                 replaceOnce(
                         text,
@@ -210,7 +210,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "independentTargetNotRequired",
                 replaceOnce(
                         text,
@@ -219,7 +219,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "perDeviceCalibrationFalse",
                 replaceOnce(
                         text,
@@ -228,7 +228,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "universalCalibrationEnabled",
                 replaceOnce(
                         text,
@@ -237,7 +237,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "imagesEnabled",
                 replaceOnce(
                         text,
@@ -246,7 +246,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "automaticCalibrationEnabled",
                 replaceOnce(
                         text,
@@ -255,7 +255,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "automaticUploadEnabled",
                 replaceOnce(
                         text,
@@ -264,7 +264,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "heldOutNotRequired",
                 replaceOnce(
                         text,
@@ -273,7 +273,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.UNSAFE_INVARIANT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidCampaignToken",
                 replaceOnce(
                         text,
@@ -282,7 +282,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_TOKEN,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidDeviceToken",
                 replaceOnce(
                         text,
@@ -291,7 +291,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_TOKEN,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidDeviceClass",
                 replaceOnce(
                         text,
@@ -300,7 +300,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_DEVICE_CLASS,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "zeroScenes",
                 replaceOnce(
                         text,
@@ -309,7 +309,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_COUNT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "tooManyScenes",
                 replaceOnce(
                         text,
@@ -318,7 +318,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_COUNT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "nonCanonicalQuestionCount",
                 replaceOnce(
                         text,
@@ -327,7 +327,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_COUNT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidRepeatBudget",
                 replaceOnce(
                         text,
@@ -336,7 +336,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_REPEAT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "zeroRepeatBudget",
                 replaceOnce(
                         text,
@@ -345,7 +345,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_REPEAT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "lineCountMismatch",
                 replaceOnce(
                         text,
@@ -354,7 +354,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCHEMA,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "keyOrder",
                 replaceLine(
                         text,
@@ -363,7 +363,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCHEMA,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "spaceInMetadata",
                 replaceOnce(
                         text,
@@ -372,7 +372,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCHEMA,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "lineTooLong",
                 replaceLine(
                         text,
@@ -381,7 +381,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.LINE_TOO_LONG,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "blankLine",
                 replaceLine(
                         text,
@@ -390,12 +390,12 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.EMPTY_LINE,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "extraFinalSeparator",
                 text + "\n\n",
                 ArKernelCampaignRejection.EMPTY_LINE,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "missingEnd",
                 replaceLine(
                         text,
@@ -404,7 +404,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCHEMA,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "wrongScenePrefix",
                 replaceLine(
                         text,
@@ -413,7 +413,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCHEMA,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "wrongQuestionPrefix",
                 replaceLine(
                         text,
@@ -422,7 +422,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCHEMA,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "sceneFieldCount",
                 replaceLine(
                         text,
@@ -431,7 +431,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_ROW_FIELDS,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "questionFieldCount",
                 replaceLine(
                         text,
@@ -440,7 +440,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_ROW_FIELDS,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidSceneIndex",
                 rowField(
                         text,
@@ -451,7 +451,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_VALUE,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "sceneOrder",
                 replaceOnce(
                         text,
@@ -460,7 +460,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_ORDER,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidSceneKind",
                 rowField(
                         text,
@@ -471,7 +471,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCENE_KIND,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidSceneStatus",
                 rowField(
                         text,
@@ -482,7 +482,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_SCENE_STATUS,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidSceneRepeats",
                 rowField(
                         text,
@@ -493,7 +493,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_REPEAT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "sceneRepeatsOverBudget",
                 rowField(
                         text,
@@ -504,7 +504,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_REPEAT,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidSceneTarget",
                 rowField(
                         text,
@@ -515,7 +515,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_TOKEN,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "duplicateSceneTarget",
                 rowField(
                         text,
@@ -526,7 +526,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.DUPLICATE_TARGET,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidQuestionIndex",
                 rowField(
                         text,
@@ -537,7 +537,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_VALUE,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "questionOrder",
                 replaceOnce(
                         text,
@@ -546,7 +546,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_ORDER,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidQuestionId",
                 rowField(
                         text,
@@ -557,7 +557,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_QUESTION,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidQuestionKind",
                 rowField(
                         text,
@@ -568,7 +568,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_QUESTION,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidQuestionDepth",
                 rowField(
                         text,
@@ -579,7 +579,7 @@ class ArKernelCampaignPlanTest {
                     ),
                 ArKernelCampaignRejection.INVALID_QUESTION,
             ),
-            AdaptiveRejectionCase(
+            CampaignRejectionCase(
                 "invalidQuestionStatus",
                 rowField(
                         text,

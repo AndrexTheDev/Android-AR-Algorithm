@@ -960,10 +960,10 @@ Java_ai_arena_arkernel_TemporalMetricDepthFilter_nativeUpdate(JNIEnv* env,jobjec
 extern "C" JNIEXPORT jlong JNICALL
 Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
     JNIEnv* env,jobject,jlongArray integer_options,jdoubleArray scalar_options) {
-  if(!integer_options||!scalar_options||env->GetArrayLength(integer_options)<15||
-     env->GetArrayLength(scalar_options)<14)return 0;
-  std::array<jlong,15> integers{};
-  std::array<jdouble,14> scalars{};
+  if(!integer_options||!scalar_options||env->GetArrayLength(integer_options)<19||
+     env->GetArrayLength(scalar_options)<18)return 0;
+  std::array<jlong,19> integers{};
+  std::array<jdouble,18> scalars{};
   env->GetLongArrayRegion(integer_options,0,integers.size(),integers.data());
   env->GetDoubleArrayRegion(scalar_options,0,scalars.size(),scalars.data());
   if(env->ExceptionCheck())return 0;
@@ -986,12 +986,19 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
   const auto max_clusters=bounded_size(integers[11],5000000);
   const auto max_glb_bytes=bounded_size(integers[12],512ULL*1024ULL*1024ULL);
   const auto max_quadric_evaluations=bounded_size(integers[14],100000000ULL);
+  const auto max_edge_collapse_evaluations=bounded_size(integers[16],100000000ULL);
+  const auto max_edge_collapse_collapses=bounded_size(integers[17],1000000ULL);
   const jlong quadric_lod_flag=integers[13];
+  const jlong edge_collapse_qem_flag=integers[15];
+  const jlong edge_collapse_flags=integers[18];
   if(!pixel_stride||!max_blocks||!max_frames||!max_depth_pixels||!max_voxel_visits||
      !max_snapshot_voxels||!max_cells||!max_vertices||!max_triangles||
      !min_component_triangles||!max_edges||!max_clusters||!max_glb_bytes||
-     !max_quadric_evaluations||*max_glb_bytes<1024||
-     (quadric_lod_flag!=0&&quadric_lod_flag!=1))return 0;
+     !max_quadric_evaluations||!max_edge_collapse_evaluations||
+     !max_edge_collapse_collapses||*max_glb_bytes<1024||
+     (quadric_lod_flag!=0&&quadric_lod_flag!=1)||
+     (edge_collapse_qem_flag!=0&&edge_collapse_qem_flag!=1)||
+     edge_collapse_flags<0||edge_collapse_flags>15)return 0;
   try{
     arkernel::ReconstructionPipelineConfig config;
     config.fusion.voxel_size_m=scalars[0];
@@ -1033,6 +1040,22 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeCreate(
     config.quadric_lod.max_unique_edges=*max_edges;
     config.quadric_lod.max_clusters=*max_clusters;
     config.quadric_lod.max_evaluations=*max_quadric_evaluations;
+    config.enable_edge_collapse_qem=edge_collapse_qem_flag==1;
+    config.edge_collapse_qem.max_edge_quadric_error_m2=scalars[14];
+    config.edge_collapse_qem.max_displacement_m=scalars[15];
+    config.edge_collapse_qem.regularization=scalars[16];
+    config.edge_collapse_qem.min_normal_dot=scalars[17];
+    config.edge_collapse_qem.sharp_edge_angle_degrees=scalars[9];
+    config.edge_collapse_qem.max_uv_error=scalars[10];
+    config.edge_collapse_qem.max_input_vertices=*max_vertices;
+    config.edge_collapse_qem.max_input_triangles=*max_triangles;
+    config.edge_collapse_qem.max_unique_edges=*max_edges;
+    config.edge_collapse_qem.max_evaluations=*max_edge_collapse_evaluations;
+    config.edge_collapse_qem.max_collapses=*max_edge_collapse_collapses;
+    config.edge_collapse_qem.preserve_boundaries=(edge_collapse_flags&1)!=0;
+    config.edge_collapse_qem.preserve_non_manifold=(edge_collapse_flags&2)!=0;
+    config.edge_collapse_qem.preserve_sharp_edges=(edge_collapse_flags&4)!=0;
+    config.edge_collapse_qem.preserve_uv_seams=(edge_collapse_flags&8)!=0;
     return toHandle(new AndroidReconstructionPipeline(std::move(config),*max_glb_bytes));
   }catch(...){return 0;}
 }
@@ -1101,14 +1124,14 @@ extern "C" JNIEXPORT jobjectArray JNICALL
 Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
     JNIEnv* env,jobject,jlong handle,jlongArray metadata,jdoubleArray scalar_values) {
   auto* owner=fromFusionPipelineHandle(handle);
-  if(!owner||!metadata||!scalar_values||env->GetArrayLength(metadata)<28||
-     env->GetArrayLength(scalar_values)<4)return nullptr;
+  if(!owner||!metadata||!scalar_values||env->GetArrayLength(metadata)<39||
+     env->GetArrayLength(scalar_values)<8)return nullptr;
   try{
     const auto result=owner->pipeline.build();
     if(!result.error.empty()||!meshFitsGlbBudget(result.source_mesh,owner->max_glb_bytes)||
        !meshFitsGlbBudget(result.simplified_mesh,owner->max_glb_bytes))return nullptr;
     const auto& t=result.telemetry;
-    const jlong values[28]={t.complete?1:0,t.fusion_truncated?1:0,
+    const jlong values[39]={t.complete?1:0,t.fusion_truncated?1:0,
       t.meshing_truncated?1:0,t.filtering_truncated?1:0,t.simplification_truncated?1:0,
       static_cast<jlong>(t.fused_frames),static_cast<jlong>(t.fused_blocks),
       static_cast<jlong>(t.fused_voxels),static_cast<jlong>(t.meshing_input_voxels),
@@ -1125,12 +1148,26 @@ Java_ai_arena_arkernel_ReconstructionFusionPipeline_nativeBuild(
       static_cast<jlong>(t.quadric_lod_accepted_clusters),
       static_cast<jlong>(t.quadric_lod_rejected_clusters),
       static_cast<jlong>(t.quadric_lod_locked_vertices),
-      static_cast<jlong>(t.quadric_lod_removed_degenerate_triangles)};
-    const jdouble scalars[4]={t.max_simplification_displacement_m,
+      static_cast<jlong>(t.quadric_lod_removed_degenerate_triangles),
+      t.edge_collapse_qem_enabled?1:0,t.edge_collapse_qem_truncated?1:0,
+      static_cast<jlong>(t.edge_collapse_qem_input_vertices),
+      static_cast<jlong>(t.edge_collapse_qem_output_vertices),
+      static_cast<jlong>(t.edge_collapse_qem_output_triangles),
+      static_cast<jlong>(t.edge_collapse_qem_accepted_collapses),
+      static_cast<jlong>(t.edge_collapse_qem_rejected_collapses),
+      static_cast<jlong>(t.edge_collapse_qem_evaluated_collapses),
+      static_cast<jlong>(t.edge_collapse_qem_locked_vertices),
+      static_cast<jlong>(t.edge_collapse_qem_removed_degenerate_triangles),
+      static_cast<jlong>(t.edge_collapse_qem_removed_duplicate_triangles)};
+    const jdouble scalars[8]={t.max_simplification_displacement_m,
       t.quadric_lod_initial_error_m2,t.quadric_lod_final_error_m2,
-      t.quadric_lod_max_displacement_m};
-    env->SetLongArrayRegion(metadata,0,28,values);
-    env->SetDoubleArrayRegion(scalar_values,0,4,scalars);
+      t.quadric_lod_max_displacement_m,
+      t.edge_collapse_qem_initial_error_m2,
+      t.edge_collapse_qem_final_error_m2,
+      t.edge_collapse_qem_max_displacement_m,
+      t.edge_collapse_qem_max_uv_error};
+    env->SetLongArrayRegion(metadata,0,39,values);
+    env->SetDoubleArrayRegion(scalar_values,0,8,scalars);
     jclass byte_array_class=env->FindClass("[B");
     if(!byte_array_class||env->ExceptionCheck())return nullptr;
     jobjectArray output=env->NewObjectArray(2,byte_array_class,nullptr);

@@ -716,6 +716,143 @@ int main() {
         evaluation_limited_mesh.truncated&&
         evaluation_limited_mesh.error=="quadric LOD evaluation budget exceeded");
 
+
+  // Bounded deterministic edge-collapse QEM simplification changes topology:
+  // quadrics, adjacency, feature locks and priorities are rebuilt after each
+  // accepted collapse. The planar fan below has exactly one safe collapse.
+  ReconstructionMesh qem_mesh;
+  qem_mesh.positions_m={{0,0,0},{1,-1,0},{1,1,0},{-1,1,0},{-1,-1,0}};
+  qem_mesh.normals.assign(5,{0,0,1});
+  qem_mesh.texcoords.assign(5,{0.5F,0.5F});
+  qem_mesh.triangle_indices={0,1,2,0,2,3,0,3,4,0,4,1};
+  qem_mesh.base_color_texture={"qem-atlas.png","image/png"};
+  MeshEdgeCollapseQemConfig qem_config;
+  qem_config.max_edge_quadric_error_m2=1e-3;
+  qem_config.max_displacement_m=2.0;
+  qem_config.max_uv_error=0.1;
+  qem_config.preserve_boundaries=false;
+  qem_config.preserve_sharp_edges=false;
+  qem_config.preserve_uv_seams=false;
+  qem_config.max_collapses=8;
+  const auto qem_result=simplifyMeshEdgeCollapseQem(qem_mesh,qem_config);
+  CHECK(qem_result.input_valid&&!qem_result.truncated&&
+        qem_result.error.empty()&&
+        qem_result.accepted_collapses>0&&
+        qem_result.boundary_edges==4&&
+        qem_result.non_manifold_edges==0&&
+        qem_result.locked_vertices==0&&
+        qem_result.output_vertices<qem_result.input_vertices&&
+        qem_result.output_triangles<qem_result.input_triangles&&
+        qem_result.removed_degenerate_triangles>=2&&
+        qem_result.max_observed_displacement_m<=2.000001&&
+        std::isfinite(qem_result.max_observed_uv_error)&&
+        qem_result.max_observed_uv_error<=0.100001&&
+        std::isfinite(qem_result.initial_quadric_error_m2)&&
+        std::isfinite(qem_result.final_quadric_error_m2)&&
+        qem_result.mesh.texcoords.size()==
+          qem_result.mesh.positions_m.size()&&
+        qem_result.mesh.base_color_texture.uri=="qem-atlas.png"&&
+        validateMesh(qem_result.mesh).valid);
+  const auto repeated_qem_result=simplifyMeshEdgeCollapseQem(qem_mesh,qem_config);
+  CHECK(repeated_qem_result.mesh.triangle_indices==
+          qem_result.mesh.triangle_indices&&
+        repeated_qem_result.mesh.positions_m.size()==
+          qem_result.mesh.positions_m.size());
+  auto boundary_qem_config=qem_config;
+  boundary_qem_config.preserve_boundaries=true;
+  const auto boundary_qem=simplifyMeshEdgeCollapseQem(qem_mesh,
+                                                      boundary_qem_config);
+  CHECK(boundary_qem.input_valid&&boundary_qem.accepted_collapses==0&&
+        boundary_qem.locked_vertices>=4&&
+        boundary_qem.output_vertices==boundary_qem.input_vertices&&
+        validateMesh(boundary_qem.mesh).valid);
+  auto strict_qem_config=qem_config;
+  strict_qem_config.max_displacement_m=0.01;
+  const auto strict_qem=simplifyMeshEdgeCollapseQem(qem_mesh,
+                                                    strict_qem_config);
+  CHECK(strict_qem.input_valid&&!strict_qem.truncated&&
+        strict_qem.accepted_collapses==0&&
+        strict_qem.candidate_edges==0&&
+        strict_qem.output_vertices==strict_qem.input_vertices&&
+        strict_qem.max_observed_displacement_m<=1e-6&&
+        validateMesh(strict_qem.mesh).valid);
+  auto invalid_qem_config=qem_config;
+  invalid_qem_config.min_normal_dot=2.0;
+  bool rejected_qem_config=false;
+  try{simplifyMeshEdgeCollapseQem(qem_mesh,invalid_qem_config);}
+  catch(const std::invalid_argument&){rejected_qem_config=true;}
+  CHECK(rejected_qem_config);
+  auto evaluation_limited_qem_config=qem_config;
+  evaluation_limited_qem_config.max_evaluations=1;
+  const auto evaluation_limited_qem=simplifyMeshEdgeCollapseQem(
+    qem_mesh,evaluation_limited_qem_config);
+  CHECK(evaluation_limited_qem.input_valid&&
+        evaluation_limited_qem.truncated&&
+        evaluation_limited_qem.evaluated_collapses==1&&
+        evaluation_limited_qem.error==
+          "edge-collapse QEM evaluation budget exceeded");
+  auto collapse_limited_qem_config=qem_config;
+  collapse_limited_qem_config.max_collapses=1;
+  const auto collapse_limited_qem=simplifyMeshEdgeCollapseQem(
+    qem_mesh,collapse_limited_qem_config);
+  CHECK(collapse_limited_qem.input_valid&&
+        collapse_limited_qem.truncated&&
+        collapse_limited_qem.accepted_collapses==1&&
+        collapse_limited_qem.error==
+          "edge-collapse QEM collapse budget exceeded");
+
+  // A representative chain must not accumulate UV drift beyond the seam
+  // budget. This deterministic 4x4 grid reproduces a group whose endpoint UVs
+  // are close while an earlier group member is 0.05 away from the new
+  // representative; the cumulative guard rejects that collapse.
+  ReconstructionMesh qem_uv_mesh;
+  const float qem_uv_values[16]={0.025F,0.05F,0.05F,0.025F,
+                                 0.075F,0.025F,0.025F,0.0F,
+                                 0.0F,0.0F,0.0F,0.0F,
+                                 0.025F,0.075F,0.1F,0.0F};
+  const float qem_uv_z[16]={-0.323597F,0.165359F,-0.289814F,-0.0831541F,
+                            0.131825F,0.200851F,-0.206078F,-0.00580457F,
+                            0.308016F,0.391847F,0.110441F,0.287327F,
+                            -0.0238668F,-0.0043734F,0.268743F,0.398012F};
+  for (int vertex=0;vertex<16;++vertex) {
+    const float x=static_cast<float>(vertex%4);
+    const float y=static_cast<float>(vertex/4);
+    qem_uv_mesh.positions_m.push_back({x,y,qem_uv_z[vertex]});
+    qem_uv_mesh.normals.push_back({0.0F,0.0F,1.0F});
+    qem_uv_mesh.texcoords.push_back({qem_uv_values[vertex],0.0F});
+  }
+  for (int row=0;row<3;++row) {
+    for (int column=0;column<3;++column) {
+      const auto a=static_cast<std::uint32_t>(row*4+column);
+      const auto b=static_cast<std::uint32_t>((row+1)*4+column);
+      const auto d=static_cast<std::uint32_t>((row+1)*4+column+1);
+      const auto e=static_cast<std::uint32_t>(row*4+column+1);
+      qem_uv_mesh.triangle_indices.insert(
+          qem_uv_mesh.triangle_indices.end(),{a,b,d,a,d,e});
+    }
+  }
+  MeshEdgeCollapseQemConfig qem_uv_config;
+  qem_uv_config.max_edge_quadric_error_m2=100.0;
+  qem_uv_config.max_displacement_m=10.0;
+  qem_uv_config.sharp_edge_angle_degrees=90.0;
+  qem_uv_config.max_uv_error=0.03;
+  qem_uv_config.min_normal_dot=-1.0;
+  qem_uv_config.preserve_boundaries=false;
+  qem_uv_config.preserve_non_manifold=false;
+  qem_uv_config.preserve_sharp_edges=false;
+  qem_uv_config.preserve_uv_seams=true;
+  qem_uv_config.max_collapses=100;
+  qem_uv_config.max_evaluations=100000;
+  const auto qem_uv_result=simplifyMeshEdgeCollapseQem(
+      qem_uv_mesh,qem_uv_config);
+  CHECK(qem_uv_result.input_valid&&qem_uv_result.error.empty()&&
+        !qem_uv_result.truncated&&
+        qem_uv_result.accepted_collapses>0&&
+        qem_uv_result.output_vertices<qem_uv_result.input_vertices&&
+        std::isfinite(qem_uv_result.max_observed_uv_error)&&
+        qem_uv_result.max_observed_uv_error<=0.030001&&
+        validateMesh(qem_uv_result.mesh).valid);
+
   // The fusion pipeline owns temporal ordering, sticky truncation evidence and
   // both the filtered source mesh and its independent delivery simplification.
   ReconstructionPipelineConfig pipeline_config;
@@ -798,6 +935,71 @@ int main() {
         quadric_pipeline_mesh.telemetry.quadric_lod_max_displacement_m<=0.120001&&
         validateMesh(quadric_pipeline_mesh.source_mesh).valid&&
         validateMesh(quadric_pipeline_mesh.simplified_mesh).valid);
+
+
+  // The optional edge-collapse QEM stage is wired into the delivery pipeline
+  // with its own telemetry, constructor validation and sticky truncation.
+  auto qem_pipeline_config=pipeline_config;
+  qem_pipeline_config.enable_edge_collapse_qem=true;
+  MeshEdgeCollapseQemConfig pipeline_qem_config;
+  pipeline_qem_config.max_edge_quadric_error_m2=1e-3;
+  pipeline_qem_config.max_displacement_m=0.12;
+  pipeline_qem_config.max_uv_error=0.1;
+  pipeline_qem_config.preserve_boundaries=false;
+  pipeline_qem_config.max_collapses=4096;
+  qem_pipeline_config.edge_collapse_qem=pipeline_qem_config;
+  ReconstructionFusionPipeline qem_pipeline(qem_pipeline_config);
+  CHECK(qem_pipeline.integrate(1000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  CHECK(qem_pipeline.integrate(2000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  const auto qem_pipeline_mesh=qem_pipeline.build();
+  CHECK(qem_pipeline_mesh.error.empty()&&
+        qem_pipeline_mesh.telemetry.complete&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_enabled&&
+        !qem_pipeline_mesh.telemetry.edge_collapse_qem_truncated&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_accepted_collapses>0&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_output_vertices<
+          qem_pipeline_mesh.telemetry.edge_collapse_qem_input_vertices&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_output_vertices==
+          qem_pipeline_mesh.simplified_mesh.positions_m.size()&&
+        qem_pipeline_mesh.telemetry.edge_collapse_qem_output_triangles==
+          qem_pipeline_mesh.simplified_mesh.triangle_indices.size()/3&&
+        std::isfinite(qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_initial_error_m2)&&
+        std::isfinite(qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_final_error_m2)&&
+        qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_max_displacement_m<=0.120001&&
+        std::isfinite(qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_max_uv_error)&&
+        qem_pipeline_mesh.telemetry.
+          edge_collapse_qem_max_uv_error<=0.100001&&
+        qem_pipeline_mesh.source_mesh.positions_m.size()==
+          pipeline_mesh.source_mesh.positions_m.size()&&
+        qem_pipeline_mesh.source_mesh.texcoords.size()==
+          pipeline_mesh.source_mesh.texcoords.size()&&
+        qem_pipeline_mesh.source_mesh.triangle_indices==
+          pipeline_mesh.source_mesh.triangle_indices&&
+        validateMesh(qem_pipeline_mesh.source_mesh).valid&&
+        validateMesh(qem_pipeline_mesh.simplified_mesh).valid);
+  auto invalid_qem_pipeline_config=qem_pipeline_config;
+  invalid_qem_pipeline_config.edge_collapse_qem.min_normal_dot=2.0;
+  bool rejected_qem_pipeline_config=false;
+  try{ReconstructionFusionPipeline invalid_qem_pipeline(
+    invalid_qem_pipeline_config);}
+  catch(const std::invalid_argument&){rejected_qem_pipeline_config=true;}
+  CHECK(rejected_qem_pipeline_config);
+  auto truncated_qem_pipeline_config=qem_pipeline_config;
+  truncated_qem_pipeline_config.edge_collapse_qem.max_collapses=1;
+  ReconstructionFusionPipeline truncated_qem_pipeline(
+    truncated_qem_pipeline_config);
+  CHECK(truncated_qem_pipeline.integrate(
+    1000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  CHECK(truncated_qem_pipeline.integrate(
+    2000,mesh_depth_view,mesh_depth_camera,{}).accepted);
+  const auto truncated_qem_build=truncated_qem_pipeline.build();
+  CHECK(!truncated_qem_build.telemetry.complete&&
+        truncated_qem_build.telemetry.edge_collapse_qem_truncated&&
+        !truncated_qem_build.error.empty());
 
   // Texture source selection uses calibrated projection, facing, image support
   // and measured depth visibility without mutating the source mesh or building an atlas.

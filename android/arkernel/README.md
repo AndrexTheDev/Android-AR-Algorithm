@@ -150,3 +150,19 @@ remain host work.
 ## Bounded host-supplied set-cover plan ledger
 
 `ArKernelCoveragePlanBundle` adds a bounded canonical `ARKCOV1` text ledger for one host-supplied weighted set-cover plan: fixed fourteen-key metadata order, 0–64 unique four-field selection rows, 0–64 seven-field uncovered requirement rows, contiguous indices, exact `CapabilityCoverageDimension` names in ascending order for pairwise requirements, bounded value tokens and weights, strict input/line budgets, BOM/CRLF tolerance and a fail-closed `END`. Aggregate counts, selection sums, covered-plus-uncovered totals and weight bounds are checked exactly. `fromPlan()` serializes an existing `CapabilityCoveragePlan` and `toPlan()` rebuilds it; `summarize()` reports only structural counts, sums and distinctness. Five safety flags keep provider binding, Mobly rig control, thermal-run execution, physical scene capture and automatic upload disabled. The ledger contacts no provider, controls no rig, runs no thermal or day/night/weather scene, performs no I/O and stays `unverified`; concrete inventories, rig automation and device-farm evidence remain host work.
+
+## Bounded host-supplied field diagnostics package
+
+`ArKernelFieldDiagnosticsPackageAdapter` adds a bounded canonical
+`ARKFDPACK1` text manifest for one host-declared field diagnostics package:
+fixed eleven-key metadata order, 1–16 opaque `ARKFDIAG1` report references
+with lowercase SHA-256 labels and positive bounded byte sizes, 0–16 unique
+`drop`/`hash` rule references, 0–8 opaque independent target references,
+contiguous indices, strict input/line budgets, BOM/CRLF tolerance and a
+fail-closed `END`. `summarize()` reports structural counts, sums and
+distinctness only; `reportRefs()` and `referencedDigests()` return opaque
+host labels. Five safety flags keep images, poses, trajectories, automatic
+capture and automatic upload disabled. The adapter captures no pixels or
+poses, redacts nothing, verifies no digest or signature, measures no target,
+performs no I/O and stays `unverified`; real field collection, independent
+target evidence and centimetre validation remain host work.

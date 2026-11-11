@@ -321,6 +321,23 @@ With explicit opt-in, collect a compact diagnostic record—not images or trajec
 
 Use cohort minimums, retention limits and deletion controls. Field telemetry discovers unknown clusters; it does not by itself validate metric accuracy. Promote a cluster only after controlled evidence.
 
+`ArKernelFieldDiagnosticsPackageAdapter` adds a bounded canonical
+`ARKFDPACK1` text manifest for one host-declared field diagnostics package.
+It fixes an eleven-key metadata order, 1–16 opaque `ARKFDIAG1` report
+references with lowercase 64-character SHA-256 labels and positive bounded
+byte sizes, 0–16 unique `drop`/`hash` redaction-rule references, 0–8 opaque
+independent target references, contiguous indices, strict input/line
+budgets, BOM/CRLF tolerance with one optional final separator, fail-closed
+parsing and a permanent `unverified` grade. Five safety invariants keep
+images, poses, trajectories, automatic capture and automatic upload
+disabled. `summarize()` reports only structural counts, sums and
+distinctness; `reportRefs()` and `referencedDigests()` return opaque host
+labels only. The adapter captures no image, pose, trajectory, pixel or dense
+geometry, performs no redaction, digest or signature verification, measures
+no target, writes no file, uploads nothing, performs no I/O and grants no
+quality grade. Actual field collection, independent target evidence and
+centimetre validation remain host work.
+
 ## Quirk and rollout control plane
 
 Use a signed, versioned compatibility policy with these rules:

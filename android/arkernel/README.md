@@ -166,3 +166,22 @@ capture and automatic upload disabled. The adapter captures no pixels or
 poses, redacts nothing, verifies no digest or signature, measures no target,
 performs no I/O and stays `unverified`; real field collection, independent
 target evidence and centimetre validation remain host work.
+
+## Bounded physical calibration evidence
+
+`ArKernelCalibrationEvidenceAdapter` adds a bounded canonical `ARKCALIB1`
+text contract for host-performed physical calibration: twelve exact metadata
+keys, six fail-closed invariants (capture/pose opt-in, no images, no automatic
+calibration, no automatic upload, permanent `unverified`), 1–16 unique
+held-out independent scale observations with exact provenance and canonical
+decimals, 0–32 bounded pose or orientation-only samples with strictly
+increasing timestamps and unit quaternions, strict input/line budgets and a
+fail-closed `END`. `summarize()` computes only arithmetic on host-supplied
+numbers plus a readiness pre-check; `evaluationReady` is not a quality grade.
+The adapter captures no pixels or frames, infers no intrinsics, extrinsics or
+metric scale, performs no automatic calibration, verifies no signature,
+performs no I/O and grants no upgrade. Orientation-only samples must assert
+zero translation and cannot establish scale; there is no universal
+calibration for every device. The authoritative grade remains
+`assessReconstructionQuality` with `evaluateHeldOutDimensions`; real field
+evidence, independent targets and centimetre validation remain host work.

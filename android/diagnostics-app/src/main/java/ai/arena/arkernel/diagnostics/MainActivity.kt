@@ -48,11 +48,12 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Single installed, plan-driven host diagnostic app. It writes an opted-in
  * ARKFDPOL1 policy, an ARKFDPLAN1 test plan and a bounded ARKFDLOG1 run log as
- * text files, never images, poses, trajectories, calibration arrays or pixels.
- * A host-pasted ARKFDPLAN1 plan selects implemented structural test operators;
- * it cannot add new low-level capabilities. The app performs no automatic
- * upload, signature verification or physical ground-truth measurement and
- * stays explicitly unverified.
+ * text files, never images, pixels or dense geometry. A separate opted-in
+ * CalibrationCaptureActivity records bounded ARKCALIB1 scale evidence and
+ * orientation samples only. A host-pasted ARKFDPLAN1 plan selects implemented
+ * structural test operators; it cannot add new low-level capabilities. The app
+ * performs no automatic upload, automatic calibration, signature verification
+ * or physical ground-truth measurement and stays explicitly unverified.
  */
 class MainActivity : android.app.Activity() {
 
@@ -67,6 +68,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var writeButton: Button
     private lateinit var shareButton: Button
     private lateinit var copyButton: Button
+    private lateinit var calibrationButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -115,9 +117,10 @@ class MainActivity : android.app.Activity() {
                 "Sensoren, IMU-Stillstand, Camera2-Lifecycle, Storage-Roundtrip, " +
                 "Kern-Selbsttest, Thermal-Zeitreihe und Snapshots. Neue Android-APIs " +
                 "würden ein Update derselben App erfordern, keine neue App. Nur opake " +
-                "Skalare; keine Bilder, Posen, Trajektorien, Kalibrierarrays oder Pixel; " +
-                "Nutzerbestätigungen sind host-reported. Keine externen Targets, kein " +
-                "Bodentruth, kein Upload, Qualität: unverified."
+                "Skalare; keine Bilder, Pixel oder dichte Geometrie. Der separate " +
+                "Kalibrierungs-Bildschirm erfasst mit eigenem Opt-in Maßstabs-Evidenz " +
+                "und Orientierungs-Proben, aber keine metrische Position. Kein " +
+                "Bodentruth im Log, kein Upload, Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -192,6 +195,11 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        calibrationButton = Button(this).apply {
+            text = "5. Physische Kalibrierung öffnen (ARKCALIB1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -232,6 +240,7 @@ class MainActivity : android.app.Activity() {
         root.addView(shareButton, fullWidthParams())
         root.addView(sharePlanButton, fullWidthParams())
         root.addView(copyButton, fullWidthParams())
+        root.addView(calibrationButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -259,6 +268,11 @@ class MainActivity : android.app.Activity() {
         shareButton.setOnClickListener { shareLog() }
         sharePlanButton.setOnClickListener { sharePlan() }
         copyButton.setOnClickListener { copyLog() }
+        calibrationButton.setOnClickListener {
+            startActivity(
+                Intent(this, CalibrationCaptureActivity::class.java),
+            )
+        }
 
         updateButtons()
         ensureCameraPermission()

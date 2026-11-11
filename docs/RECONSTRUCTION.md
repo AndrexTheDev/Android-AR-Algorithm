@@ -121,3 +121,46 @@ An Android product viewer should be a separate optional module and load glTF/GLB
 - Neural radiance fields help novel-view rendering but do not replace metric geometry and scale validation.
 
 Every adopted dependency and transitive license requires review. The current exporter and browser viewer add no third-party runtime dependency.
+
+## Physical calibration capture and the quality-upgrade pathway
+
+A quality upgrade cannot be granted by a flag. `unverified`, `approximate` and
+`centimeter-validated` remain outcomes of `assessReconstructionQuality`, which
+always runs `evaluateHeldOutDimensions` and requires calibrated intrinsics and
+camera/IMU extrinsics, independent metric scale, converged global optimization,
+reprojection RMSE <= 1 px, metric-depth RMSE <= 0.01 m, scale standard deviation
+<= 0.5%, observed coverage >= 70% for environments or 85% for objects, at least
+three held-out observations across at least two 0.25 m dimension bins, raw mean
+absolute error <= 1 cm, uncertainty-adjusted maximum absolute error <= 1 cm,
+maximum relative error <= 2% and a largest reference dimension covering the
+asset extent. These gates are not metrology certification.
+
+`ArKernelCalibrationEvidenceAdapter` adds a bounded canonical `ARKCALIB1`
+transport contract for the evidence that must feed those gates: twelve exact
+metadata keys in order, six fail-closed invariants (explicit capture and pose
+opt-in, no images, no automatic calibration, no automatic upload, permanent
+`unverified`), 1–16 unique held-out independent scale observations with exact
+`scale_bar` / `survey` / `sensor_ground_truth` provenance, canonical finite
+decimals and bounded uncertainty, plus 0–32 bounded pose or orientation-only
+samples with strictly increasing timestamps and unit quaternions. Strict
+input/line budgets, BOM/CRLF tolerance, one optional final separator and a
+fail-closed `END` reject malformed evidence deterministically. `summarize()`
+computes only arithmetic on host-supplied numbers and a readiness pre-check;
+`evaluationReady` is a transport sanity filter over a strict subset of the
+gates above, **not** an assessment, **not** a measurement and **not** an
+upgrade. `qualityGrade` stays `unverified` in every report.
+
+The diagnostics app version `2.2-calibration` provides a separate, explicitly
+opted-in calibration screen: the user performs the physical measurement,
+enters an independently known reference length, the reconstruction-measured
+length, reference uncertainty, provenance, held-out status and asset extent,
+and may record a real device rotation-vector orientation sample. It writes a
+bounded `ARKCALIB1_<run>.txt` text file and shares it for host-side evaluation.
+Orientation samples carry no metric world position and cannot establish scale;
+an orientation-only sample must assert zero translation. There is no universal
+calibration valid for every device: calibration is per device and per capture
+and needs real independent targets. The app captures no image, pixel, frame or
+dense geometry, infers no intrinsics or extrinsics, performs no automatic
+calibration, verifies no signature, uploads nothing and grants no quality
+grade. No upgrade was performed or claimed here; real field evidence,
+independent targets and centimetre validation remain open.

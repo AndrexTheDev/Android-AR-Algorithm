@@ -13,7 +13,10 @@ Update: Ein erster host-supplied Redmi-Lauf auf Android 15 hat gezeigt, dass
 `SENSOR_DELAY_FASTEST` die normale Berechtigung
 `android.permission.HIGH_SAMPLING_RATE_SENSORS` braucht; sie ist jetzt im
 Manifest deklariert, wird im Berechtigungskatalog mitprotokolliert und ist in
-der Android-CI gegen versehentliches Entfernen abgesichert.
+der Android-CI gegen versehentliches Entfernen abgesichert. Version
+`2.2-calibration` ergänzt einen eigenen Opt-in-Bildschirm für physische
+Kalibrierungs-Evidenz (`ARKCALIB1`) – dieselbe App-ID, kein neues
+Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -146,20 +149,73 @@ ausdrücklich als `host.reported.not.verified` protokolliert. Der Lauf schreibt
 nur opake Skalare in `ARKFDLOG1`; `SESSION_TERMINAL` enthält
 `pass.X.of.Y.unverified`. Qualität bleibt `unverified`.
 
+## Physische Kalibrierung mit `2.2-calibration`
+
+**Kurz vorweg:** Es gibt **keine universelle Kalibrierung**, die für alle
+Handys gleich gilt. Kalibrierung ist immer an **dieses Gerät, diese Linse,
+diese Szene und echte, unabhängige Messwerte** gebunden. Die App rechnet keine
+Kalibrierung „aus dem Nichts" aus und stuft die Qualität nicht selbst hoch.
+
+Der neue Knopf **5. Physische Kalibrierung öffnen (ARKCALIB1)** führt zu einem
+eigenen Bildschirm mit eigenem Opt-in. So geht du vor:
+
+1. Lege ein **real bekanntes Maß** in die Szene, z. B. ein ausgedrucktes
+   Maßband, eine vermessene Strecke oder ein Referenzobjekt bekannter Länge.
+   Wichtig: Es muss **unabhängig** vom AR-Kern gemessen sein (Zollstock,
+   vermessenes Target, Sensor-Referenz).
+2. Trage **Referenzlänge (m)**, **vom Kern gemessene Länge (m)** und die
+   **Unsicherheit der Referenz (m)** ein und wähle die Herkunft
+   (`scale_bar`, `survey`, `sensor_ground_truth`).
+3. Lasse **Held-out** aktiv: Diese Messung darf **nicht** zum Kalibrieren
+   benutzt worden sein, sonst ist sie als Beweis wertlos.
+4. **1. Messung hinzufügen** – bis zu 16 Messungen. Für eine sinnvolle
+   Auswertung braucht es mindestens 3 Messungen aus mindestens 2 verschiedenen
+   Größenbereichen (0,25-m-Bins), und die größte Referenz muss die
+   Objektausdehnung abdecken.
+5. Optional: **2. Orientierungs-Probe erfassen** liest einmal echt den
+   Rotationssensor des Handys. Das ist eine **Geräteorientierung**, keine
+   metrische 6-DoF-Position und kein Maßstabsbeweis.
+6. **3. ARKCALIB1 prüfen & speichern** baut die Textdatei, prüft sie
+   fail-closed und schreibt `ARKCALIB1_<run>.txt` nach
+   `Downloads/ARKernelDiagnostics`. Mit **ARKCALIB1 teilen** kannst du den
+   Text direkt hier im Chat einfügen.
+
+Die Anzeige „Vorprüfung bestanden" bedeutet **nur**, dass die eingetragenen
+Zahlen die dokumentierten held-out Grobgrenzen erreichen (mittlerer Fehler
+≤ 1 cm, unsicherheitsbereinigter Maximalfehler ≤ 1 cm, relativer Fehler
+≤ 2 %). Sie ist **keine Qualitätsnote**. Die maßgebliche Bewertung bleibt
+`assessReconstructionQuality` mit `evaluateHeldOutDimensions` und verlangt
+zusätzlich kalibrierte Intrinsics/Extrinsics, unabhängigen Maßstab,
+konvergierte globale Optimierung, Reprojektion ≤ 1 px, Tiefen-RMSE ≤ 0,01 m,
+Maßstabsstreuung ≤ 0,5 % und Abdeckung ≥ 70 %/85 %. Erst mit **echter**
+Evidenz darf `approximate` oder `centimeter-validated` vergeben werden; auf
+dem Gerät bleibt alles `unverified`.
+
+**Was ich nicht für dich tun kann:** Ich habe keinen Zugriff auf dein Handy –
+kein ADB, keine Sensoren, keine Kamera. Die Messung musst du auf dem Gerät
+durchführen. Schicke mir danach den `ARKCALIB1`-Text (oder die Datei); ich
+werte ihn hier deterministisch gegen die Vertrags- und Qualitätsgates aus.
+Keine Bilder, Pixel, Trajektorien oder dichte Geometrie, keine automatische
+Kalibrierung, keine Signaturprüfung, kein Upload, keine Qualitätsaufstufung.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
   und **keinen neuen Low-Level-Sensor** hinzufügen; dafür wäre ein Update
   derselben App-ID nötig. Er kann auch keine externen Targets, Rigs oder
   physikalische Bodentruth erzeugen.
-- Keine Bilder, Posen, Trajektorien, Kalibrierarrays, Pixel oder dichte Geometrie.
+- Im Lauf-Log: keine Bilder, Posen, Trajektorien, Kalibrierarrays, Pixel oder
+  dichte Geometrie. Der separate Kalibrierungs-Bildschirm erfasst mit eigenem
+  Opt-in nur Maßstabszahlen und Orientierungsproben, keine metrische Position,
+  keine Bilder und keine Kalibrierarrays.
 - `WRITE_EXTERNAL_STORAGE` ist bewusst auf `maxSdk=28` begrenzt; auf Android 15
   erscheint sie im Berechtigungskatalog daher als `0`, ohne dass dies ein
   Laufzeitfehler ist. `HIGH_SAMPLING_RATE_SENSORS` ist eine normale Berechtigung
   ohne zusätzlichen Laufzeitdialog; mit erteilter Kamera-Berechtigung meldet der
   Katalog auf Android 15 typischerweise `granted.3.of.4`.
-- Kein automatischer Upload, keine Redaktion, keine Signaturverifikation,
-  keine unabhängigen physischen Targets, keine Messung von Zentimetern.
+- Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
+  keine Redaktion, keine Signaturverifikation, keine Messung von Zentimetern.
+  Unabhängige physische Targets musst du selbst messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

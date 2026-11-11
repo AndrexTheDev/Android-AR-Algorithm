@@ -321,6 +321,23 @@ With explicit opt-in, collect a compact diagnostic record—not images or trajec
 
 Use cohort minimums, retention limits and deletion controls. Field telemetry discovers unknown clusters; it does not by itself validate metric accuracy. Promote a cluster only after controlled evidence.
 
+A bounded `ARKCALIB1` physical calibration evidence contract now supplies the
+input side of that controlled evidence: twelve exact metadata keys, six
+fail-closed invariants, 1–16 unique held-out independent scale observations
+with explicit provenance and canonical decimals, 0–32 bounded pose or
+orientation-only samples with increasing timestamps and unit quaternions,
+strict budgets and a fail-closed `END`. Diagnostics app version
+`2.2-calibration` adds a separate opt-in screen where the user performs the
+measurement and records a real rotation-vector orientation sample, then writes
+an `ARKCALIB1_<run>.txt` file for host-side evaluation. `summarize()` reports
+only arithmetic on host-supplied numbers plus a readiness pre-check;
+`evaluationReady` is not a quality grade and `qualityGrade` stays
+`unverified`. Orientation samples are not metric 6-DoF poses, there is no
+universal per-device-independent calibration, no automatic calibration, no
+image capture, no signature verification, no upload and no upgrade. The
+authoritative grade remains `assessReconstructionQuality` with
+`evaluateHeldOutDimensions`; no upgrade was performed or claimed here.
+
 `ArKernelFieldDiagnosticsPackageAdapter` adds a bounded canonical
 `ARKFDPACK1` text manifest for one host-declared field diagnostics package.
 It fixes an eleven-key metadata order, 1–16 opaque `ARKFDIAG1` report

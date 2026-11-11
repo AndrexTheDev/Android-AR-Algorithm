@@ -218,3 +218,17 @@ quality rule. `summarize()` reports structural counts only;
 The adapter reads no sensor, measures no target, captures no images or poses,
 performs no automatic/universal calibration, verifies no signature, uploads
 nothing, performs no I/O and grants no upgrade. The grade stays `unverified`.
+
+## Bounded fail-closed session binding
+
+`ArKernelSessionBindingAdapter` adds a bounded canonical `ARKBIND1` envelope
+that joins one `ARKADAPT1` profile, one `ARKCALIB1` evidence file and one
+`ARKCAMPAIGN1` plan. Nineteen exact metadata keys, six fail-closed invariants,
+canonical-source SHA-256 digests, bounded counts and fail-closed `END` parsing
+reject malformed envelopes deterministically. `create()` and `verify()` check
+device-token, device-class, campaign-ID, digest and count consistency and
+report structural facts only; `bindingConsistent` is not an assessment. The
+adapter reads no sensor, measures no target, verifies no signature, uploads
+nothing, performs no file I/O and grants no upgrade. The grade stays
+`unverified`; independent targets, manual redaction/upload, signature
+verification and physical validation remain host work.

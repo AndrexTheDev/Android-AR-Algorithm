@@ -223,3 +223,29 @@ performs no I/O in the kernel and grants no quality grade. A tape measure, an
 independent held-out target and real field measurements remain host work. The
 authoritative grade remains `assessReconstructionQuality` with
 `evaluateHeldOutDimensions`. No upgrade was performed or claimed here.
+
+## Fail-closed session binding across the three field artifacts
+
+`ArKernelSessionBindingAdapter` adds a bounded canonical `ARKBIND1` envelope
+with nineteen exact metadata keys, six fail-closed invariants and three
+lowercase 64-character SHA-256 digests. `create()` parses host-supplied
+`ARKADAPT1`, `ARKCALIB1` and `ARKCAMPAIGN1` texts, re-encodes each to its
+canonical form before hashing (so BOM/CRLF presentation variants bind
+identically), requires one identical device token and one identical device
+class and records bounded scene/question/observation/pose counts. `verify()`
+recomputes digests, tokens, campaign ID, counts and class, then reports only
+structural consistency plus the existing `evaluationReady` and
+`campaignEvidenceComplete` pre-checks. `bindingConsistent` is **not** an
+answer, **not** accuracy, **not** centimetre validation and **not** an
+upgrade. `qualityGrade` stays `unverified`.
+
+Diagnostics app version `2.5-binding` adds an opt-in screen that pastes the
+three text files, binds them and writes an `ARKBIND1_<run>.txt` file. Nothing
+is uploaded automatically, no signature is verified, no image, pixel, pose or
+trajectory is captured, no physical target is measured, no intrinsic,
+extrinsic or metric scale is inferred, no automatic/universal calibration is
+performed, no I/O occurs in the kernel and no quality grade is granted. Real
+independent targets, manual redaction/upload, cryptographic signature
+verification and physical validation remain host work. The authoritative grade
+remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No
+upgrade was performed or claimed here.

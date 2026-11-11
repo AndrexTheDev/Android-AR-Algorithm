@@ -18,8 +18,9 @@ der Android-CI gegen versehentliches Entfernen abgesichert. Version
 Kalibrierungs-Evidenz (`ARKCALIB1`). `2.3-adaptive` ergänzt die
 geräteadaptive, systematische Kalibrierungsführung (`ARKADAPT1`).
 `2.4-campaign` ergänzt den geräteübergreifenden, systematischen
-Messkampagnenplan (`ARKCAMPAIGN1`) – weiterhin dieselbe App-ID, kein neues
-Installationsobjekt.
+Messkampagnenplan (`ARKCAMPAIGN1`). `2.5-binding` ergänzt die
+fail-closed Sitzungsbindung (`ARKBIND1`) der drei Textdateien – weiterhin
+dieselbe App-ID, kein neues Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -293,6 +294,35 @@ unabhängigen Referenzen. Keine Bilder, Posen, Trajektorien, keine
 automatische/universelle Kalibrierung, keine Feldmessung in der App, keine
 Signaturprüfung, kein Upload, keine Qualitätsaufstufung; `unverified`.
 
+## Sitzungsbindung mit `2.5-binding`
+
+Der Knopf **8. Sitzungsbindung (ARKBIND1)** führt die drei vorher erzeugten
+Textdateien zusammen: `ARKADAPT1` (Geräteprofil), `ARKCALIB1` (echte Maße)
+und `ARKCAMPAIGN1` (systematischer Plan). Die App parst alle drei, setzt sie
+auf ihre kanonische Form zurück und bildet darüber jeweils SHA-256. Dadurch
+binden BOM/CRLF-Varianten derselben Datei identisch. **Bedingung:** alle drei
+müssen denselben Geräte-Token und dieselbe Geräteklasse tragen – sonst wird
+fail-closed abgelehnt (`DEVICE_TOKEN_MISMATCH` / `DEVICE_CLASS_MISMATCH`).
+
+Bedienung:
+
+1. Die drei Dateien aus den Bildschirmen 5, 6 und 7 teilen/kopieren und in die
+   drei Textfelder einfügen (oder die Zwischenablage-Knöpfe nutzen).
+2. **1. Drei Dateien prüfen & ARKBIND1 speichern** klicken. Die Anzeige meldet
+   `Digests`, `Token`, `Zähler`, `Klasse`, `Bindung konsistent`,
+   `Evidenz-Vorprüfung` und `Kampagne vollständig`.
+3. `ARKBIND1_<run>.txt` liegt unter `Downloads/ARKernelDiagnostics`; mit
+   **2. ARKBIND1 teilen** kannst du sie hier im Chat einfügen.
+
+**Wichtig:** `Bindung konsistent` heißt nur: die drei Dateien gehören
+digestgenau zusammen. Das ist **keine Antwort auf eine Messfrage**, kein
+Messergebnis, keine Zentimetergenauigkeit und keine Qualitätsnote. Die
+maßgebliche Bewertung bleibt `assessReconstructionQuality` mit
+`evaluateHeldOutDimensions` und echten, unabhängigen Referenzen. Keine
+Signaturprüfung, kein automatischer Upload (nur manuelles Teilen), keine
+Bilder, Posen oder Trajektorien, keine automatische/universelle Kalibrierung,
+keine Qualitätsaufstufung; `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -311,8 +341,8 @@ Signaturprüfung, kein Upload, keine Qualitätsaufstufung; `unverified`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
   keine Kalibrierung bei der Installation, keine Redaktion, keine
   Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
-  Geräteerkennung, Profilwahl und Planerzeugung. Unabhängige physische
-  Targets musst du selbst messen und eintragen.
+  Geräteerkennung, Profilwahl, Planerzeugung und digestgenaue Bindung.
+  Unabhängige physische Targets musst du selbst messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

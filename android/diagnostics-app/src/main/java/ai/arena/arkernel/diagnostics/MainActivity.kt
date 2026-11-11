@@ -71,6 +71,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var calibrationButton: Button
     private lateinit var adaptiveButton: Button
     private lateinit var campaignButton: Button
+    private lateinit var bindingButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -124,8 +125,9 @@ class MainActivity : android.app.Activity() {
                 "und Orientierungs-Proben, aber keine metrische Position. Der " +
                 "geräteadaptive Bildschirm wählt automatisch ein Profil, aber " +
                 "kalibriert nicht automatisch. Der Kampagnen-Bildschirm " +
-                "liefert nur einen festen Messplan, keine Auswertung. Kein " +
-                "Bodentruth im Log, kein Upload, Qualität: unverified."
+                "liefert nur einen festen Messplan, keine Auswertung. Die " +
+                "Sitzungsbindung prüft nur digestgenaue Zusammengehörigkeit. " +
+                "Kein Bodentruth im Log, kein Upload, Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -215,6 +217,11 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        bindingButton = Button(this).apply {
+            text = "8. Sitzungsbindung (ARKBIND1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -258,6 +265,7 @@ class MainActivity : android.app.Activity() {
         root.addView(calibrationButton, fullWidthParams())
         root.addView(adaptiveButton, fullWidthParams())
         root.addView(campaignButton, fullWidthParams())
+        root.addView(bindingButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -298,6 +306,11 @@ class MainActivity : android.app.Activity() {
         campaignButton.setOnClickListener {
             startActivity(
                 Intent(this, CampaignPlanActivity::class.java),
+            )
+        }
+        bindingButton.setOnClickListener {
+            startActivity(
+                Intent(this, SessionBindingActivity::class.java),
             )
         }
 

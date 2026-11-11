@@ -32,6 +32,8 @@ physikalischen Bodentruth-Daten erzeugt.
 
 `ARKSURVEYTSV1_example.tsv` zeigt drei synthetische, kanonische TSV-Zeilen für `ArKernelSurveyMeasurementTsv`. Sie sind ein reines Formatbeispiel ohne reale Vermessung, ohne unabhängige Targets, ohne Evaluatorlauf und ohne Qualitätsaussage; der Status bleibt `unverified`.
 
+`ARKSURVEYBIN1_example.bin` zeigt drei synthetische, kanonische Binärrecords für `ArKernelSurveyMeasurementBinary`: 628 Bytes mit 24-Byte-Header, drei 200-Byte-Records und CRC-32-Trailer (`0f59e50e`). Es ist ein reines Formatbeispiel ohne reale Vermessung, ohne unabhängige Targets, ohne Evaluatorlauf, ohne I/O und ohne Qualitätsaussage; der Status bleibt `unverified`.
+
 `ARKREDACT1_example.txt` zeigt zwei synthetische, kanonische Redaktionsregeln für `ArKernelFieldDiagnosticsRedactionBundle`. Sie sind ein reines Formatbeispiel ohne echte Erfassung, Redaktion, Upload, Signaturprüfung oder Qualitätsaussage; der Status bleibt `unverified`.
 
 `ARKLOOP1_example.txt` zeigt zwei synthetische, kanonische Loop-Closure-Kandidaten für `ArKernelLoopClosureCandidateBundle`. Sie sind ein reines Formatbeispiel ohne Deskriptoren, Posen, Trajektorien, geometrische Verifikation, Optimierung oder Qualitätsaussage; der Status bleibt `unverified`.

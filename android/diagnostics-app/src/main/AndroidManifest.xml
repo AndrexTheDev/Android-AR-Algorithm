@@ -82,6 +82,10 @@
             android:name=".IndependentTargetsActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".ConditionEvidenceActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

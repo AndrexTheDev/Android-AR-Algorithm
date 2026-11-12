@@ -508,3 +508,26 @@ downstream able to tell a bad reconstruction from a bad sheet.
 `independence_sufficient` says a later check would not be circular; it does not
 say the reconstruction is accurate, and `targets_consistent` describes the
 physical objects rather than the app, which never measures a target here.
+
+## Controlled-condition evidence (`ARKCOND1`)
+
+Diagnostics app version `2.16-cond` adds button 18 and records what stands
+behind a condition label. `ARKMEAS1` captures the label — indoor, outdoor, day,
+night, thermal, still — but nothing about the rig, the thermal state or the
+light level, so a night scene under a streetlight and one in a pitch-black room
+look identical in the record.
+
+Each `ARKCOND1` sample carries the rig, the pose, the repetition, the device
+thermal status and headroom, and the ambient light. Thermal status and ambient
+light are read from the device; both are readings from this device at this
+moment, not calibrated measurements of the scene.
+
+The label itself cannot be verified against reality, only against two lux
+thresholds the operator declared: a sample labelled `day` below the day
+threshold, or `night` above the night threshold, is reported as a conflict.
+That catches a mislabelled run rather than proving a correctly labelled one.
+
+Five verdicts are recomputed on parse: day/night coverage, label coherence,
+thermal stability, repeatability (a repeat must be on the same rig and
+condition) and overall evidence sufficiency. Sufficiency is a completeness
+gate, not a quality grade.

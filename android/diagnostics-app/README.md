@@ -661,6 +661,46 @@ Zählung, und der Bericht sagt es.
 und keinen Tiefenwert. Jeder Millimeter wird von dir mit einem echten Werkzeug
 gemessen und eingetragen. `unverified`.
 
+## Bedienung mit `2.16-cond`
+
+Neu ist Knopf **18. Bedingungen: Rig, Thermik, Tag/Nacht (ARKCOND1)** im
+Abschnitt **SCHRITT 3 · Messung mit Kamera & Zollstock**.
+
+1. Ledger-, Geräte- und Kampagnen-Name eintragen und die beiden
+   Lux-Schwellen setzen: **ab wie viel Lux gilt es als Tag**, **bis wie viel
+   Lux als Nacht**.
+2. Für jede Aufnahme Bedingung, Rig, Pose und Wiederholung wählen, dann
+   **„Thermik & Licht messen“** drücken. Thermikstufe, Thermik-Reserve und
+   Helligkeit füllt die App selbst vom Gerät.
+3. **„Sample hinzufügen“** (bis zu 64 Samples).
+4. **„Auswerten“** und danach **„ARKCOND1-Datei speichern“** →
+   `ARKCOND1_<Zeitstempel>.txt` in `Downloads/ARKernelDiagnostics`.
+
+**Fünf Urteile**, jedes einzeln aufgeschlüsselt:
+
+- **Tag und Nacht belegt?** Beide Bedingungen brauchen die eingetragene
+  Mindestzahl an Samples.
+- **Beschriftung widerspruchsfrei?** Ein Sample, das „Tag“ heißt aber dunkler
+  ist als deine Tag-Schwelle — oder „Nacht“ heißt aber heller als deine
+  Nacht-Schwelle — wird gezählt und angezeigt. Geprüft werden nur Tag und
+  Nacht, und nur gegen **deine eigenen** Schwellen.
+- **Thermik stabil?** Lag die höchste Thermikstufe über der erlaubten, ist das
+  Urteil negativ. Aufnahmen im Hitzestau sind dann nicht mit kühlen
+  Aufnahmen vergleichbar.
+- **Wiederholung dokumentiert?** Nur wenn dieselbe Pose am **demselben Rig**
+  mindestens zweimal kam. Ein zweites Rig ist ein anderer Aufbau.
+- **Evidenz ausreichend?** Alle vier zusammen plus genug Bedingungen.
+
+Das ist ein **Vollständigkeits-Gatter, keine Qualitätsnote.** Es sagt, dass
+die Bedingungen hinter deiner Messung belegt sind — nicht, dass die
+Rekonstruktion dadurch genauer wurde.
+
+**Was die App wirklich liest:** Thermikstufe und -reserve aus der
+Plattform-Schnittstelle, Helligkeit aus dem Umgebungslichtsensor (etwa eine
+Sekunde lang, Median). Beides sind Momentaufnahmen **dieses** Geräts — ein
+Handy in der Tasche misst Dunkelheit am Mittag, eine Lampe direkt am Sensor
+misst Tageslicht um Mitternacht. Die Bedingung selbst wählst du. `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -692,7 +732,9 @@ gemessen und eingetragen. `unverified`.
   Schlüsselkontinuität, aber keine Identität des Schlüsselbesitzers und
   keine Messqualität. Die Redaktion mit Knopf 16 erkennt nur sechs Muster;
   was sie nicht kennt, bleibt im Text. Knopf 17 führt Buch über die Rollen
-  deiner Targets, misst aber kein Target selbst.
+  deiner Targets, misst aber kein Target selbst. Knopf 18 liest Thermik
+  und Umgebungslicht vom Gerät — als Momentaufnahme, nicht als kalibrierte
+  Messung deiner Szene.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

@@ -82,6 +82,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var signatureButton: Button
     private lateinit var redactionButton: Button
     private lateinit var targetsButton: Button
+    private lateinit var conditionsButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -118,8 +119,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.15-target · unabhängige Targets " +
-                "(Knopf 17). Wenn dieser Text fehlt, ist noch die " +
+            text = "Version 2.16-cond · Bedingungs-Evidenz " +
+                "(Knopf 18). Wenn dieser Text fehlt, ist noch die " +
                 "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -169,7 +170,9 @@ class MainActivity : DiagnosticsActivity() {
                 "nie automatisch. Knopf 17 führt Buch darüber, " +
                 "welches deiner physischen Targets den Maßstab " +
                 "gesetzt hat und welche wirklich unabhängig geprüft " +
-                "werden dürfen. " +
+                "werden dürfen. Knopf 18 liest Thermik und " +
+                "Umgebungslicht vom Gerät und belegt, dass Tag und " +
+                "Nacht wirklich gemessen wurden. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -312,6 +315,11 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        conditionsButton = Button(this).apply {
+            text = "18. Bedingungen: Rig, Thermik, Tag/Nacht (ARKCOND1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -395,6 +403,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(rulerButton, fullWidthParams())
         root.addView(validationButton, fullWidthParams())
         root.addView(targetsButton, fullWidthParams())
+        root.addView(conditionsButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 4 · Vertrauen & Upload"),
             fullWidthParams(),
@@ -500,6 +509,11 @@ class MainActivity : DiagnosticsActivity() {
         targetsButton.setOnClickListener {
             startActivity(
                 Intent(this, IndependentTargetsActivity::class.java),
+            )
+        }
+        conditionsButton.setOnClickListener {
+            startActivity(
+                Intent(this, ConditionEvidenceActivity::class.java),
             )
         }
 
@@ -1071,6 +1085,8 @@ class MainActivity : DiagnosticsActivity() {
             "   Danach redigierte Dateien selbst hochladen.",
             "15. Knopf 17 -> ARKTARGET1 (Target + Rolle)",
             "   Erst danach ist eine Prüfung nicht zirkulär.",
+            "16. Knopf 18 -> ARKCOND1 (Rig, Thermik, Tag/Nacht)",
+            "   Belegt die Bedingungen hinter der Messung.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

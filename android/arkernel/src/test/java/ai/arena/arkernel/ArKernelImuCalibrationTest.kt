@@ -5,7 +5,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private const val DELTA = 1e-9
+/**
+ * The contract writes every statistic with six decimals, so six decimals is
+ * also the precision these assertions check. Comparing a rounded literal
+ * against the full-precision summary value with a tighter delta would fail
+ * on the rounding alone.
+ */
+private const val DELTA = 1e-6
 
 /**
  * Every fixture below was forward-simulated from a synthetic sensor with known
@@ -2072,6 +2078,33 @@ class ArKernelImuCalibrationTest {
         val parsed = ArKernelImuCalibrationAdapter.parse(body)
         assertFalse(parsed.detail, parsed.accepted)
         assertEquals(rejection, parsed.rejection)
+    }
+
+    @Test
+    fun everyFixtureRoundTripsThroughEncodeAndParse() {
+        val cases = listOf(
+            "good" to goodRows(),
+            "cheap" to cheapRows(),
+            "staticOnly" to staticOnlyRows(),
+            "incompletePoses" to incompletePosesRows(),
+            "oneCycle" to oneCycleRows(),
+            "clipped" to clippedRows(),
+            "thermalNeed" to thermalNeedRows(),
+            "shortStatic" to shortStaticRows(),
+        )
+        for ((name, rows) in cases) {
+            val calibration = rows.build()
+            val parsed = ArKernelImuCalibrationAdapter.parse(textOf(calibration))
+            assertTrue("$name: ${parsed.detail}", parsed.accepted)
+            assertEquals(
+                "$name rejection",
+                ArKernelImuCalibrationRejection.NONE,
+                parsed.rejection,
+            )
+            val again = ArKernelImuCalibrationAdapter.encode(
+                parsed.calibration!!)
+            assertEquals("$name is not canonical", textOf(calibration), again)
+        }
     }
 
     @Test

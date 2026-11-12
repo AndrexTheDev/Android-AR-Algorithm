@@ -25,6 +25,7 @@ ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen.
 `ARKRETENT1`-Laufakte. `2.8-measure` ergänzt die geführte
 Messdurchführung (`ARKMEAS1`), die deine physischen `ARKCALIB1`-Messungen pro Szene bindet. **`2.9-feed` ergänzt endlich einen echten Live-Kamerafeed** mit vier Messmarken (`ARKFEED1`) – weiterhin dieselbe App-ID, kein neues Installationsobjekt. Auf dem Hauptbildschirm steht jetzt sichtbar `Version 2.9-feed`; fehlt dieser Text, ist noch eine alte APK installiert.
 **`2.10-ruler` ergänzt die automatische Zollstock-Erkennung (`ARKSCALE1`)**: die App findet die Zentimeter-Marken eines ausgeklappten Zollstocks selbst im Bild. Auf dem Hauptbildschirm steht jetzt sichtbar `Version 2.10-ruler`; fehlt dieser Text, ist noch eine alte APK installiert.
+**`2.11-guide` räumt die Bedienung auf**: die Knöpfe sind in drei benannte Abschnitte gruppiert, eine ein- und ausklappbare Checkliste nennt die komplette Testreihenfolge, und der Inhalt wird nicht mehr von der Android-Navigationsleiste verdeckt. Auf dem Hauptbildschirm steht jetzt sichtbar `Version 2.11-guide`; fehlt dieser Text, ist noch eine alte APK installiert.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -485,6 +486,38 @@ Endpunkte **wiederholgenau**, nicht **metrisch richtig**: Tiefe, Perspektive,
 Rolling-Shutter und Verzeichnung bleiben unberücksichtigt, daher ist
 `metric_accuracy_claimed=false`. **Kein KI-Modell, keine Inferenz, keine
 Gewichte, kein Netz** – nur feste, deterministische Luminanzschwellen.
+`unverified`.
+
+## Bedienung mit `2.11-guide`
+
+### Der untere Rand ist wieder frei
+
+Android 15 erzwingt für Apps mit `targetSdk 35` die randlose Darstellung. Ohne
+Gegenmaßnahme liegt die **Android-Navigationsleiste** (Home / Zurück /
+Übersicht) über dem letzten Knopf, und die Statusleiste über dem ersten. Alle
+zehn Bildschirme erben jetzt von `DiagnosticsActivity`: diese Basis zeichnet
+bewusst unter den Systemleisten und addiert deren Höhen **einmalig** als
+Rand. Beim Drehen, bei Tastaturwechsel oder beim Umschalten zwischen
+Drei-Knopf- und Gestensteuerung wird der Rand neu berechnet, nicht addiert.
+
+### Drei Abschnitte statt einer langen Liste
+
+- **SCHRITT 1 · Log & Plan** – Knöpfe 1–4 plus Plan-Text und Teilen
+- **SCHRITT 2 · Kalibrierung & Sitzungen** – Knöpfe 5–10
+- **SCHRITT 3 · Messung mit Kamera & Zollstock** – Knöpfe 11–13
+
+### Checkliste: alles testen
+
+Der Knopf **„Checkliste: alles testen (anklopfen)"** blendet die komplette
+Reihenfolge ein – von `ARKFDPOL1/ARKFDPLAN1/ARKFDLOG1` über `ARKADAPT1`,
+`ARKCAMPAIGN1` und `ARKCALIB1` bis zu `ARKSCALE1`, `ARKFEED1`, `ARKMEAS1`,
+`ARKBIND1`, `ARKRETENT1` und `ARKCROSS1`. Damit ist die App so vorbereitet,
+dass du das geforderte Programm ohne Rückfragen durchlaufen kannst.
+
+**Die Checkliste ist eine manuelle Anleitung, keine Verifikation.** Die App
+prüft nicht selbst, welche Dateien schon vorliegen, wertet keine Messwerte aus
+und vergibt keine Freigabe. Alle Dateien landen in
+`Downloads/ARKernelDiagnostics` und werden von dir hier im Chat hochgeladen.
 `unverified`.
 
 ## Grenzen

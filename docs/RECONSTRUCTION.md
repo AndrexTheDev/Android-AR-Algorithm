@@ -406,3 +406,24 @@ AI model, inference, weights or network are included**: only fixed,
 deterministic luma thresholds. Physical validation and centimetre accuracy
 remain open. The authoritative grade remains `assessReconstructionQuality`
 with `evaluateHeldOutDimensions`; no upgrade was performed or claimed here.
+
+## Usability pass: system bars, sections and a test checklist
+
+Diagnostics app version `2.11-guide` is a usability-only change: no contract,
+no measurement path, no inference and no quality claim were added or altered.
+
+Android 15 enforces edge-to-edge for apps targeting API 35, so the navigation
+bar (Home / Back / Recents) covered the last button on every screen and the
+status bar covered the first. `DiagnosticsActivity` opts into drawing behind
+the system bars and then re-applies the system-bar insets as padding on the
+content view, capturing each screen's original padding once so the insets are
+recomputed rather than accumulated on rotation, keyboard or navigation-mode
+changes. All ten activities inherit it.
+
+The main screen now groups its thirteen buttons into three named sections and
+adds a collapsible checklist giving the full test order across
+`ARKFDPOL1`/`ARKFDPLAN1`/`ARKFDLOG1`, `ARKADAPT1`, `ARKCAMPAIGN1`,
+`ARKCALIB1`, `ARKSCALE1`, `ARKFEED1`, `ARKMEAS1`, `ARKBIND1`, `ARKRETENT1`
+and `ARKCROSS1`. The checklist is a manual guide, not a verification: the app
+does not inspect which files exist, evaluates no measurement and grants no
+approval. The grade stays `unverified`.

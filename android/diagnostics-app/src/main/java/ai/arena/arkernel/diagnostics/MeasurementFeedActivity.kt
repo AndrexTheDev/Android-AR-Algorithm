@@ -69,7 +69,7 @@ import java.util.concurrent.atomic.AtomicLong
  * and network access are absent. All captures require explicit user
  * confirmation. The grade stays `unverified`.
  */
-class MeasurementFeedActivity : android.app.Activity() {
+class MeasurementFeedActivity : DiagnosticsActivity() {
 
     private companion object {
         const val REQUEST_CAMERA_FEED = 1002

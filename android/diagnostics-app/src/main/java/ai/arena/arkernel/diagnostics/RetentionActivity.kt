@@ -47,7 +47,7 @@ import java.util.Locale
  * granted. Physical encrypted keyframe lifecycle validation on a real device
  * remains open; the grade stays `unverified`.
  */
-class RetentionActivity : android.app.Activity() {
+class RetentionActivity : DiagnosticsActivity() {
 
     private companion object {
         const val STATE_RUN_ID = "retention.run_id"

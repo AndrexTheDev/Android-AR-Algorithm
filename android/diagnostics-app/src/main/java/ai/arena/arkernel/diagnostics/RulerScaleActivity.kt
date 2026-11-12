@@ -77,7 +77,7 @@ import java.util.concurrent.atomic.AtomicLong
  * No AI model, inference, weights or network access is involved. The grade
  * stays `unverified`.
  */
-class RulerScaleActivity : android.app.Activity() {
+class RulerScaleActivity : DiagnosticsActivity() {
 
     private companion object {
         const val REQUEST_CAMERA_RULER = 1003

@@ -47,7 +47,7 @@ import kotlin.math.sqrt
  * is not a quality assessment; the grade stays `unverified` until an
  * independent evaluator runs with real evidence.
  */
-class CalibrationCaptureActivity : android.app.Activity(), SensorEventListener {
+class CalibrationCaptureActivity : DiagnosticsActivity(), SensorEventListener {
 
     private lateinit var referenceInput: EditText
     private lateinit var measuredInput: EditText

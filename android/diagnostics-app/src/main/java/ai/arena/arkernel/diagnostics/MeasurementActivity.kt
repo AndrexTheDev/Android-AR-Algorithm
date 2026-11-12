@@ -46,7 +46,7 @@ import java.util.Locale
  * one explicit user confirmation and at least one held-out scene. The grade
  * stays `unverified`; physical validation remains host work.
  */
-class MeasurementActivity : android.app.Activity() {
+class MeasurementActivity : DiagnosticsActivity() {
 
     private companion object {
         const val STATE_CAMPAIGN = "measurement.campaign"

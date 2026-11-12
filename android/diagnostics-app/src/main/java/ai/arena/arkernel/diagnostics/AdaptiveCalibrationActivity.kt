@@ -49,7 +49,7 @@ import java.util.Locale
  * signature, uploads nothing and grants no quality grade. Quality stays
  * `unverified`.
  */
-class AdaptiveCalibrationActivity : android.app.Activity() {
+class AdaptiveCalibrationActivity : DiagnosticsActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var previewText: TextView

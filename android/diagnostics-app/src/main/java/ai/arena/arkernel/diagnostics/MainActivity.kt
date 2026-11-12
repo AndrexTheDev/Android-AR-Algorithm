@@ -33,6 +33,7 @@ import android.provider.MediaStore
 import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -55,7 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * performs no automatic upload, automatic calibration, signature verification
  * or physical ground-truth measurement and stays explicitly unverified.
  */
-class MainActivity : android.app.Activity() {
+class MainActivity : DiagnosticsActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var logPreview: TextView
@@ -77,6 +78,8 @@ class MainActivity : android.app.Activity() {
     private lateinit var measurementButton: Button
     private lateinit var feedButton: Button
     private lateinit var rulerButton: Button
+    private lateinit var guideButton: Button
+    private lateinit var guideText: TextView
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -111,9 +114,9 @@ class MainActivity : android.app.Activity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.10-ruler · Knopf 12 Live-Kamerafeed, " +
-                "Knopf 13 Zollstock-Autoerkennung. Wenn dieser Text " +
-                "fehlt, ist noch die alte APK installiert."
+            text = "Version 2.11-guide · Abschnitte, Checkliste und " +
+                "freier unterer Rand. Wenn dieser Text fehlt, ist noch " +
+                "die alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
             setTextColor(Color.parseColor("#B45309"))
@@ -273,6 +276,23 @@ class MainActivity : android.app.Activity() {
             setAllCaps(false)
         }
 
+        guideButton = Button(this).apply {
+            text = "Checkliste: alles testen (anklopfen)"
+            textSize = 14f
+            setAllCaps(false)
+            contentDescription = "Zeigt oder versteckt die Test-Checkliste"
+        }
+        guideText = TextView(this).apply {
+            text = GUIDE_TEXT
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            visibility = View.GONE
+            setTextIsSelectable(true)
+            setBackgroundColor(Color.parseColor("#FFF7ED"))
+            setPadding(12, 12, 12, 12)
+            contentDescription = "Checkliste aller benötigten Testartefakte"
+        }
+
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
             textSize = 12f
@@ -307,18 +327,32 @@ class MainActivity : android.app.Activity() {
             ),
         )
         root.addView(resetPlanButton, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 1 · Log & Plan"),
+            fullWidthParams(),
+        )
         root.addView(createButton, fullWidthParams())
         root.addView(physicalButton, fullWidthParams())
         root.addView(writeButton, fullWidthParams())
         root.addView(shareButton, fullWidthParams())
         root.addView(sharePlanButton, fullWidthParams())
         root.addView(copyButton, fullWidthParams())
+        root.addView(guideButton, fullWidthParams())
+        root.addView(guideText, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 2 · Kalibrierung & Sitzungen"),
+            fullWidthParams(),
+        )
         root.addView(calibrationButton, fullWidthParams())
         root.addView(adaptiveButton, fullWidthParams())
         root.addView(campaignButton, fullWidthParams())
         root.addView(bindingButton, fullWidthParams())
         root.addView(crossButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
+            fullWidthParams(),
+        )
         root.addView(measurementButton, fullWidthParams())
         root.addView(feedButton, fullWidthParams())
         root.addView(rulerButton, fullWidthParams())
@@ -333,6 +367,15 @@ class MainActivity : android.app.Activity() {
         setContentView(root)
 
         optIn.setOnCheckedChangeListener { _, _ -> updateButtons() }
+        guideButton.setOnClickListener {
+            val visible = guideText.visibility == View.VISIBLE
+            guideText.visibility = if (visible) View.GONE else View.VISIBLE
+            guideButton.text = if (visible) {
+                "Checkliste: alles testen (anklopfen)"
+            } else {
+                "Checkliste ausblenden"
+            }
+        }
         resetPlanButton.setOnClickListener {
             planInput.setText(defaultPlanText)
             currentPlanText = defaultPlanText
@@ -398,6 +441,17 @@ class MainActivity : android.app.Activity() {
         updateButtons()
         ensureCameraPermission()
     }
+
+    /** Bold section header that groups the numbered action buttons. */
+    private fun sectionLabel(text: String): TextView =
+        TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1D4ED8"))
+            setPadding(0, 14, 0, 2)
+            contentDescription = "Abschnitt " + text
+        }
 
     private fun fullWidthParams(): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(
@@ -924,5 +978,28 @@ class MainActivity : android.app.Activity() {
 
     private companion object {
         const val REQUEST_CAMERA = 1001
+        val GUIDE_TEXT = listOf(
+            "CHECKLISTE – in dieser Reihenfolge testen.",
+            "Die App prüft NICHT selbst, was schon vorliegt; das",
+            "ist eine manuelle Anleitung, keine Verifikation.",
+            "",
+            "1. Knopf 1 (Log) + 3 (speichern) + 4 (teilen)",
+            "   -> ARKFDPOL1, ARKFDPLAN1, ARKFDLOG1",
+            "2. Knopf 2  -> ultimativer Planlauf, danach 3 + 4",
+            "3. Knopf 6  -> ARKADAPT1  (Geräteprofil wählen)",
+            "4. Knopf 7  -> ARKCAMPAIGN1 (Messplan, 9 Szenen)",
+            "5. Knopf 5  -> ARKCALIB1 je Szene (dein Maßband)",
+            "6. Knopf 13 -> ARKSCALE1 (Zollstock-Autoerkennung)",
+            "   Zollstock auf 1 m oder 2 m ausklappen!",
+            "7. Knopf 12 -> ARKFEED1 (Kamerafeed, 4 Marken)",
+            "8. Knopf 11 -> ARKMEAS1 (alle 9 Szenen binden)",
+            "9. Knopf 8  -> ARKBIND1 (Sitzungsbindung)",
+            "10. Knopf 10 -> ARKRETENT1 (Aufbewahrung)",
+            "11. Knopf 9 -> ARKCROSS1 (Vergleich, ab 2. Gerät)",
+            "",
+            "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
+            "Bitte die .txt-Dateien hier im Chat hochladen.",
+            "Kein automatischer Upload. Qualität: unverified.",
+        ).joinToString("\n")
     }
 }

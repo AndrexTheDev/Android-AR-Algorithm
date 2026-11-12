@@ -51,7 +51,7 @@ import java.util.Locale
  * no automatic/universal calibration, verifies no signature, uploads nothing
  * and grants no quality grade. Quality stays `unverified`.
  */
-class CampaignPlanActivity : android.app.Activity() {
+class CampaignPlanActivity : DiagnosticsActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var previewText: TextView

@@ -38,7 +38,7 @@ import java.io.IOException
  * granted. `bindingConsistent` is a structural check, not an answer, not
  * accuracy and not an upgrade. Quality stays `unverified`.
  */
-class SessionBindingActivity : android.app.Activity() {
+class SessionBindingActivity : DiagnosticsActivity() {
 
     private lateinit var profileBox: EditText
     private lateinit var evidenceBox: EditText

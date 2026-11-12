@@ -41,7 +41,7 @@ private const val CROSS_SEPARATOR = "==="
  * is granted. `comparisonConsistent` is a structural check, not an answer,
  * not accuracy and not an upgrade. Quality stays `unverified`.
  */
-class CrossDeviceActivity : android.app.Activity() {
+class CrossDeviceActivity : DiagnosticsActivity() {
 
     private lateinit var inputBox: EditText
     private lateinit var statusText: TextView

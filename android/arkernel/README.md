@@ -232,3 +232,16 @@ adapter reads no sensor, measures no target, verifies no signature, uploads
 nothing, performs no file I/O and grants no upgrade. The grade stays
 `unverified`; independent targets, manual redaction/upload, signature
 verification and physical validation remain host work.
+
+## Bounded cross-device comparison
+
+`ArKernelCrossDeviceComparisonAdapter` adds a bounded canonical `ARKCROSS1`
+text contract with fourteen exact metadata keys, eight fail-closed
+invariants and 1–16 unique rows, each binding one canonical `ARKBIND1`
+envelope by lowercase SHA-256 digest. `create()` requires unique device
+tokens and digests; `verify()` recomputes them; `summarize()` reports only
+structural counts. The protocol is portable to every Android device; the
+calibration values are not. This contract explicitly does not re-verify the
+three source texts behind each binding. The adapter reads no sensor,
+measures no target, verifies no signature, uploads nothing, performs no file
+I/O and grants no upgrade. The grade stays `unverified`.

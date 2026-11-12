@@ -249,3 +249,31 @@ independent targets, manual redaction/upload, cryptographic signature
 verification and physical validation remain host work. The authoritative grade
 remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No
 upgrade was performed or claimed here.
+
+## Bounded cross-device comparison of declared sessions
+
+`ArKernelCrossDeviceComparisonAdapter` adds a bounded canonical `ARKCROSS1`
+envelope with fourteen exact metadata keys, eight fail-closed invariants and
+1–16 unique session rows. `create()` parses host-supplied `ARKBIND1` envelopes,
+re-encodes each to its canonical form, hashes those bytes with SHA-256 and
+requires unique device tokens and unique binding digests. `verify()` recomputes
+digests and counts; `summarize()` reports only structural counts such as
+distinct devices, device classes, campaigns and scene/observation ranges.
+`comparisonConsistent` is **not** an answer, **not** accuracy, **not**
+centimetre validation and **not** an upgrade. `qualityGrade` stays
+`unverified`.
+
+Crucially this contract binds **declared** session envelopes; it does not
+re-run `ARKBIND1.verify()` against the three underlying source texts, which is
+reported explicitly as `sourceReverificationPerformed=false`. The portable
+part is the ten-question protocol, not a calibration value:
+`per_device_calibration` and `universal_calibration_disabled` are mandatory.
+Diagnostics app version `2.6-cross` pastes 1–16 binding texts opt-in and
+writes an `ARKCROSS1_<run>.txt` file. Nothing is uploaded automatically, no
+signature is verified, no image, pixel, pose or trajectory is captured, no
+physical target is measured, no automatic/universal calibration is performed,
+no file I/O occurs in the kernel and no quality grade is granted. Real
+independent targets, manual redaction/upload, cryptographic signature
+verification and physical validation remain host work. The authoritative grade
+remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No
+upgrade was performed or claimed here.

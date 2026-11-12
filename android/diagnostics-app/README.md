@@ -19,8 +19,9 @@ Kalibrierungs-Evidenz (`ARKCALIB1`). `2.3-adaptive` ergänzt die
 geräteadaptive, systematische Kalibrierungsführung (`ARKADAPT1`).
 `2.4-campaign` ergänzt den geräteübergreifenden, systematischen
 Messkampagnenplan (`ARKCAMPAIGN1`). `2.5-binding` ergänzt die
-fail-closed Sitzungsbindung (`ARKBIND1`) der drei Textdateien – weiterhin
-dieselbe App-ID, kein neues Installationsobjekt.
+fail-closed Sitzungsbindung (`ARKBIND1`) der drei Textdateien. `2.6-cross`
+ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen –
+weiterhin dieselbe App-ID, kein neues Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -323,6 +324,30 @@ Signaturprüfung, kein automatischer Upload (nur manuelles Teilen), keine
 Bilder, Posen oder Trajektorien, keine automatische/universelle Kalibrierung,
 keine Qualitätsaufstufung; `unverified`.
 
+## Gerätevergleich mit `2.6-cross`
+
+Der Knopf **9. Gerätevergleich (ARKCROSS1)** führt **1–16 gebundene
+Sitzungen** aus verschiedenen Geräten zusammen. Dazu die `ARKBIND1`-Texte
+untereinander einfügen und zwischen ihnen je eine eigene Zeile mit genau
+`===` setzen. Die App parst jeden Umschlag, bildet über seine kanonische Form
+SHA-256 und verlangt **eindeutige Geräte-Tokens** und eindeutige Digests.
+Alle Zeilen tragen dieselben zehn kanonischen Fragen und dasselbe portable
+Protokoll; nur Geräteklasse, Kampagne und Zähler dürfen Unterschiede zeigen.
+
+Die Anzeige meldet `Sitzungen`, `verschiedene Geräte`, `Geräteklassen`,
+`Kampagnen`, Szenen-/Beobachtungsgrenzen, `Konsistent`, `Quellen erneut
+geprüft: false` und `portables Protokoll`. Ausgabe:
+`ARKCROSS1_<run>.txt` unter `Downloads/ARKernelDiagnostics`.
+
+**Wichtig:** `ARKCROSS1` bindet nur **deklarierte** `ARKBIND1`-Umschläge –
+es rechnet die drei Quelltexte dahinter **nicht** erneut nach
+(`sourceReverificationPerformed=false`). Dafür bleibt `ARKBIND1.verify()`
+mit den Originaldateien nötig. `Konsistent` ist keine Antwort, kein
+Messergebnis, keine Zentimetergenauigkeit und keine Qualitätsnote. Keine
+Signaturprüfung, kein automatischer Upload, keine Bilder/Posen/Trajektorien,
+keine automatische/universelle Kalibrierung, keine Qualitätsaufstufung;
+`unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -341,8 +366,9 @@ keine Qualitätsaufstufung; `unverified`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
   keine Kalibrierung bei der Installation, keine Redaktion, keine
   Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
-  Geräteerkennung, Profilwahl, Planerzeugung und digestgenaue Bindung.
-  Unabhängige physische Targets musst du selbst messen und eintragen.
+  Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung und
+  der kanonische Vergleich deklarierter Sitzungen. Unabhängige physische
+  Targets musst du selbst messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

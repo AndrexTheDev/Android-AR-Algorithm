@@ -72,6 +72,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var adaptiveButton: Button
     private lateinit var campaignButton: Button
     private lateinit var bindingButton: Button
+    private lateinit var crossButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -127,7 +128,9 @@ class MainActivity : android.app.Activity() {
                 "kalibriert nicht automatisch. Der Kampagnen-Bildschirm " +
                 "liefert nur einen festen Messplan, keine Auswertung. Die " +
                 "Sitzungsbindung prüft nur digestgenaue Zusammengehörigkeit. " +
-                "Kein Bodentruth im Log, kein Upload, Qualität: unverified."
+                "Der Gerätevergleich bindet nur deklarierte Sitzungen, keine " +
+                "Kalibrierwerte. Kein Bodentruth im Log, kein Upload, " +
+                "Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -222,6 +225,11 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        crossButton = Button(this).apply {
+            text = "9. Gerätevergleich (ARKCROSS1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -266,6 +274,7 @@ class MainActivity : android.app.Activity() {
         root.addView(adaptiveButton, fullWidthParams())
         root.addView(campaignButton, fullWidthParams())
         root.addView(bindingButton, fullWidthParams())
+        root.addView(crossButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -311,6 +320,11 @@ class MainActivity : android.app.Activity() {
         bindingButton.setOnClickListener {
             startActivity(
                 Intent(this, SessionBindingActivity::class.java),
+            )
+        }
+        crossButton.setOnClickListener {
+            startActivity(
+                Intent(this, CrossDeviceActivity::class.java),
             )
         }
 

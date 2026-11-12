@@ -5,7 +5,7 @@ sicher". Es führt jede Behauptung des AR-Kerns, jeden physikalischen Test, der
 sie stützen müsste, und den Knopf, der ihn durchführt — oder den Grund, warum
 es ihn nicht gibt.
 
-Stand: Version `2.20-camtim` (Knopf 1–22). Bewertung über alles:
+Stand: Version `2.21-devhw` (Knopf 1–23). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## Wie die Matrix zu lesen ist
@@ -89,15 +89,51 @@ Fehlskalierung unterscheiden.
 
 ## Schicht 3 — Gerät und Laufzeit
 
+Bis `2.21-devhw` war diese ganze Schicht leer. Das ist die gefährlichste
+Lücke der Matrix gewesen, weil sie unsichtbar ist: sie verfälscht nicht das
+Ergebnis einer Reihe, sie verfälscht *jede* Reihe, die auf diesem Gerät
+läuft.
+
 | Behauptung | Test | Knopf | Vertrag | Stand |
 |---|---|---|---|---|
-| Das Gerät liefert die Sensoren, die der Kern braucht | Sensorinventar | 1 | `ARKFDPOL1` | **gebucht** (teilweise) |
-| Genug Speicher und Arbeitsspeicher für einen Lauf | Laufzeit-Reserven | — | — | **fehlt** |
-| Das Gerät drosselt nicht mitten in einer 60-Sekunden-Messung | Drosselungsprobe | — | — | **fehlt** |
-| Die beiden Uhren driften über einen langen Lauf nicht auseinander | `ArKernelClockAligner` (Bibliothek) | — | — | **fehlt** |
+| Das Gerät liefert die Sensoren, die der Kern braucht | Sensorinventar | 23 | `ARKDEVHW1` | **gemessen** |
+| Die gemeldeten Sensorwerte sind plausibel | Bereich, Auflösung, Verzug, Leistung je Sensor | 23 | `ARKDEVHW1` | **gemessen** (gemeldet, nicht gemessen) |
+| Genug Arbeitsspeicher für einen Lauf | Speicherreserve | 23 | `ARKDEVHW1` | **gemessen** |
+| Genug Platz für einen langen Lauf | Massenspeicher | 23 | `ARKDEVHW1` | **gemessen** |
+| Das Gerät drosselt nicht mitten in einer langen Messung | Drosselungsprobe (10/30/60 s Dauerlast) | 23 | `ARKDEVHW1` | **gemessen** |
+| Das Gerät wird thermisch nicht kritisch | Thermikstatus vor und nach der Last | 23 | `ARKDEVHW1` | **gemessen**, wenn gemeldet (ab Android 10) |
+| Die beiden Uhren driften über einen Lauf nicht auseinander | Uhrenreihe über dieselbe Last | 23 | `ARKDEVHW1` | **gemessen** |
+| Beide Uhren laufen monoton | Rückschritte zählen | 23 | `ARKDEVHW1` | **gemessen** |
+| Der Akku ist nicht fast leer | Ladestand | 23 | `ARKDEVHW1` | **gemessen** |
 
 Eine 60-Sekunden-Statikmessung auf einem drosselnden Telefon misst das
 Drosseln, nicht das Gyroskop. Diese Schicht ist keine Nebensache.
+
+**Was die Probe wirklich tut.** Sie rechnet zehn bis sechzig Sekunden
+ununterbrochen und vergleicht die Arbeitsrate im ersten Viertel des Laufs mit
+der im letzten. Ein Gerät, das im letzten Viertel einbricht, wird für jede
+lange Erfassung auf ihm unbrauchbar — und nichts in einem Trägheitslog
+unterscheidet hinterher zwischen einem schlechten Gyroskop und einem
+gedrosselten Takt. Deshalb gehört Knopf 23 **vor** Knopf 20 und 22.
+
+**Was die Probe nicht tut.** Sie misst nicht, wie schnell das Gerät ist. Die
+Raten sind untereinander vergleichbar, aber sie sind keine Leistungszahl und
+kein Vergleich zwischen zwei Geräten: verschiedene Kerne, verschiedene
+Lastlage, verschiedener Akkustand. Was zählt, ist das Verhältnis, nicht der
+Wert.
+
+**Warum die Uhren in derselben Probe stecken.** `elapsedRealtime` und
+`uptimeMillis` unterscheiden sich um alles, was das Gerät verschlafen hat —
+das ist erwartbar und harmlos, solange der Abstand *konstant* bleibt. Wächst
+er während eines Laufs, hat das Gerät mitten in der Erfassung geschlafen.
+Beide Uhren werden deshalb in jedem Arbeitsschritt der Probe gelesen; die
+Drift ist die Änderung des Abstands in ppm, und jeder Rückschritt wird
+gezählt. Die Fusion nimmt Monotonie an und verdirbt still, wenn sie nicht
+gilt.
+
+Übrigens **blockiert**: die Batterietemperatur bleibt ein Stellvertreter für
+die Sensortemperatur (Schicht 1). Die App liest, was Android meldet; einen
+Temperaturfühler am IMU-Chip hat kein Telefon, das ich ansprechen könnte.
 
 ## Schicht 4 — Geometrie und Maßstab
 
@@ -140,10 +176,14 @@ Die Schichten bauen aufeinander auf. Eine Messung in Schicht 4 ist sinnlos,
 wenn Schicht 1 nicht stimmt, weil der Kern dann zwischen zwei Kamerabildern
 falsch integriert, bevor er irgendeinen Maßstab prüft.
 
-1. **Schicht 1** — Trägheitssensorik. Pro Gerät einmal, danach nur nach
-   Firmware-Wechsel oder Sturz.
-2. **Schicht 2** — Kameratakt. Pro Gerät einmal. **Intrinsics blockiert.**
-3. **Schicht 3** — Gerät und Laufzeit. Vor jeder langen Messreihe.
+1. **Schicht 1** — Trägheitssensorik (Knopf 20). Pro Gerät einmal, danach
+   nur nach Firmware-Wechsel oder Sturz.
+2. **Schicht 2** — Kameratakt (Knopf 22). Pro Gerät einmal.
+   **Intrinsics blockiert.**
+3. **Schicht 3** — Gerät und Laufzeit (Knopf 23). Pro Gerät **vor**
+   Schicht 1 und 2, und erneut nach jedem Firmware-Wechsel: erst wenn das
+   Gerät nicht drosselt und die Uhren halten, bedeuten die IMU- und
+   Kameramessungen überhaupt etwas.
 4. **Schicht 4** — Geometrie und Maßstab. Pro Messsitzung.
 5. **Schicht 0** — Vertrauen. Am Ende: erst redigieren, dann signieren.
 6. **Schicht 5** — Systembehauptungen. Erst wenn 1–4 stehen.

@@ -675,3 +675,46 @@ intrinsics are fitted, and the manufacturer's focal length is recorded as a
 reported value rather than trusted: `manufacturer_intrinsics_trusted` is
 written as `false`. `camera_sufficient` is a precondition gate, not a
 judgement of image quality, and the grade stays `unverified`.
+
+## Device hardware, sustained load and clocks (`ARKDEVHW1`)
+
+Diagnostics app version `2.21-devhw` adds button 23. Until this layer, every
+series in the app assumed something nobody had checked: that the device running
+it is the same device at the end of the run as at the start.
+
+**Inventory.** The kernel integrates an accelerometer and a gyroscope. A device
+without either cannot run it at all, and that is worth knowing before a
+campaign rather than after one. The screen lists every sensor the platform
+reports, with range, resolution, delay bounds, power and reporting mode. This
+is what the platform *says* about its sensors, not a measurement of them - a
+device can advertise a gyroscope and deliver nothing, which is why the record
+reports the advertisement and leaves the measurement to `ARKIMUCAL1`. The two
+are deliberately not conflated.
+
+**Headroom.** Memory and free storage are read once, before the load. A capture
+that dies because a disk filled up is a bookkeeping failure, not a
+reconstruction one, and the difference matters when the log is interpreted.
+
+**Sustained load.** The screen runs a CPU-bound chain back-to-back for ten to
+sixty seconds and compares the work rate in the first quarter of the window
+against the last. Thermal throttling appears as the late rate collapsing. This
+is measured before the inertial and camera series rather than after them,
+because a sixty-second static run on a throttling phone measures the
+throttling and reports it as sensor noise - plausibly, and with nothing in the
+resulting log to tell the two apart. The rate is a ratio, not a benchmark:
+comparing absolute rates between two devices would compare cores, charge state
+and ambient temperature.
+
+**Clocks.** Both monotonic clocks are sampled in every work slice, not just at
+the ends. `elapsedRealtime` and `uptimeMillis` differ by everything the device
+slept through; a constant offset is expected and harmless. What is not
+harmless is that offset *growing during a run*, which means the device slept
+mid-capture, or either clock moving backwards, which violates the monotonicity
+that sensor fusion assumes and corrupts quietly when it does not hold. Drift
+is therefore reported in ppm over the window, and every backwards step is
+counted and fails the verdict.
+
+No sensor sample, no frame and no pixel is retained. The only output is a
+bounded `ARKDEVHW1` text record written to `Downloads` on demand.
+`device_sufficient` is a precondition gate over six independent verdicts, not a
+judgement of the device, and the grade stays `unverified`.

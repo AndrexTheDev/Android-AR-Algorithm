@@ -51,6 +51,7 @@ enum class ArKernelArtifactContract(
     CALIB("ARKCALIB1", 5, "Physical calibration observations"),
     IMUCAL("ARKIMUCAL1", 20, "Inertial intrinsic calibration"),
     CAMTIM("ARKCAMT1", 22, "Camera cadence, clock domain and exposure"),
+    DEVHW("ARKDEVHW1", 23, "Device inventory, throttling and clocks"),
     MEAS("ARKMEAS1", 11, "Guided measurement execution"),
     FEED("ARKFEED1", 12, "Live camera feed markers"),
     SCALE("ARKSCALE1", 13, "Ruler mark detection"),
@@ -495,6 +496,11 @@ object ArKernelArtifactCatalogue {
         }
         ArKernelArtifactContract.CAMTIM -> {
             val result = ArKernelCameraTimingAdapter.parse(text)
+            ArKernelArtifactVerification(
+                result.accepted, result.rejection.name, result.detail)
+        }
+        ArKernelArtifactContract.DEVHW -> {
+            val result = ArKernelDeviceHardwareAdapter.parse(text)
             ArKernelArtifactVerification(
                 result.accepted, result.rejection.name, result.detail)
         }

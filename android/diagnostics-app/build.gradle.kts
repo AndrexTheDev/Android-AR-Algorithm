@@ -11,8 +11,8 @@ android {
         applicationId = "ai.arena.arkernel.diagnostics"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "2.20-camtim"
+        versionCode = 23
+        versionName = "2.21-devhw"
     }
 
     compileOptions {

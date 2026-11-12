@@ -944,6 +944,75 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
+## Bedienung mit `2.21-devhw`
+
+Auf dem Hauptbildschirm steht sichtbar `Version 2.21-devhw`. Fehlt dieser
+Text, ist noch eine alte APK installiert. Neu ist **Knopf 23** in
+`SCHRITT 3 · Messung mit Kamera & Zollstock`: Gerät & Laufzeit
+(`ARKDEVHW1`).
+
+### Warum dieser Knopf vor den anderen kommt
+
+Eine 60-Sekunden-Statikmessung auf einem drosselnden Telefon misst das
+Drosseln, nicht das Gyroskop. Danach steht im Log eine plausible Zahl — und
+nichts darin unterscheidet hinterher zwischen einem schlechten Sensor und
+einem gedrosselten Takt. Deshalb gehört Knopf 23 **vor** Knopf 20 (IMU) und
+Knopf 22 (Kamera): erst wenn das Gerät nicht drosselt und die Uhren halten,
+bedeuten die Reihen danach überhaupt etwas.
+
+### Was er prüft
+
+**Sensorinventar.** Jeder Sensor, den Android meldet, mit Bereich, Auflösung,
+Verzögerungsgrenzen, Leistung und Meldeweise. Der Kern integriert
+Beschleuniger und Gyroskop; fehlt eines, kann er auf diesem Gerät nicht
+laufen. Das steht ausdrücklich als **gemeldeter** Wert in der Datei — ein
+Gerät kann ein Gyroskop ankündigen und nichts liefern, und dieses Inventar
+behauptet nicht, das geprüft zu haben.
+
+**Reserven.** Arbeitsspeicher und freier Massenspeicher werden vor der Last
+gelesen. Unter 192 MB freiem Arbeitsspeicher oder 256 MB freiem Platz fällt
+die Prüfung durch: eine lange Erfassung, die stirbt, weil die Platte voll
+lief, ist ein Buchhaltungsfehler, kein Rekonstruktionsfehler.
+
+**Drosselung.** Die App rechnet zehn, dreißig oder sechzig Sekunden
+ununterbrochen und vergleicht die Arbeitsrate im ersten Viertel des Laufs mit
+der im letzten. Unter 800 ‰ fällt die Prüfung durch.
+
+**Uhren.** Beide monotonen Uhren werden in jedem Arbeitsschritt gelesen. Ihr
+Abstand (`elapsedRealtime` minus `uptimeMillis`) ist die Zeit, die das Gerät
+verschlafen hat — erwartbar und harmlos. Harmlos ist **nicht**, wenn dieser
+Abstand während des Laufs wächst, denn dann hat das Gerät mitten in der
+Erfassung geschlafen. Ein Rückschritt einer der beiden Uhren zählt extra
+und lässt die Prüfung durchfallen.
+
+### Die Probe drosselt mit Absicht
+
+Sie rechnet ununterbrochen, damit sichtbar wird, ob der Takt einbricht. **Das
+ist der Punkt der Messung, kein Fehler.** Nichts passiert, solange du nicht
+startest; der Start verlangt ein Opt-in. Das Gerät wird dabei warm.
+
+Die Rate ist ein **Verhältnis**, keine Leistungszahl: zwei Geräte über ihren
+absoluten Wert zu vergleichen hieße, Kerne, Akkustand und Umgebungstemperatur
+zu vergleichen.
+
+### Bedienung
+
+Dauer wählen (10, 30 oder 60 Sekunden), Opt-in anhaken, „Prüfung starten".
+Das Gerät in dieser Zeit nicht benutzen. Danach „Datei speichern" und selbst
+hochladen.
+
+Fällt die Prüfung durch, nennt der Bericht unter „offen", was als Nächstes
+zu tun ist — `cooling`, `thermal`, `clock`, `sensors`, `memory` oder
+`storage`. Behebe die Ursache und wiederhole den Lauf, bevor du IMU oder
+Kamera misst.
+
+### Keine Messwerte werden behalten
+
+Kein Sensorwert, kein Bild und kein Pixel. Die einzige Ausgabe ist eine
+begrenzte `ARKDEVHW1`-Textdatei, die du selbst speicherst und selbst
+hochlädst.
+
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**

@@ -88,6 +88,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
     private lateinit var cameraTimingButton: Button
+    private lateinit var deviceHardwareButton: Button
     private lateinit var guideText: TextView
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
@@ -123,8 +124,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.20-camtim · Kameratakt " +
-                "(Knopf 22). Wenn dieser Text fehlt, ist noch die " +
+            text = "Version 2.21-devhw · Gerät & Laufzeit " +
+                "(Knopf 23). Wenn dieser Text fehlt, ist noch die " +
                 "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -192,7 +193,15 @@ class MainActivity : DiagnosticsActivity() {
                 "Bildrate und Löcher, auf welcher Uhr die " +
                 "Bildzeitstempel liegen, Belichtung und wie stark das " +
                 "Bild bei einer Schwenkbewegung verschmiert. " +
-                "Kein Bodentruth im Log, kein Upload, " +
+                                "Knopf 23 prüft das Gerät darunter: welche " +
+                "Sensoren es überhaupt meldet, wie viel " +
+                "Speicher und Platz frei sind, ob der Takt " +
+                "unter Dauerlast einbricht und ob die beiden " +
+                "Uhren während eines Laufs auseinanderdriften – " +
+                "denn eine 60-Sekunden-Messung auf einem " +
+                "drosselnden Gerät misst das Drosseln, nicht " +
+                "den Sensor. " +
+"Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
@@ -311,6 +320,11 @@ class MainActivity : DiagnosticsActivity() {
         }
         cameraTimingButton = Button(this).apply {
             text = "22. Kamera-Takt & Fähigkeiten (ARKCAMT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        deviceHardwareButton = Button(this).apply {
+            text = "23. Gerät & Laufzeit (ARKDEVHW1)"
             textSize = 15f
             setAllCaps(false)
         }
@@ -442,6 +456,7 @@ class MainActivity : DiagnosticsActivity() {
             fullWidthParams(),
         )
         root.addView(cameraTimingButton, fullWidthParams())
+        root.addView(deviceHardwareButton, fullWidthParams())
         root.addView(measurementButton, fullWidthParams())
         root.addView(feedButton, fullWidthParams())
         root.addView(rulerButton, fullWidthParams())
@@ -528,6 +543,11 @@ class MainActivity : DiagnosticsActivity() {
         cameraTimingButton.setOnClickListener {
             startActivity(
                 Intent(this, CameraTimingActivity::class.java),
+            )
+        }
+        deviceHardwareButton.setOnClickListener {
+            startActivity(
+                Intent(this, DeviceHardwareActivity::class.java),
             )
         }
         measurementButton.setOnClickListener {
@@ -1159,6 +1179,11 @@ class MainActivity : DiagnosticsActivity() {
             "   Belegt die Bedingungen hinter der Messung.",
             "6b. Knopf 22 -> ARKCAMT1 (Kameratakt, Zeitbasis)",
             "   Pro Gerät einmal, direkt nach der IMU-Messung.",
+            "6c. Knopf 23 -> ARKDEVHW1 (Gerät & Laufzeit)",
+            "   Pro Gerät VOR 18 und 22: erst wenn das Gerät "
+            + "nicht drosselt und die Uhren halten, "
+            + "bedeuten die IMU- und Kameramessungen "
+            + "überhaupt etwas.",
             "17. Knopf 19 -> ARKCORPUS1 (Korpus-Abdeckung)",
             "   Erst danach ist ein Gerätevergleich möglich.",
             "18. Knopf 20 -> ARKIMUCAL1 (Trägheitssensoren)",

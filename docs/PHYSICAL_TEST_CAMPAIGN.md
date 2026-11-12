@@ -5,18 +5,19 @@ physikalischen Messungen** fertigzubekommen. Es sagt, was die Test-App heute
 messend kann, was sie nur bucht, was noch fehlt, in welcher Reihenfolge es
 zusammenhängt, und was du mir jeweils schicken musst.
 
-Stand: Version `2.20-camtim` (Knopf 1–22). Bewertung über alles:
+Stand: Version `2.21-devhw` (Knopf 1–23). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## 1. Was ein AR-Kern physikalisch braucht
 
 Ein visuell-inertialer Kern integriert Beschleuniger und Gyroskop zwischen
-zwei Kamerabildern. Seine Genauigkeit hängt an sieben Stücken, die in dieser
+zwei Kamerabildern. Seine Genauigkeit hängt an diesen Stücken, die in dieser
 Reihenfolge aufeinander aufbauen — jedes weitere ist sinnlos, wenn das
 darunterliegende nicht stimmt:
 
 | # | Stück | Woher | Stand heute |
 |---|---|---|---|
+| 0 | Das Gerät liefert die Sensoren, drosselt nicht, und seine Uhren halten | Telefon allein | **messbar** (`ARKDEVHW1`) |
 | 1 | Sensor-Kadenz und Zeitbasis | Telefon allein | **messbar** (`ARKIMUCAL1`) |
 | 2 | Beschleuniger: Bias, Maßstab, Fehlstellung | Telefon + Tisch | **messbar** (`ARKIMUCAL1`) |
 | 3 | Gyroskop: Bias, Maßstab, Nebenachsen | Telefon + rechter Winkel | **messbar** (`ARKIMUCAL1`) |
@@ -26,7 +27,12 @@ darunterliegende nicht stimmt:
 | 7 | Kamera-IMU-Einbau und Zeitversatz (`R`, `t`, `t_d`) | braucht Bilder + geführte Bewegung | **fehlt** |
 | 8 | Maßstab über die Entfernung | Zollstock + bekannte Abstände | **teilweise** (`ARKVALID1`, `ARKSCALE1`) |
 
-Die Stücke 1–5 sind reine Sensorik. Sie brauchen kein Bild, keine Erlaubnis
+Stück 0 ist kein Sensorwert, sondern die Voraussetzung dafür, dass überhaupt
+ein Sensorwert etwas bedeutet. Es stand bis `2.21-devhw` in keiner Tabelle, und
+das war die gefährlichste Lücke dieser Liste: sie verfälscht nicht das
+Ergebnis einer Reihe, sie verfälscht jede Reihe, die auf diesem Gerät läuft.
+
+Die Stücke 0–5 sind reine Sensorik. Sie brauchen kein Bild, keine Erlaubnis
 und keine Kalibrierhilfe — deshalb sind sie jetzt messbar. Stück 6–7 brauchen
 Bilder, und die App nimmt bewusst keine auf.
 
@@ -40,6 +46,7 @@ rechnet daraus Zahlen:
 
 | Knopf | Vertrag | Messreihe | Was du brauchst |
 |---|---|---|---|
+| 23 | `ARKDEVHW1` | Sensorinventar, Speicher und Platz, **Drosselungsprobe** unter Dauerlast, Uhren-Drift und Rückschritte | Telefon, absichtliche Dauerlast (10/30/60 s) |
 | 20 | `ARKIMUCAL1` | Kadenz, Statik, sechs Lagen, Drehung um bekannten Winkel | Telefon, Tisch, rechter Winkel |
 | 22 | `ARKCAMT1` | Bildrate und Löcher, **auf welcher Uhr die Bildzeitstempel liegen**, Belichtung und Schmierung, Erfassungsstabilität | Telefon, kein Bild wird behalten |
 | 13 | `ARKSCALE1` | Zollstock-Marken automatisch im Bild erkennen | ausgeklappter Zollstock |
@@ -125,6 +132,36 @@ existiert nur, weil Camera2 ein Ziel verlangt. Es werden keine Intrinsics
 gerechnet, und die Brennweite des Herstellers wird als gemeldeter Wert
 notiert, nicht geglaubt (`manufacturer_intrinsics_trusted=false`).
 
+### 2c. Knopf 23: das Gerät darunter (`ARKDEVHW1`)
+
+Vier Fragen, die jede lange Messreihe auf diesem Gerät beantworten muss,
+bevor sie etwas aussagt:
+
+- **Ist überhaupt da, was der Kern braucht?** Die App listet jeden Sensor auf,
+  den Android meldet, mit Bereich, Auflösung, Verzögerungsgrenzen, Leistung
+  und Meldeweise. Der Kern integriert Beschleuniger und Gyroskop; fehlt eines,
+  kann er auf diesem Gerät nicht laufen — und das ist eine Tatsache, die man
+  vor einer Kampagne wissen will, nicht nachher.
+- **Reicht der Platz?** Arbeitsspeicher und freier Massenspeicher werden
+  gelesen. Eine lange Erfassung, die bei achtzig Prozent stirbt, weil die
+  Platte voll lief, ist kein Rekonstruktionsfehler, sondern ein
+  Buchhaltungsfehler.
+- **Drosselt das Gerät?** Die App rechnet zehn bis sechzig Sekunden
+  ununterbrochen und vergleicht die Arbeitsrate im ersten Viertel des Laufs mit
+  der im letzten. Bricht sie ein, ist das Gerät für lange Erfassungen
+  unbrauchbar.
+- **Halten die Uhren?** `elapsedRealtime` und `uptimeMillis` unterscheiden
+  sich um alles, was das Gerät verschlafen hat — erwartbar und harmlos. Was
+  nicht harmlos ist: der Abstand **wächst während eines Laufs**, weil das Gerät
+  dann mitten in der Erfassung geschlafen hat. Und eine Uhr, die zurückgeht,
+  verdirbt die Fusion still. Beides wird in jedem Arbeitsschritt der Probe
+  gelesen.
+
+**Die Probe drosselt mit Absicht.** Sie rechnet ununterbrochen, damit
+sichtbar wird, ob der Takt einbricht — das ist der Punkt der Messung, kein
+Fehler. Nichts passiert, solange du nicht startest, und der Start verlangt ein
+Opt-in. Kein Sensorwert, kein Bild und kein Pixel wird behalten.
+
 ## 3. Neu in `2.18-imucal`: die vier IMU-Reihen
 
 Knopf 20, Vertrag `ARKIMUCAL1`, Dokumentation in
@@ -208,23 +245,31 @@ schickst.
 | Schritt | Knopf | Dauer | Ergebnisdatei |
 |---|---|---|---|
 | 0 | 21 Bestand: was liegt schon vor? | 10 s | — |
-| 1 | 20 Kadenz | 5 s | `ARKIMUCAL1_*.txt` |
-| 2 | 20 Statik 60 s | 1 min | " |
-| 3 | 20 Sechs Lagen, Durchgang 1 | 1 min | " |
-| 4 | 20 Sechs Lagen, Durchgang 2 | 1 min | " |
-| 5 | 20 Drehung +90° / −90° um x, y, z | 3 min | " |
-| 6 | 20 Auswerten → speichern | — | `ARKIMUCAL1_*.txt` |
-| 7 | 22 Kameratakt | 1 min | `ARKCAMT1_*.txt` |
-| 8 | 18 Bedingungen je Szene | 10 min | `ARKCOND1_*.txt` |
-| 9 | 17 Unabhängige Targets (Maßband, mindestens eines zurückgehalten) | 20 min | `ARKTARGET1_*.txt` |
-| 10 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
-| 11 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
-| 12 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
-| 13 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
+| 1 | 23 Gerät & Laufzeit (Dauerlast 30 s) | 1 min | `ARKDEVHW1_*.txt` |
+| 2 | 20 Kadenz | 5 s | `ARKIMUCAL1_*.txt` |
+| 3 | 20 Statik 60 s | 1 min | " |
+| 4 | 20 Sechs Lagen, Durchgang 1 | 1 min | " |
+| 5 | 20 Sechs Lagen, Durchgang 2 | 1 min | " |
+| 6 | 20 Drehung +90° / −90° um x, y, z | 3 min | " |
+| 7 | 20 Auswerten → speichern | — | `ARKIMUCAL1_*.txt` |
+| 8 | 22 Kameratakt | 1 min | `ARKCAMT1_*.txt` |
+| 9 | 18 Bedingungen je Szene | 10 min | `ARKCOND1_*.txt` |
+| 10 | 17 Unabhängige Targets (Maßband, mindestens eines zurückgehalten) | 20 min | `ARKTARGET1_*.txt` |
+| 11 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
+| 12 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
+| 13 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
+| 14 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
 
-Schritt 1–7 sind pro Gerät einmal fällig und danach nur noch nach
-Firmware-Wechsel oder Sturz. Schritt 8–13 pro Messsitzung. Schritt 0 und 12
+Schritt 1–8 sind pro Gerät einmal fällig und danach nur noch nach
+Firmware-Wechsel oder Sturz. Schritt 9–14 pro Messsitzung. Schritt 0 und 14
 gehören zusammen: der erste sagt, was fehlt, der letzte bindet, was da ist.
+
+**Schritt 1 steht aus einem Grund vor Schritt 2.** Eine 60-Sekunden-Statik-
+messung auf einem drosselnden Telefon misst das Drosseln, nicht das Gyroskop,
+und nichts im fertigen Log unterscheidet die beiden hinterher. Fällt Schritt 1
+durch, behebe die Ursache zuerst (Gerät kühlen, Hülle ab, nicht laden, andere
+Apps schließen) und wiederhole ihn — die IMU- und Kamerareihen danach wären
+sonst Zahlen über ein Gerät, das es während der Messung nicht mehr gab.
 
 **Reihenfolge 16 vor 15 ist zwingend.** Die Redaktion schreibt **neue**
 Dateien (`redacted_…`), und nur diese lädst du hoch. Signierst du zuerst,

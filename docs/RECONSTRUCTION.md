@@ -531,3 +531,27 @@ Five verdicts are recomputed on parse: day/night coverage, label coherence,
 thermal stability, repeatability (a repeat must be on the same rig and
 condition) and overall evidence sufficiency. Sufficiency is a completeness
 gate, not a quality grade.
+
+## Device-farm corpora (`ARKCORPUS1`)
+
+Diagnostics app version `2.17-corpus` adds button 19, the last of the six
+requested items. It asks the two questions that decide whether a cross-device
+comparison is possible at all, before anyone runs one.
+
+A corpus can hold thousands of samples and still compare nothing, because every
+cell in it was captured on a single phone. So the corpus is indexed into cells
+— distinct (condition, scene kind) pairs — and a cell counts as *matched* only
+when at least two different devices captured it. `matchedCells` is the number
+nobody writes down: a corpus with one device and a hundred thousand samples has
+`matchedCells = 0`. `unmatchedCells()` names exactly which combination to go and
+capture on a second device.
+
+The second question is dominance. `observed_max_device_share_permille` is the
+largest share any single device contributes, checked against a declared
+ceiling; a "farm" where one phone supplies nine samples in ten is a
+single-device corpus with extra steps.
+
+`corpus_sufficient` is a precondition check, not a quality grade: it says a
+cross-device comparison is possible, not that it would mean anything. The index
+holds no captures — `captureId` is an opaque host label, and `ARKDSMAN1` remains
+the place for the files and their digests.

@@ -86,6 +86,10 @@
             android:name=".ConditionEvidenceActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".DeviceFarmCorpusActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

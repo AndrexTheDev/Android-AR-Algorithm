@@ -83,6 +83,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var redactionButton: Button
     private lateinit var targetsButton: Button
     private lateinit var conditionsButton: Button
+    private lateinit var corpusButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -119,8 +120,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.16-cond · Bedingungs-Evidenz " +
-                "(Knopf 18). Wenn dieser Text fehlt, ist noch die " +
+            text = "Version 2.17-corpus · Device-Farm-Korpus " +
+                "(Knopf 19). Wenn dieser Text fehlt, ist noch die " +
                 "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -172,7 +173,10 @@ class MainActivity : DiagnosticsActivity() {
                 "gesetzt hat und welche wirklich unabhängig geprüft " +
                 "werden dürfen. Knopf 18 liest Thermik und " +
                 "Umgebungslicht vom Gerät und belegt, dass Tag und " +
-                "Nacht wirklich gemessen wurden. " +
+                "Nacht wirklich gemessen wurden. Knopf 19 prüft, ob " +
+                "dein Korpus überhaupt einen Gerätevergleich trägt: " +
+                "wie viele Zellen auf mindestens zwei Geräten liegen " +
+                "und ob ein Gerät alles dominiert. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -320,6 +324,11 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        corpusButton = Button(this).apply {
+            text = "19. Device-Farm-Korpus (ARKCORPUS1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -393,6 +402,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(campaignButton, fullWidthParams())
         root.addView(bindingButton, fullWidthParams())
         root.addView(crossButton, fullWidthParams())
+        root.addView(corpusButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
@@ -514,6 +524,11 @@ class MainActivity : DiagnosticsActivity() {
         conditionsButton.setOnClickListener {
             startActivity(
                 Intent(this, ConditionEvidenceActivity::class.java),
+            )
+        }
+        corpusButton.setOnClickListener {
+            startActivity(
+                Intent(this, DeviceFarmCorpusActivity::class.java),
             )
         }
 
@@ -1087,6 +1102,8 @@ class MainActivity : DiagnosticsActivity() {
             "   Erst danach ist eine Prüfung nicht zirkulär.",
             "16. Knopf 18 -> ARKCOND1 (Rig, Thermik, Tag/Nacht)",
             "   Belegt die Bedingungen hinter der Messung.",
+            "17. Knopf 19 -> ARKCORPUS1 (Korpus-Abdeckung)",
+            "   Erst danach ist ein Gerätevergleich möglich.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

@@ -701,6 +701,41 @@ Sekunde lang, Median). Beides sind Momentaufnahmen **dieses** Geräts — ein
 Handy in der Tasche misst Dunkelheit am Mittag, eine Lampe direkt am Sensor
 misst Tageslicht um Mitternacht. Die Bedingung selbst wählst du. `unverified`.
 
+## Bedienung mit `2.17-corpus`
+
+Neu ist Knopf **19. Device-Farm-Korpus (ARKCORPUS1)** im Abschnitt
+**SCHRITT 2 · Kalibrierung & Sitzungen**, direkt nach dem Gerätevergleich.
+
+1. Korpus benennen und festlegen, was er können muss: wie viele **Geräte**,
+   **Bedingungen** und **Szenen**, wie viele **vergleichbare Zellen** und
+   welchen **maximalen Anteil** ein einzelnes Gerät höchstens haben darf
+   (in Promille, also 500 = die Hälfte).
+2. Jede vorhandene Aufnahme als Eintrag hinzufügen: Name, Gerät,
+   Geräteklasse, Bedingung, Szenenart, Sample-Zahl (bis zu 64 Einträge).
+3. **„Korpus auswerten“**. Der Bericht nennt Geräte, Klassen, Bedingungen,
+   Szenen, Sample-Summe, den größten Geräte-Anteil samt Name, sowie die
+   Zellen — und davon die, auf denen mindestens zwei Geräte liegen.
+4. **„ARKCORPUS1-Datei speichern“** → `ARKCORPUS1_<Zeitstempel>.txt` in
+   `Downloads/ARKernelDiagnostics`.
+
+**Die entscheidende Zahl ist `vergleichbare Zellen`.** Eine Kombination aus
+Bedingung und Szene, die nur **ein** Gerät aufgenommen hat, trägt keinen
+Gerätevergleich — egal wie viele Samples sie enthält. Ein Korpus mit einem
+Gerät und hunderttausend Samples hat **null** vergleichbare Zellen. Der
+Bericht listet die nicht vergleichbaren Zellen einzeln auf und sagt dir
+damit, welche Kombination du als Nächstes auf einem zweiten Gerät
+aufnehmen musst.
+
+**Die zweite Frage ist die Dominanz.** Eine „Farm“, in der ein Gerät fast
+alles beisteuert, ist in Wahrheit ein Ein-Gerät-Korpus. Der größte Anteil
+wird nachgerechnet und gegen deine Schwelle geprüft.
+
+**Was es nicht sagt:** `Korpus: ausreichend` ist eine
+**Voraussetzungsprüfung, keine Qualitätsnote.** Sie heißt: ein Gerätevergleich
+wäre möglich. Sie heißt nicht, dass er etwas über Genauigkeit aussagt. Der
+Index enthält die Aufnahmen selbst nicht — `captureId` ist nur ein Name; die
+Dateien und ihre Digests gehören weiterhin in `ARKDSMAN1`. `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -734,7 +769,8 @@ misst Tageslicht um Mitternacht. Die Bedingung selbst wählst du. `unverified`.
   was sie nicht kennt, bleibt im Text. Knopf 17 führt Buch über die Rollen
   deiner Targets, misst aber kein Target selbst. Knopf 18 liest Thermik
   und Umgebungslicht vom Gerät — als Momentaufnahme, nicht als kalibrierte
-  Messung deiner Szene.
+  Messung deiner Szene. Knopf 19 erfasst nichts, sondern führt Buch über
+  Aufnahmen, die es schon gibt.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

@@ -287,6 +287,11 @@ class ArKernelRulerScaleTest {
         assertEquals(8.0, detection.spacing, 0.000001)
         assertEquals(1.0, detection.regularity, 0.000001)
         assertEquals(512, detection.sampleCount)
+        assertEquals(
+            16, ArKernelRulerTickDetector.snap(17,
+                detection.indices))
+        assertEquals(
+            5, ArKernelRulerTickDetector.snap(5, emptyList()))
         val flat = ArKernelRulerTickDetector.detect(
             IntArray(size) { 200 })
         assertFalse(flat.detected)

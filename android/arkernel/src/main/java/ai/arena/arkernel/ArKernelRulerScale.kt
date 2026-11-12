@@ -1204,13 +1204,19 @@ private fun rulerTickConsistent(count: Int, expected: Int): Boolean {
     return kotlin.math.abs(count - expected) <= tolerance
 }
 
+private fun rulerRowDistance(
+    a: ArKernelRulerTickRow,
+    b: ArKernelRulerTickRow,
+): Double = kotlin.math.sqrt(
+    (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
+
 private fun rulerMeanTickSpacing(
     ticks: List<ArKernelRulerTickRow>,
 ): Double {
     if (ticks.size < 2) return 0.0
     var total = 0.0
     for (index in 1 until ticks.size) {
-        total += rulerDistance(
+        total += rulerRowDistance(
             ticks[index - 1], ticks[index])
     }
     return rulerRound6(total / (ticks.size - 1))
@@ -1223,14 +1229,14 @@ private fun rulerTickRegularity(
     val count = ticks.size - 1
     var sum = 0.0
     for (index in 1 until ticks.size) {
-        sum += rulerDistance(ticks[index - 1], ticks[index])
+        sum += rulerRowDistance(ticks[index - 1], ticks[index])
     }
     val mean = sum / count
     if (!isRulerFinite(mean) || mean <= 0.0) return 0.0
     var worst = 0.0
     for (index in 1 until ticks.size) {
         val deviation = kotlin.math.abs(
-            rulerDistance(ticks[index - 1], ticks[index]) - mean)
+            rulerRowDistance(ticks[index - 1], ticks[index]) - mean)
         if (deviation > worst) worst = deviation
     }
     val raw = 1.0 - worst / mean

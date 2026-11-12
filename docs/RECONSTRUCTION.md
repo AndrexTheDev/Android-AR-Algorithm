@@ -299,3 +299,25 @@ verified, nothing is uploaded automatically and no quality grade is granted.
 Physical encrypted keyframe lifecycle validation on real devices remains open.
 The authoritative grade remains `assessReconstructionQuality` with
 `evaluateHeldOutDimensions`. No upgrade was performed or claimed here.
+
+## Bounded host-side structural review of field diagnostics triples
+
+`tools/field_review/verify_arkfd_triple.py` adds a bounded canonical
+`ARKFDREVIEW1` envelope. It re-parses one `ARKFDPOL1` policy, one
+`ARKFDPLAN1` plan and one `ARKFDLOG1` run log through an independent replica of
+the shipped Kotlin contracts, canonicalizes all three texts, recomputes their
+SHA-256 digests and the plan CRC-32, and checks structural bindings only:
+policy ID equality, plan CRC binding (`crc_bound`, `crc_mismatch` or
+`unbound`), plan step/event counts and the opaque host-reported plan result
+token. Twenty-six exact metadata keys and six mandatory invariant flags keep
+the result fail-closed; `source_reverification_performed=true` means the three
+source texts were re-parsed, not that any signature was checked.
+
+The tool reads three host-supplied files, writes nothing unless `--out` is
+given explicitly, performs no upload, no redaction, no signature verification,
+no physical target measurement, no calibration, no encrypted keyframe
+lifecycle validation and no quality assessment. Raw logs are never copied into
+the repository; `docs/FIELD_RUN_REVIEW.md` records digests only. The grade
+stays `unverified`. The authoritative quality path remains
+`assessReconstructionQuality` with `evaluateHeldOutDimensions`; no upgrade was
+performed or claimed here.

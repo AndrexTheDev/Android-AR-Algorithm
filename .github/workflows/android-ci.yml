@@ -145,6 +145,14 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           exit "$status"
+      - name: Upload diagnostics APK build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-apk-gradle-log
+          path: diagnostics-apk-gradle.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Prepare named diagnostics APK
         shell: bash
         run: |

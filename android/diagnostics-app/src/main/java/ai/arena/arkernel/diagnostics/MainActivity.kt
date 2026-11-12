@@ -79,6 +79,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var feedButton: Button
     private lateinit var rulerButton: Button
     private lateinit var validationButton: Button
+    private lateinit var signatureButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -115,8 +116,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.12-valid · Metrische Validierung in " +
-                "Millimetern (Knopf 14). Wenn dieser Text fehlt, ist " +
+            text = "Version 2.13-sign · Signatur und Prüfung " +
+                "(Knopf 15). Wenn dieser Text fehlt, ist " +
                 "noch die alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -157,6 +158,9 @@ class MainActivity : DiagnosticsActivity() {
                 "Knopf 14 rechnet pro Szene die Abweichung gegen " +
                 "dein Maßband aus – als gemessene Abweichung in " +
                 "Millimetern, nicht als Genauigkeitsversprechen. " +
+                "Knopf 15 bindet deine Artefakte per SHA-256 in ein " +
+                "signiertes Manifest (ARKSIGN1) und prüft fremde " +
+                "Manifeste – Unversehrtheit, nicht Identität. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -284,6 +288,11 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        signatureButton = Button(this).apply {
+            text = "15. Signatur & Prüfung (ARKSIGN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -366,6 +375,11 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(feedButton, fullWidthParams())
         root.addView(rulerButton, fullWidthParams())
         root.addView(validationButton, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 4 · Vertrauen & Upload"),
+            fullWidthParams(),
+        )
+        root.addView(signatureButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -450,6 +464,11 @@ class MainActivity : DiagnosticsActivity() {
         validationButton.setOnClickListener {
             startActivity(
                 Intent(this, MetricValidationActivity::class.java),
+            )
+        }
+        signatureButton.setOnClickListener {
+            startActivity(
+                Intent(this, SignatureActivity::class.java),
             )
         }
 
@@ -1014,6 +1033,9 @@ class MainActivity : DiagnosticsActivity() {
             "12. Knopf 14 -> ARKVALID1 (Maßband je Szene in mm)",
             "   Erst mit 12/13 messen und teilen, dann hier",
             "   einfügen und Referenz eintragen.",
+            "13. Knopf 15 -> ARKSIGN1 (Manifest signieren + prüfen)",
+            "   Erst Schlüssel erzeugen und öffentlichen Schlüssel",
+            "   einmal hochladen, danach Artefakte binden.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

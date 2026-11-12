@@ -447,3 +447,23 @@ parallax, rolling shutter or lens distortion is modelled, and
 invariants and a required held-out scene are unchanged in spirit from the
 earlier contracts; no calibration value is produced and no quality is
 assessed. The grade stays `unverified`.
+
+## Signature verification without a trust chain (`ARKSIGN1`)
+
+Diagnostics app version `2.13-sign` adds button 15. An EC P-256 key — held in
+the Android keystore where available, otherwise a software key in the app's
+private storage, with the origin recorded in every manifest — signs a canonical
+`ARKSIGN1` manifest that binds the SHA-256 digests of up to 32 artefacts. The
+digest pre-image leaves `manifest_digest=` and `signature=` empty, so the
+digest is not circular; the public-key fingerprint is inside the signed text,
+so a manifest cannot be re-attributed to another key.
+
+The contract is deliberately honest about its scope: it proves that the bound
+entries were not changed and that the same key keeps signing. It does **not**
+prove who owns that key — there is no certificate authority, no attestation and
+no trust chain, so a rooted device or a copied software key file still yields a
+valid signature. The public key lives outside the manifest and has to be pinned
+by whoever verifies, and verification reports `keyFingerprintMatches` and
+`signatureValid` separately. Nothing here says anything about measurement
+quality; `metric_accuracy_claimed` stays false and the grade stays
+`unverified`.

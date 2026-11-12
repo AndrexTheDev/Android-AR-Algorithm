@@ -555,6 +555,37 @@ Perspektive, Rolling-Shutter und Verzeichnung bleiben unberücksichtigt.
 `metric_accuracy_claimed=false` ist eine harte Invariante, der Status bleibt
 `unverified`.
 
+## Bedienung mit `2.13-sign`
+
+Neu ist Knopf **15. Signatur & Prüfung (ARKSIGN1)** im neuen Abschnitt
+**SCHRITT 4 · Vertrauen & Upload**.
+
+1. **„Schlüssel erzeugen“** – ein EC-P-256-Schlüssel. Liegt er im
+   Android-Keystore, ist er nicht exportierbar; nur wenn das Gerät das nicht
+   hergibt, wird ein Software-Schlüssel im app-privaten Speicher erzeugt.
+   **Der Ursprung steht in jeder Datei** (`key_origin`).
+2. **„Öffentlichen Schlüssel speichern“** schreibt
+   `ARKSIGN1_pubkey_<Fingerprint>.txt` nach `Downloads/ARKernelDiagnostics`.
+   **Bitte einmal hier im Chat hochladen** – nur damit kann später jemand die
+   Signatur nachrechnen.
+3. Pro Artefakt einen Namen eintragen, den `ARK…`-Text einfügen und
+   **„Eintrag hinzufügen“** (bis zu 32 Einträge, Namen und Texte eindeutig).
+4. **„Manifest signieren“** – die App prüft das Ergebnis sofort selbst, bevor
+   sie dich speichern lässt.
+5. **„ARKSIGN1 speichern“** bzw. **„ARKSIGN1 teilen“**.
+6. Zum Prüfen: ein `ARKSIGN1`-Manifest einfügen und **„Manifest prüfen“**
+   drücken. Ohne eingefügten Fremdschlüssel wird gegen den hier verankerten
+   Schlüssel geprüft.
+
+**Was die Signatur beweist:** die gebundenen Einträge wurden nicht verändert
+und derselbe Schlüssel hat signiert.
+
+**Was sie nicht beweist:** wer den Schlüssel besitzt. Es gibt keine
+Zertifizierungsstelle, keine Geräte-Attestierung und keine Vertrauenskette –
+ein gerootetes Gerät oder eine kopierte Software-Schlüsseldatei ergibt eine
+formal gültige Signatur. Ebenso wenig sagt eine verifizierte Signatur etwas
+über die Qualität der Messung: `unverified` bleibt `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -572,7 +603,7 @@ Perspektive, Rolling-Shutter und Verzeichnung bleiben unberücksichtigt.
   Katalog auf Android 15 typischerweise `granted.3.of.4`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
   keine Kalibrierung bei der Installation, keine Redaktion, keine
-  Signaturverifikation, keine behauptete Zentimetergenauigkeit. Automatisch sind nur
+  Redaktion. Automatisch sind nur
   Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
   kanonische Vergleich deklarierter Sitzungen, die trockene
   Retention-Vorschau, die kanonische Digest-Bindung deiner
@@ -581,7 +612,9 @@ Perspektive, Rolling-Shutter und Verzeichnung bleiben unberücksichtigt.
   Arbeitsspeicher und das Nachrechnen der Abweichungsstatistik gegen dein
   eingetragenes Maßband-Referenzmaß. Unabhängige physische Targets musst du
   selbst messen und eintragen; die App misst die Abweichung gegen deine
-  Referenz, aber nicht die Referenz selbst.
+  Referenz, aber nicht die Referenz selbst. Das Signieren und Prüfen mit
+  Knopf 15 beweist Unversehrtheit und Schlüsselkontinuität, aber keine
+  Identität des Schlüsselbesitzers und keine Messqualität.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

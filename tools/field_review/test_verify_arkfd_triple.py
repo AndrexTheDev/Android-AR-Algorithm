@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -377,6 +378,102 @@ class ReviewTests(unittest.TestCase):
         self.assertNotIn("quality_grade=assessed", result.text)
         self.assertNotIn("quality_upgrade", result.text)
         self.assertEqual(1, result.text.count("quality_grade=unverified"))
+
+
+class BatchTests(unittest.TestCase):
+    @staticmethod
+    def _write(root: Path, suffix: str, policy: str = POLICY,
+               plan: str = PLAN, log: str = LOG) -> None:
+        for prefix, text in (("ARKFDPOL1", policy),
+                             ("ARKFDPLAN1", plan),
+                             ("ARKFDLOG1", log)):
+            (root / ("%s_%s.txt" % (prefix, suffix))).write_text(
+                text, encoding="utf-8")
+
+    def test_two_runs_are_grouped_deterministically(self):
+        log_a = replace_once(LOG, "run_id=run-synthetic", "run_id=run-a")
+        log_a = replace_once(log_a, "session-synthetic", "session-a")
+        log_b = replace_once(LOG, "run_id=run-synthetic", "run_id=run-b")
+        log_b = replace_once(log_b, "session-synthetic", "session-b")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write(root, "run-a", log=log_a)
+            self._write(root, "run-b", log=log_b)
+            batch = v.review_batch(str(root))
+            self.assertEqual(2, batch["run_count"])
+            self.assertEqual(["run-a", "run-b"],
+                             [entry["run_id"] for entry in batch["runs"]])
+            self.assertTrue(batch["all_consistent"])
+            self.assertEqual(2, batch["unique_log_digests"])
+            self.assertEqual(1, batch["unique_plan_digests"])
+            self.assertFalse(batch["duplicate_log_digests"])
+            self.assertEqual("unverified", batch["quality_grade"])
+            self.assertEqual(batch, v.review_batch(str(root)))
+            encoded = json.dumps(batch)
+            self.assertNotIn("device_token", encoded)
+            self.assertNotIn("fingerprint", encoded)
+            self.assertNotIn("session_id", encoded)
+
+    def test_incomplete_group_rejects_the_whole_batch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write(root, "run-a")
+            (root / "ARKFDPOL1_run-b.txt").write_text(
+                POLICY, encoding="utf-8")
+            (root / "ARKFDLOG1_run-b.txt").write_text(
+                LOG, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                v.review_batch(str(root))
+
+    def test_too_many_runs_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index in range(17):
+                self._write(root, "run-%02d" % index)
+            with self.assertRaises(ValueError):
+                v.review_batch(str(root))
+
+    def test_duplicate_log_digests_are_reported_not_hidden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write(root, "run-a")
+            self._write(root, "run-b")
+            batch = v.review_batch(str(root))
+            self.assertEqual(1, batch["unique_log_digests"])
+            self.assertTrue(batch["duplicate_log_digests"])
+            self.assertTrue(batch["all_consistent"])
+
+    def test_batch_cli_exit_codes_and_opt_in_output(self):
+        changed = replace_once(PLAN, "THERMAL_SOAK|2000|10|8|thermal",
+                               "THERMAL_SOAK|2000|10|7|thermal")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_a = replace_once(LOG, "run_id=run-synthetic", "run_id=run-a")
+            log_b = replace_once(LOG, "run_id=run-synthetic", "run_id=run-b")
+            self._write(root, "run-a", log=log_a)
+            self._write(root, "run-b", log=log_b)
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.assertEqual(0, v.main(["--batch", str(root)]))
+            self.assertIn('"run_count": 2', buffer.getvalue())
+            out = root / "batch.json"
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, v.main([
+                    "--batch", str(root), "--out", str(out)]))
+            self.assertEqual("unverified",
+                             json.loads(out.read_text(
+                                 encoding="utf-8"))["quality_grade"])
+            (root / "ARKFDPLAN1_run-a.txt").write_text(
+                changed, encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(3, v.main(["--batch", str(root)]))
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(2, v.main([
+                    "--batch", str(root / "missing")]))
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertRaises(SystemExit, v.main, [
+                    "--batch", str(root), "extra.txt"])
 
 
 if __name__ == "__main__":

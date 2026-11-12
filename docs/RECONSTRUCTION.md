@@ -314,10 +314,15 @@ the result fail-closed; `source_reverification_performed=true` means the three
 source texts were re-parsed, not that any signature was checked.
 
 The tool reads three host-supplied files, writes nothing unless `--out` is
-given explicitly, performs no upload, no redaction, no signature verification,
-no physical target measurement, no calibration, no encrypted keyframe
-lifecycle validation and no quality assessment. Raw logs are never copied into
-the repository; `docs/FIELD_RUN_REVIEW.md` records digests only. The grade
+given explicitly. A deterministic `--batch DIR` mode groups 1–16 complete
+triples by opaque filename suffix and emits a structural comparison as
+JSON (digests, binding states, counts, result tokens, uniqueness flags),
+rejecting incomplete groups fail-closed and emitting no device identifiers,
+session IDs or raw event details. It performs no upload, no redaction, no
+signature verification, no physical target measurement, no calibration, no
+encrypted keyframe lifecycle validation and no quality assessment. Raw logs
+are never copied into the repository; `docs/FIELD_RUN_REVIEW.md` records
+digests only. The grade
 stays `unverified`. The authoritative quality path remains
 `assessReconstructionQuality` with `evaluateHeldOutDimensions`; no upgrade was
 performed or claimed here.

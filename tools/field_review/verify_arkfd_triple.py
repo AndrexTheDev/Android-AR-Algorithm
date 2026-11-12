@@ -12,8 +12,14 @@ validate an encrypted keyframe lifecycle or assess reconstruction quality. The
 grade stays ``unverified``. Host-supplied raw logs are never copied into the
 repository by this tool.
 
+A ``--batch DIR`` mode groups all ``ARKFDPOL1``/``ARKFDPLAN1``/``ARKFDLOG1``
+triples in a directory by opaque run suffix, reviews each one and emits one
+deterministic structural comparison as JSON. It never copies raw logs into the
+repository and never includes device identifiers in its output.
+
 Exit codes: 0 = structurally consistent review, 2 = fail-closed rejection,
-3 = review emitted but ``review_consistent=false``.
+3 = review/batch emitted but ``review_consistent=false`` or
+``all_consistent=false``.
 """
 from __future__ import annotations
 
@@ -584,17 +590,85 @@ def review_triple(
     return TripleReview(text, values, summary, consistent)
 
 
+BATCH_PREFIXES = ("ARKFDPOL1", "ARKFDPLAN1", "ARKFDLOG1")
+BATCH_MAX_RUNS = 16
+
+
 def read_text(path: str) -> str:
     raw = Path(path).read_bytes()
     return raw.decode("utf-8")
 
 
+def review_batch(directory: str) -> dict:
+    """Deterministic, read-only structural comparison of 1..16 run triples.
+
+    Groups files by their opaque ``run-*`` filename suffix. An incomplete group
+    rejects the whole batch. Only digests, structural counts, binding states and
+    opaque result tokens are emitted; no device identifier, no free text, no
+    raw event detail and no quality assessment leaves this function.
+    """
+    root = Path(directory)
+    if not root.is_dir():
+        raise ValueError("Batch directory does not exist")
+    groups: Dict[str, Dict[str, Path]] = {}
+    for prefix in BATCH_PREFIXES:
+        for path in sorted(root.glob(prefix + "_*.txt")):
+            suffix = path.name[len(prefix) + 1:-4]
+            if not TOKEN64.fullmatch(suffix):
+                raise ValueError("Invalid batch run token: %s" % path.name)
+            groups.setdefault(suffix, {})[prefix] = path
+    if not groups:
+        raise ValueError("No ARKFD* triples found in batch directory")
+    if len(groups) > BATCH_MAX_RUNS:
+        raise ValueError("Batch exceeds 16 runs")
+    incomplete = sorted(
+        suffix for suffix, paths in groups.items()
+        if sorted(paths) != sorted(BATCH_PREFIXES))
+    if incomplete:
+        raise ValueError("Incomplete batch groups: " + ", ".join(incomplete))
+    runs = []
+    for suffix in sorted(groups):
+        paths = groups[suffix]
+        result = review_triple(
+            read_text(str(paths["ARKFDPOL1"])),
+            read_text(str(paths["ARKFDPLAN1"])),
+            read_text(str(paths["ARKFDLOG1"])))
+        runs.append({
+            "run_id": result.values["run_id"],
+            "review_id": result.values["review_id"],
+            "policy_sha256": result.summary["policy_sha256"],
+            "plan_sha256": result.summary["plan_sha256"],
+            "log_sha256": result.summary["log_sha256"],
+            "plan_binding": result.summary["plan_binding"],
+            "plan_crc32": result.summary["plan_crc32"],
+            "plan_steps": result.summary["plan_steps"],
+            "plan_step_events": result.summary["plan_step_events"],
+            "event_count": result.summary["event_count"],
+            "plan_result_token": result.summary["plan_result_token"],
+            "review_consistent": result.summary["review_consistent"],
+            "quality_grade": result.summary["quality_grade"],
+        })
+    unique_logs = len({run["log_sha256"] for run in runs})
+    unique_plans = len({run["plan_sha256"] for run in runs})
+    return {
+        "batch_version": REVIEW_VERSION,
+        "run_count": len(runs),
+        "runs": runs,
+        "unique_log_digests": unique_logs,
+        "unique_plan_digests": unique_plans,
+        "duplicate_log_digests": unique_logs != len(runs),
+        "all_consistent": all(run["review_consistent"] for run in runs),
+        "quality_grade": REVIEW_QUALITY,
+    }
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Bounded host-side structural review of one ARKFD* triple")
-    parser.add_argument("policy", help="path to ARKFDPOL1 text")
-    parser.add_argument("plan", help="path to ARKFDPLAN1 text")
-    parser.add_argument("log", help="path to ARKFDLOG1 text")
+        description="Bounded host-side structural review of ARKFD* triples")
+    parser.add_argument("inputs", nargs="*",
+                        help="single mode: ARKFDPOL1 ARKFDPLAN1 ARKFDLOG1")
+    parser.add_argument("--batch", default=None, metavar="DIR",
+                        help="review all complete run triples in DIR as JSON")
     parser.add_argument("--review-id", default=None,
                         help="opaque review token (default derived from log digest)")
     parser.add_argument("--device-token", default=None,
@@ -602,12 +676,30 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--out", default=None,
                         help="explicit opt-in output path (default stdout only)")
     parser.add_argument("--json", action="store_true",
-                        help="print the structural summary as JSON")
+                        help="single mode: print the structural summary as JSON")
     args = parser.parse_args(argv)
+    if args.batch:
+        if args.inputs:
+            parser.error("--batch takes no positional inputs")
+        try:
+            batch = review_batch(args.batch)
+        except (ValueError, UnicodeDecodeError, OSError) as error:
+            print("REJECTED %s" % error, file=sys.stderr)
+            return 2
+        text = json.dumps(batch, sort_keys=True, indent=2)
+        if args.out:
+            Path(args.out).write_text(text + "\n", encoding="utf-8")
+        print(text)
+        if not batch["all_consistent"]:
+            print("BATCH_INCONSISTENT", file=sys.stderr)
+            return 3
+        return 0
+    if len(args.inputs) != 3:
+        parser.error("single mode requires exactly three input paths")
     try:
         result = review_triple(
-            read_text(args.policy), read_text(args.plan),
-            read_text(args.log), args.review_id, args.device_token)
+            read_text(args.inputs[0]), read_text(args.inputs[1]),
+            read_text(args.inputs[2]), args.review_id, args.device_token)
     except (ValueError, UnicodeDecodeError, OSError) as error:
         print("REJECTED %s" % error, file=sys.stderr)
         return 2

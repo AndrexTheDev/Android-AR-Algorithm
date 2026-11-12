@@ -107,18 +107,24 @@ class ArKernelIndependentTargetsTest {
 
     @Test
     fun deviationIsTheGapBetweenNominalAndMeasured() {
-        val row = checkTarget(nominal = 100L, measured = 104L)
+        val row = checkTarget(
+            nominal = 100L, measured = 104L, tolerance = 5L)
         assertEquals(4L, row.deviationMillimetres)
         assertTrue(row.consistent)
-        val outside = checkTarget(nominal = 100L, measured = 106L)
+        val outside = checkTarget(
+            nominal = 100L, measured = 106L, tolerance = 5L)
         assertEquals(6L, outside.deviationMillimetres)
         assertFalse(outside.consistent)
+        val tight = checkTarget(
+            nominal = 100L, measured = 102L, tolerance = 1L)
+        assertEquals(2L, tight.deviationMillimetres)
+        assertFalse(tight.consistent)
     }
 
     @Test
     fun aMisprintedSheetIsCaughtAsInconsistent() {
         val row = checkTarget(
-            id = "checker.a4",
+            id = "checker.a4.misprint",
             nominal = 250L,
             measured = 268L,
             tolerance = 2L,

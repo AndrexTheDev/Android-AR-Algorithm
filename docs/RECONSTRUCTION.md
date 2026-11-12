@@ -488,3 +488,23 @@ pass a file that still holds an e-mail address.
 detectors matches any more, not that the file is free of identifying content.
 The redacted texts never enter the ledger, four fail-closed invariants keep the
 upload manual, and the grade stays `unverified`.
+
+## Independent physical targets (`ARKTARGET1`)
+
+Diagnostics app version `2.15-target` adds button 17 and gives the word
+"independent" a mechanical meaning. Every physical reference target now
+declares whether its value fed the scale estimate and whether it was withheld
+from calibration. A target claiming both is rejected with `ROLE_CONFLICT`,
+because a value that set the scale was by definition not withheld. Only
+consistent, independent and held-out targets count towards
+`usable_check_count`, and `independence_sufficient` gates on that number.
+
+Each row also records the nominal dimension, the dimension the operator
+actually measured on the real object, and a tolerance. That is what catches a
+printed reference that came out of the printer at the wrong scale — a failure
+that otherwise propagates into every measurement taken against it with nothing
+downstream able to tell a bad reconstruction from a bad sheet.
+
+`independence_sufficient` says a later check would not be circular; it does not
+say the reconstruction is accurate, and `targets_consistent` describes the
+physical objects rather than the app, which never measures a target here.

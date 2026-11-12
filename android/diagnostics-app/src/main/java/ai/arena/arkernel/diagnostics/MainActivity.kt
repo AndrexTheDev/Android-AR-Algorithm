@@ -81,6 +81,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var validationButton: Button
     private lateinit var signatureButton: Button
     private lateinit var redactionButton: Button
+    private lateinit var targetsButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -117,9 +118,9 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.14-redact · Redaktion und " +
-                "Upload-Vorbereitung (Knopf 16). Wenn dieser Text " +
-                "fehlt, ist noch die alte APK installiert."
+            text = "Version 2.15-target · unabhängige Targets " +
+                "(Knopf 17). Wenn dieser Text fehlt, ist noch die " +
+                "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
             setTextColor(Color.parseColor("#B45309"))
@@ -165,7 +166,10 @@ class MainActivity : DiagnosticsActivity() {
                 "Knopf 16 entfernt MAC, IPv4, Hex-Kennungen, " +
                 "Gerätenummern, Pfade und E-Mails aus deinen " +
                 "Artefakten, bevor du sie hochlädst – manuell, " +
-                "nie automatisch. " +
+                "nie automatisch. Knopf 17 führt Buch darüber, " +
+                "welches deiner physischen Targets den Maßstab " +
+                "gesetzt hat und welche wirklich unabhängig geprüft " +
+                "werden dürfen. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -303,6 +307,11 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        targetsButton = Button(this).apply {
+            text = "17. Unabhängige Targets (ARKTARGET1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -385,6 +394,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(feedButton, fullWidthParams())
         root.addView(rulerButton, fullWidthParams())
         root.addView(validationButton, fullWidthParams())
+        root.addView(targetsButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 4 · Vertrauen & Upload"),
             fullWidthParams(),
@@ -485,6 +495,11 @@ class MainActivity : DiagnosticsActivity() {
         redactionButton.setOnClickListener {
             startActivity(
                 Intent(this, RedactionActivity::class.java),
+            )
+        }
+        targetsButton.setOnClickListener {
+            startActivity(
+                Intent(this, IndependentTargetsActivity::class.java),
             )
         }
 
@@ -1054,6 +1069,8 @@ class MainActivity : DiagnosticsActivity() {
             "   einmal hochladen, danach Artefakte binden.",
             "14. Knopf 16 -> ARKREDRUN1 (Redaktion + Freigabe)",
             "   Danach redigierte Dateien selbst hochladen.",
+            "15. Knopf 17 -> ARKTARGET1 (Target + Rolle)",
+            "   Erst danach ist eine Prüfung nicht zirkulär.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

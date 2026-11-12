@@ -78,6 +78,10 @@
             android:name=".RedactionActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".IndependentTargetsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

@@ -622,6 +622,45 @@ sechs Erkenner schlägt mehr an. Ein Wert, den die App nicht kennt – ein Name
 in einer Szenen-ID, eine Zahl, die nur im Zusammenhang ein Gerät verrät –
 bleibt unangetastet stehen. `unverified`.
 
+## Bedienung mit `2.15-target`
+
+Neu ist Knopf **17. Unabhängige Targets (ARKTARGET1)** im Abschnitt
+**SCHRITT 3 · Messung mit Kamera & Zollstock**, direkt nach der metrischen
+Validierung.
+
+1. Registrierungs-, Geräte- und Kampagnen-Name eintragen und festlegen, wie
+   viele unabhängige Prüf-Targets du mindestens brauchst (1–8).
+2. Für jedes Target: **Soll-Maß** (steht auf dem Target oder im Datenblatt),
+   **selbst gemessenes Maß**, **Toleranz**, Art, Herkunft des Soll-Maßes und
+   die Rolle. Dann **„Target hinzufügen“** (bis zu 16 Targets).
+3. **„Registrierung erstellen“**. Der Bericht zeigt, wie viele Targets
+   unabhängig sind, wie viele zurückgehalten wurden, wie viele als Prüfung
+   taugen und wie groß die größte Abweichung ist.
+4. **„ARKTARGET1-Datei speichern“** schreibt
+   `ARKTARGET1_<Zeitstempel>.txt` nach `Downloads/ARKernelDiagnostics`.
+
+**Rolle:** „Hat den Maßstab gesetzt“ heißt, dass dieser Wert in der
+Skalierung steckt — so ein Target darf **niemals** als Prüfung dienen.
+„Zurückgehalten“ heißt, dass sein Wert nicht in der Kalibrierung steckt.
+Beides zugleich ist ein Widerspruch; die App lässt die Kombination nicht zu
+und der Vertrag weist sie mit `ROLE_CONFLICT` ab.
+
+**Als Prüfung zählt nur, was unabhängig, zurückgehalten *und* innerhalb
+seiner Toleranz ist.** Steht „Unabhängigkeit: ausreichend“, heißt das: eine
+spätere Prüfung wäre nicht zirkulär. Es heißt **nicht**, dass deine
+Rekonstruktion stimmt.
+
+**Ein falsch gedrucktes Target fällt hier auf.** Eine Schachbrett-Vorlage,
+die „an Seite anpassen“ statt in Originalgröße gedruckt wurde, hat andere
+Kantenlängen als angegeben. Weiter hinten im Ablauf ist das nicht mehr von
+einer schlechten Rekonstruktion zu unterscheiden — hier schon: die Abweichung
+zwischen Soll und Ist übersteigt die Toleranz, das Target fällt aus der
+Zählung, und der Bericht sagt es.
+
+**Die App misst kein Target.** Sie bekommt hier kein Kamerabild, keine Pose
+und keinen Tiefenwert. Jeder Millimeter wird von dir mit einem echten Werkzeug
+gemessen und eingetragen. `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -652,7 +691,8 @@ bleibt unangetastet stehen. `unverified`.
   Signieren und Prüfen mit Knopf 15 beweist Unversehrtheit und
   Schlüsselkontinuität, aber keine Identität des Schlüsselbesitzers und
   keine Messqualität. Die Redaktion mit Knopf 16 erkennt nur sechs Muster;
-  was sie nicht kennt, bleibt im Text.
+  was sie nicht kennt, bleibt im Text. Knopf 17 führt Buch über die Rollen
+  deiner Targets, misst aber kein Target selbst.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

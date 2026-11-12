@@ -389,7 +389,7 @@ object ArKernelSignatureManifestAdapter {
                 "Signature manifest is empty")
         }
         val normalized =
-            if (text.startsWith("﻿")) text.substring(1) else text
+            if (text.startsWith("\uFEFF")) text.substring(1) else text
         val lines = normalized.trimEnd('\n').split('\n')
         val headerError = validateLine(lines[0].trimEnd('\r'), 1)
         if (headerError != null) return headerError

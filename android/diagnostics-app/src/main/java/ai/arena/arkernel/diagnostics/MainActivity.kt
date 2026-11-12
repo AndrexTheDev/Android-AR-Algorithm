@@ -73,6 +73,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var campaignButton: Button
     private lateinit var bindingButton: Button
     private lateinit var crossButton: Button
+    private lateinit var retentionButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -129,7 +130,8 @@ class MainActivity : android.app.Activity() {
                 "liefert nur einen festen Messplan, keine Auswertung. Die " +
                 "Sitzungsbindung prüft nur digestgenaue Zusammengehörigkeit. " +
                 "Der Gerätevergleich bindet nur deklarierte Sitzungen, keine " +
-                "Kalibrierwerte. Kein Bodentruth im Log, kein Upload, " +
+                "Kalibrierwerte. Der Retention-Bildschirm ist ein trockener " +
+                "UX-Lauf ohne Löschung. Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
@@ -230,6 +232,11 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        retentionButton = Button(this).apply {
+            text = "10. Retention-UX (ARKRETENT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -275,6 +282,7 @@ class MainActivity : android.app.Activity() {
         root.addView(campaignButton, fullWidthParams())
         root.addView(bindingButton, fullWidthParams())
         root.addView(crossButton, fullWidthParams())
+        root.addView(retentionButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -325,6 +333,11 @@ class MainActivity : android.app.Activity() {
         crossButton.setOnClickListener {
             startActivity(
                 Intent(this, CrossDeviceActivity::class.java),
+            )
+        }
+        retentionButton.setOnClickListener {
+            startActivity(
+                Intent(this, RetentionActivity::class.java),
             )
         }
 

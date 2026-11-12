@@ -245,3 +245,13 @@ calibration values are not. This contract explicitly does not re-verify the
 three source texts behind each binding. The adapter reads no sensor,
 measures no target, verifies no signature, uploads nothing, performs no file
 I/O and grants no upgrade. The grade stays `unverified`.
+
+## Bounded retention run ledger
+
+`ArKernelRetentionRunLedgerAdapter` adds a bounded canonical `ARKRETENT1`
+text contract with fourteen exact metadata keys, three fail-closed invariants,
+three modes and three preview action kinds. It records host-reported structural
+facts only; explicit confirmation, a dry run and disabled physical-device
+validation are mandatory. The adapter shows no dialog, deletes no frame or
+key, controls no storage, verifies no signature, uploads nothing, performs no
+file I/O and grants no upgrade. The grade stays `unverified`.

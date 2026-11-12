@@ -1,0 +1,16 @@
+ARKRETENT1
+version=1
+run_id=retention.host.v1
+device_token=device.host.v1
+locale_tag=de-DE
+selected_mode=keep
+delete_key_available=true
+delete_key_selected=false
+dialog_shown=true
+explicit_confirmation_required=true
+action_kind=none
+action_applied=false
+dry_run=true
+physical_validation_disabled=true
+quality_grade=unverified
+END

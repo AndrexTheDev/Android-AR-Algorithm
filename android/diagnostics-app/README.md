@@ -20,8 +20,10 @@ geräteadaptive, systematische Kalibrierungsführung (`ARKADAPT1`).
 `2.4-campaign` ergänzt den geräteübergreifenden, systematischen
 Messkampagnenplan (`ARKCAMPAIGN1`). `2.5-binding` ergänzt die
 fail-closed Sitzungsbindung (`ARKBIND1`) der drei Textdateien. `2.6-cross`
-ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen –
-weiterhin dieselbe App-ID, kein neues Installationsobjekt.
+ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen.
+`2.7-retention` ergänzt die echte Android-Retention-Ansicht mit
+`ARKRETENT1`-Laufakte – weiterhin dieselbe App-ID, kein neues
+Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -348,6 +350,36 @@ Signaturprüfung, kein automatischer Upload, keine Bilder/Posen/Trajektorien,
 keine automatische/universelle Kalibrierung, keine Qualitätsaufstufung;
 `unverified`.
 
+## Retention-UX mit `2.7-retention`
+
+Der Knopf **10. Retention-UX (ARKRETENT1)** öffnet einen echten
+Android-Bildschirm um die bereits vorhandene, UI-neutrale
+`ArKernelRetentionUiComposition`: ein lokalisierter `AlertDialog`, explizite
+Vorschauen für „Publikation erfolgreich" und „explizite Freigabe", ein
+**Trockenlauf-Sink** (löscht nichts), Lifecycle-Wiederherstellung, Navigation
+zurück zur Übersicht sowie `contentDescription`-Texte und
+`announceForAccessibility`-Ansagen.
+
+Bedienung:
+
+1. **10. Retention-UX** öffnen, dann **1. Lokalisierten Dialog öffnen** und
+   einen der drei Modi (`KEEP`, `DELETE_AFTER_PUBLICATION`,
+   `DELETE_ON_EXPLICIT_RELEASE`) explizit bestätigen.
+2. **2.** oder **3.** erzeugt nur eine Vorschau-Aktion; **4.** wendet sie
+   ausschließlich auf den Trockenlauf-Sink an. Es werden **keine** Frames,
+   Schlüssel oder Speicher angefasst.
+3. **5. ARKRETENT1 prüfen & speichern** schreibt `ARKRETENT1_<run>.txt` nach
+   `Downloads/ARKernelDiagnostics`; **6.** teilt den Text hier im Chat.
+
+Die Laufakte enthält nur Strukturangaben: Locale, Modus, Schlüsselverfügbarkeit,
+Dialog geöffnet, Aktionsart, trocken angewendet. Die drei Invarianten
+`explicit_confirmation_required`, `dry_run` und
+`physical_validation_disabled` sind verbindlich aktiv. **Physische Validierung
+des verschlüsselten Keyframe-Lebenszyklus auf echten Geräten bleibt offen.**
+Keine Signaturprüfung, kein automatischer Upload, keine Bilder/Posen/
+Trajektorien, keine automatische/universelle Kalibrierung, keine
+Qualitätsaufstufung; `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -366,9 +398,10 @@ keine automatische/universelle Kalibrierung, keine Qualitätsaufstufung;
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
   keine Kalibrierung bei der Installation, keine Redaktion, keine
   Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
-  Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung und
-  der kanonische Vergleich deklarierter Sitzungen. Unabhängige physische
-  Targets musst du selbst messen und eintragen.
+  Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
+  kanonische Vergleich deklarierter Sitzungen und die trockene
+  Retention-Vorschau. Unabhängige physische Targets musst du selbst
+  messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

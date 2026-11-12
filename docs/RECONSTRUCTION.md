@@ -277,3 +277,25 @@ independent targets, manual redaction/upload, cryptographic signature
 verification and physical validation remain host work. The authoritative grade
 remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No
 upgrade was performed or claimed here.
+
+## Bounded real-View retention UX record
+
+`ArKernelRetentionRunLedgerAdapter` adds a bounded canonical `ARKRETENT1`
+envelope with fourteen exact metadata keys, three fail-closed invariants
+(explicit confirmation required, dry run, physical-device validation disabled),
+three retention modes, three preview action kinds, strict input/line budgets,
+BOM/CRLF tolerance and fail-closed `END` parsing. `summarize()` reports only
+structural facts; the grade stays `unverified`.
+
+Diagnostics app version `2.7-retention` adds a real Android View screen around
+the existing `ArKernelRetentionUiComposition`: one localized `AlertDialog`,
+explicit publication/release previews, a dry-run sink that deletes nothing,
+lifecycle state restoration, navigation back to the overview,
+`contentDescription` labels and `announceForAccessibility` announcements. It
+writes an opted-in `ARKRETENT1_<run>.txt` file. No frame, key or storage is
+touched, no image, pixel, pose or trajectory is captured, no physical target is
+measured, no automatic/universal calibration is performed, no signature is
+verified, nothing is uploaded automatically and no quality grade is granted.
+Physical encrypted keyframe lifecycle validation on real devices remains open.
+The authoritative grade remains `assessReconstructionQuality` with
+`evaluateHeldOutDimensions`. No upgrade was performed or claimed here.

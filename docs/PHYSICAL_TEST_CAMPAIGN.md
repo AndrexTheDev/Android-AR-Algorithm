@@ -5,7 +5,7 @@ physikalischen Messungen** fertigzubekommen. Es sagt, was die Test-App heute
 messend kann, was sie nur bucht, was noch fehlt, in welcher Reihenfolge es
 zusammenhängt, und was du mir jeweils schicken musst.
 
-Stand: Version `2.19-hub` (Knopf 1–21). Bewertung über alles:
+Stand: Version `2.20-camtim` (Knopf 1–22). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## 1. Was ein AR-Kern physikalisch braucht
@@ -21,13 +21,17 @@ darunterliegende nicht stimmt:
 | 2 | Beschleuniger: Bias, Maßstab, Fehlstellung | Telefon + Tisch | **messbar** (`ARKIMUCAL1`) |
 | 3 | Gyroskop: Bias, Maßstab, Nebenachsen | Telefon + rechter Winkel | **messbar** (`ARKIMUCAL1`) |
 | 4 | Rauschen und Bias-Stabilität | Telefon + Tisch | **messbar** (`ARKIMUCAL1`) |
-| 5 | Kamera-Intrinsics (fx, fy, cx, cy, Verzeichnung) | braucht Bilder | **blockiert** – siehe §4 |
-| 6 | Kamera-IMU-Einbau und Zeitversatz (`R`, `t`, `t_d`) | braucht Bilder + geführte Bewegung | **fehlt** |
-| 7 | Maßstab über die Entfernung | Zollstock + bekannte Abstände | **teilweise** (`ARKVALID1`, `ARKSCALE1`) |
+| 5 | Kameratakt, Zeitbasis, Belichtung, Erfassungsstabilität | Telefon allein | **messbar** (`ARKCAMT1`) |
+| 6 | Kamera-Intrinsics (fx, fy, cx, cy, Verzeichnung) | braucht Bilder | **blockiert** – siehe §4 |
+| 7 | Kamera-IMU-Einbau und Zeitversatz (`R`, `t`, `t_d`) | braucht Bilder + geführte Bewegung | **fehlt** |
+| 8 | Maßstab über die Entfernung | Zollstock + bekannte Abstände | **teilweise** (`ARKVALID1`, `ARKSCALE1`) |
 
-Die Stücke 1–4 sind reine Trägheitssensorik. Sie brauchen kein Bild, keine
-Erlaubnis und keine Kamera — deshalb sind sie jetzt messbar. Stück 5–6 brauchen
+Die Stücke 1–5 sind reine Sensorik. Sie brauchen kein Bild, keine Erlaubnis
+und keine Kalibrierhilfe — deshalb sind sie jetzt messbar. Stück 6–7 brauchen
 Bilder, und die App nimmt bewusst keine auf.
+
+Die vollständige Zuordnung von Kern-Behauptung zu nötigem Test steht in
+`docs/DIAGNOSTIC_COVERAGE.md`.
 
 ## 2. Bestand: was die App heute kann
 
@@ -37,6 +41,7 @@ rechnet daraus Zahlen:
 | Knopf | Vertrag | Messreihe | Was du brauchst |
 |---|---|---|---|
 | 20 | `ARKIMUCAL1` | Kadenz, Statik, sechs Lagen, Drehung um bekannten Winkel | Telefon, Tisch, rechter Winkel |
+| 22 | `ARKCAMT1` | Bildrate und Löcher, **auf welcher Uhr die Bildzeitstempel liegen**, Belichtung und Schmierung, Erfassungsstabilität | Telefon, kein Bild wird behalten |
 | 13 | `ARKSCALE1` | Zollstock-Marken automatisch im Bild erkennen | ausgeklappter Zollstock |
 | 12 | `ARKFEED1` | Live-Kamerafeed mit vier Messmarken | Kamera-Opt-in |
 | 18 | `ARKCOND1` | Helligkeit und Thermikstufe **vom Gerät gelesen** | Telefon |
@@ -90,6 +95,35 @@ Schlüsselexporte (`ARKSIGN1_publickey.txt`) tragen denselben Namensanfang wie
 die Signatur-Manifeste, sind aber Schlüssel und keine Manifeste. Sie werden
 daher aufgelistet und absichtlich **nicht** geprüft – sonst stünde auf jedem
 Gerät dauerhaft „unlesbar" neben der Signatur.
+
+### 2b. Knopf 22: der Kameratakt (`ARKCAMT1`)
+
+Drei Dinge über eine Kamera entscheiden, ob ein Kern ihre Bilder überhaupt
+mit den Trägheitsdaten verschmelzen kann — und keins davon braucht ein
+aufbewahrtes Bild:
+
+- **Bildrate und Löcher.** Ein Loch ist eine Strecke, die der Kern nicht
+  sieht, sondern integrieren muss. Größer als drei mittlere Bildabstände,
+  und er rechnet statt zu sehen.
+- **Zeitbasis.** Liegen die Bildzeitstempel in `uptimeMillis` und die
+  Trägheitsproben in `elapsedRealtime`, unterscheiden sie sich um jede
+  Sekunde, die das Gerät im Tiefschlaf verbracht hat — Größenordnungen mehr
+  als eine Belichtung. Die App **entscheidet** die Zeitbasis durch Beobachtung
+  statt sie anzunehmen, denn falsch angenommen ist sie ein plausibel
+  aussehender, aber still falscher Fehler.
+- **Belichtung.** Bei 90°/s Schwenk verschmiert eine Belichtung von 33 ms das
+  ganze Bild um drei Grad.
+
+Dazu kommt die **Erfassungsstabilität**: ändert sich der Bildzuschnitt oder
+der Stabilisierungs-Modus mitten im Lauf, beschreibt jede in diesem Lauf
+gesammelte Zahl eine Kamera, die es nicht mehr gibt. Meldet die Kamera ihren
+Stabilisierungs-Modus gar nicht, sagt die App das, statt Stabilität zu
+behaupten, die sie nicht prüfen konnte.
+
+Die Kamera läuft dabei, aber **kein Bild wird behalten**: die Vorschaufläche
+existiert nur, weil Camera2 ein Ziel verlangt. Es werden keine Intrinsics
+gerechnet, und die Brennweite des Herstellers wird als gemeldeter Wert
+notiert, nicht geglaubt (`manufacturer_intrinsics_trusted=false`).
 
 ## 3. Neu in `2.18-imucal`: die vier IMU-Reihen
 
@@ -180,15 +214,16 @@ schickst.
 | 4 | 20 Sechs Lagen, Durchgang 2 | 1 min | " |
 | 5 | 20 Drehung +90° / −90° um x, y, z | 3 min | " |
 | 6 | 20 Auswerten → speichern | — | `ARKIMUCAL1_*.txt` |
-| 7 | 18 Bedingungen je Szene | 10 min | `ARKCOND1_*.txt` |
-| 8 | 17 Unabhängige Targets (Maßband, mindestens eines zurückgehalten) | 20 min | `ARKTARGET1_*.txt` |
-| 9 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
-| 10 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
-| 11 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
-| 12 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
+| 7 | 22 Kameratakt | 1 min | `ARKCAMT1_*.txt` |
+| 8 | 18 Bedingungen je Szene | 10 min | `ARKCOND1_*.txt` |
+| 9 | 17 Unabhängige Targets (Maßband, mindestens eines zurückgehalten) | 20 min | `ARKTARGET1_*.txt` |
+| 10 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
+| 11 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
+| 12 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
+| 13 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
 
-Schritt 1–6 sind pro Gerät einmal fällig und danach nur noch nach
-Firmware-Wechsel oder Sturz. Schritt 7–12 pro Messsitzung. Schritt 0 und 12
+Schritt 1–7 sind pro Gerät einmal fällig und danach nur noch nach
+Firmware-Wechsel oder Sturz. Schritt 8–13 pro Messsitzung. Schritt 0 und 12
 gehören zusammen: der erste sagt, was fehlt, der letzte bindet, was da ist.
 
 **Reihenfolge 16 vor 15 ist zwingend.** Die Redaktion schreibt **neue**

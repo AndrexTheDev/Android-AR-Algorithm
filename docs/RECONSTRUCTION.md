@@ -632,3 +632,46 @@ Manifest entries are capped below the contract's own ceiling of 64, because
 the `ARKDSMAN1` size budget of 8,192 characters does not fit 64 entries once
 file names are long: 48 is kept, newest first, and the omitted ones are named
 rather than quietly dropped.
+
+
+## Camera cadence, clock and exposure (`ARKCAMT1`)
+
+Diagnostics app version `2.20-camtim` adds button 22. Three things about a
+camera decide whether a visual-inertial kernel can fuse its frames at all,
+and none of them needs a single image to be kept.
+
+**Cadence.** Does the stream deliver the rate it promises, or does it arrive
+with holes? A hole is a stretch the kernel has to bridge by integrating the
+gyroscope instead of seeing. A gap wider than three median intervals is where
+interpolation stops and extrapolation begins.
+
+**Clock domain.** Which of the Android clocks are the frame timestamps on? A
+frame stamped in uptime and an inertial sample stamped in elapsedRealtime
+differ by every second the device spent in deep sleep - orders of magnitude
+more than an exposure. `CameraTimestampNormalizer` decides the domain by
+observation: it collects eight residuals against both clocks and takes the one
+that fits, refusing to choose when both fit equally badly. Assuming it wrong
+is the kind of error that produces a plausible-looking trajectory that is
+quietly wrong, which is why this is measured rather than configured.
+
+**Exposure.** At 90 deg/s a 33 ms exposure smears the whole frame by three
+degrees, more than most feature trackers tolerate. The record reports the
+smear at the **median** exposure, not the worst: the worst is one bad frame,
+the median is what the tracker lives with.
+
+A fourth property is stability. If the crop region or a stabilisation mode
+changes mid-run, every intrinsic number collected during that run describes a
+camera that no longer exists. `CameraCalibrationRuntimeMonitor` is the
+library's terminal monitor for exactly this, and the screen builds its binding
+from the first frame so the monitor reports a *change* rather than a missing
+expectation. When a camera never reports its stabilisation mode, the monitor
+would report MISSING on the very first frame - which is not instability but an
+untestable camera - so the screen leaves it unmonitored and says so instead of
+manufacturing a finding.
+
+A preview surface is required to run a capture session, because Camera2
+demands a target, but no frame is read, decoded, stored or displayed. No
+intrinsics are fitted, and the manufacturer's focal length is recorded as a
+reported value rather than trusted: `manufacturer_intrinsics_trusted` is
+written as `false`. `camera_sufficient` is a precondition gate, not a
+judgement of image quality, and the grade stays `unverified`.

@@ -883,6 +883,67 @@ schreibt **neue** Dateien (`redacted_…`), und nur diese lädst du hoch.
 Signierst du vorher, deckt die Signatur Bytes ab, die niemand hochlädt.
 
 
+## Bedienung mit `2.20-camtim`
+
+Auf dem Hauptbildschirm steht sichtbar `Version 2.20-camtim`. Fehlt dieser
+Text, ist noch eine alte APK installiert. Neu ist **Knopf 22** in
+`SCHRITT 3 · Messung mit Kamera & Zollstock`: der Kameratakt
+(`ARKCAMT1`).
+
+### Was er misst
+
+Drei Dinge entscheiden, ob ein Kern die Bilder einer Kamera überhaupt mit den
+Trägheitsdaten verschmelzen kann — und keins davon braucht ein
+aufbewahrtes Bild.
+
+**Bildrate und Löcher.** Ein Loch ist eine Strecke, die der Kern nicht sieht,
+sondern rechnen muss. Größer als drei mittlere Bildabstände gilt die Reihe
+als verworfen.
+
+**Auf welcher Uhr die Bildzeitstempel liegen.** Das ist der wichtigste Punkt
+und der am leichtesten übersehene. Liegen sie in `uptimeMillis` und die
+Trägheitsproben in `elapsedRealtime`, unterscheiden sie sich um jede Sekunde,
+die das Gerät im Tiefschlaf verbracht hat — Größenordnungen mehr als eine
+Belichtung. Die App **entscheidet** das durch Beobachtung, statt es
+anzunehmen; falsch angenommen wäre es ein plausibel aussehender, aber still
+falscher Fehler.
+
+**Belichtung.** Bei 90°/s Schwenk verschmiert eine Belichtung von 33 ms das
+ganze Bild um drei Grad. Der Bericht nennt die Schmierung aus der
+**medianen** Belichtung, nicht der schlechtesten: die schlechteste ist ein
+einzelnes schlechtes Bild, die mediane ist das, womit der Kern leben muss.
+
+Dazu die **Erfassungsstabilität**: ändert sich der Bildzuschnitt oder der
+Stabilisierungs-Modus mitten im Lauf, beschreibt jede in diesem Lauf
+gesammelte Zahl eine Kamera, die es nicht mehr gibt.
+
+### Bedienung
+
+Kamera wählen, Dauer wählen (3, 6 oder 10 Sekunden), Opt-in anhaken,
+„Aufnahme starten". Das Gerät dabei ruhig halten oder gleichmäßig schwenken.
+Danach „Datei speichern" und selbst hochladen.
+
+Mindestens acht Bilder sind nötig — darunter lässt sich die Zeitbasis nicht
+festlegen. Bei 200 Bildern stoppt die Aufnahme von selbst.
+
+### Kein Bild wird behalten
+
+Die Vorschaufläche existiert nur, weil Camera2 ein Ziel für die Aufnahme
+verlangt. Es wird nichts gelesen, dekodiert, gespeichert oder angezeigt. Es
+werden **keine Intrinsics gerechnet**, und die Brennweite des Herstellers
+wird als gemeldeter Wert notiert, nicht geglaubt — in der Datei steht
+`manufacturer_intrinsics_trusted=false`.
+
+Meldet die Kamera ihren Stabilisierungs-Modus nicht, sagt die App das, statt
+Stabilität zu behaupten, die sie nicht prüfen konnte.
+
+### Vollständige Übersicht
+
+`docs/DIAGNOSTIC_COVERAGE.md` führt **jede** Behauptung des AR-Kerns mit dem
+Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
+fehlt oder blockiert.
+
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**

@@ -831,6 +831,7 @@ class ArtifactHubActivity : DiagnosticsActivity() {
             ArKernelArtifactContract.CAMPAIGN -> "Messkampagne"
             ArKernelArtifactContract.CALIB -> "Physische Kalibrierung"
             ArKernelArtifactContract.IMUCAL -> "Trägheitskalibrierung"
+            ArKernelArtifactContract.CAMTIM -> "Kameratakt & Fähigkeiten"
             ArKernelArtifactContract.MEAS -> "Geführte Messung"
             ArKernelArtifactContract.FEED -> "Kamerafeed-Marken"
             ArKernelArtifactContract.SCALE -> "Zollstock-Erkennung"

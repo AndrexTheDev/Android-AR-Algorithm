@@ -98,6 +98,10 @@
             android:name=".ArtifactHubActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".CameraTimingActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

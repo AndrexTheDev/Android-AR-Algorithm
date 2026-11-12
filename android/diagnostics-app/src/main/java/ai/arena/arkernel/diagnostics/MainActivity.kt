@@ -87,6 +87,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var imuCalButton: Button
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
+    private lateinit var cameraTimingButton: Button
     private lateinit var guideText: TextView
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
@@ -122,8 +123,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.19-hub · Zentrale & Manifest " +
-                "(Knopf 21). Wenn dieser Text fehlt, ist noch die " +
+            text = "Version 2.20-camtim · Kameratakt " +
+                "(Knopf 22). Wenn dieser Text fehlt, ist noch die " +
                 "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -187,6 +188,10 @@ class MainActivity : DiagnosticsActivity() {
                 "Knopf 21 sieht nach, was von alledem schon auf dem " +
                 "Gerät liegt, prüft jede Datei gegen ihren eigenen " +
                 "Vertrag und bindet sie mit SHA-256 in ein Manifest. " +
+                "Knopf 22 misst die Kamera, ohne ein Bild zu behalten: " +
+                "Bildrate und Löcher, auf welcher Uhr die " +
+                "Bildzeitstempel liegen, Belichtung und wie stark das " +
+                "Bild bei einer Schwenkbewegung verschmiert. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -301,6 +306,11 @@ class MainActivity : DiagnosticsActivity() {
 
         feedButton = Button(this).apply {
             text = "12. Live-Kamerafeed & Messung (ARKFEED1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        cameraTimingButton = Button(this).apply {
+            text = "22. Kamera-Takt & Fähigkeiten (ARKCAMT1)"
             textSize = 15f
             setAllCaps(false)
         }
@@ -431,6 +441,7 @@ class MainActivity : DiagnosticsActivity() {
             sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
             fullWidthParams(),
         )
+        root.addView(cameraTimingButton, fullWidthParams())
         root.addView(measurementButton, fullWidthParams())
         root.addView(feedButton, fullWidthParams())
         root.addView(rulerButton, fullWidthParams())
@@ -512,6 +523,11 @@ class MainActivity : DiagnosticsActivity() {
         retentionButton.setOnClickListener {
             startActivity(
                 Intent(this, RetentionActivity::class.java),
+            )
+        }
+        cameraTimingButton.setOnClickListener {
+            startActivity(
+                Intent(this, CameraTimingActivity::class.java),
             )
         }
         measurementButton.setOnClickListener {
@@ -1141,6 +1157,8 @@ class MainActivity : DiagnosticsActivity() {
             "   Erst danach ist eine Prüfung nicht zirkulär.",
             "16. Knopf 18 -> ARKCOND1 (Rig, Thermik, Tag/Nacht)",
             "   Belegt die Bedingungen hinter der Messung.",
+            "6b. Knopf 22 -> ARKCAMT1 (Kameratakt, Zeitbasis)",
+            "   Pro Gerät einmal, direkt nach der IMU-Messung.",
             "17. Knopf 19 -> ARKCORPUS1 (Korpus-Abdeckung)",
             "   Erst danach ist ein Gerätevergleich möglich.",
             "18. Knopf 20 -> ARKIMUCAL1 (Trägheitssensoren)",

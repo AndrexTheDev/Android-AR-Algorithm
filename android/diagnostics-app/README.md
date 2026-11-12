@@ -520,6 +520,41 @@ und vergibt keine Freigabe. Alle Dateien landen in
 `Downloads/ARKernelDiagnostics` und werden von dir hier im Chat hochgeladen.
 `unverified`.
 
+## Bedienung mit `2.12-valid`
+
+Neu ist Knopf **14. Metrische Validierung in mm (ARKVALID1)** im Abschnitt
+**SCHRITT 3**. Damit kannst du erstmals ablesen, **wie weit die App daneben
+liegt** – statt nur zu hören, dass sie keine Genauigkeit behauptet.
+
+So geht es pro Szene:
+
+1. Mit Knopf 12 (`ARKFEED1`) oder Knopf 13 (`ARKSCALE1`) messen und das
+   Artefakt teilen.
+2. In Knopf 14 den Text einfügen und „Artefakt lesen“ drücken. Die App
+   liest `estimated_target_m` daraus, zeigt die Schätzung in Millimetern und
+   füllt Szenenart, Bedingung und die Zurückgehalten-Kennzeichnung.
+3. Dasselbe Ziel **noch einmal mit dem Maßband** messen und in Millimetern
+   eintragen (z. B. `1500` für 1,50 m).
+4. **„Szene übernehmen“** – mindestens eine Szene muss als *zurückgehalten*
+   markiert sein.
+5. **„Validierung berechnen“** liefert mittlere absolute Abweichung,
+   systematische Abweichung (zu kurz/zu lang), größte Abweichung,
+   95-Prozent-Abweichung und die Zahl der Szenen innerhalb deiner Toleranz
+   (Standard 10 mm).
+6. **„ARKVALID1 speichern“** schreibt `ARKVALID1_<Zeitstempel>.txt` nach
+   `Downloads/ARKernelDiagnostics`; bitte hier im Chat hochladen.
+
+Jede Szene ist an den SHA-256-Digest des eingefügten Artefakt-Textes gebunden,
+damit dieselbe Messung nicht doppelt zählt. Die Datei enthält alle Zahlen,
+die Toleranz und die Statistik; beim Einlesen wird die Statistik nachgerechnet
+und eine Abweichung zurückgewiesen.
+
+**Das ist die gemessene Abweichung, kein Genauigkeitsversprechen.** Dein
+Referenzmaß gibst du selbst ein, die App prüft es nicht nach; Tiefe,
+Perspektive, Rolling-Shutter und Verzeichnung bleiben unberücksichtigt.
+`metric_accuracy_claimed=false` ist eine harte Invariante, der Status bleibt
+`unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -537,14 +572,16 @@ und vergibt keine Freigabe. Alle Dateien landen in
   Katalog auf Android 15 typischerweise `granted.3.of.4`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
   keine Kalibrierung bei der Installation, keine Redaktion, keine
-  Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
+  Signaturverifikation, keine behauptete Zentimetergenauigkeit. Automatisch sind nur
   Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
   kanonische Vergleich deklarierter Sitzungen, die trockene
   Retention-Vorschau, die kanonische Digest-Bindung deiner
   ARKCALIB1-Messungen, die Live-Vorschau mit Zählung der
-  Frames und die Erkennung der Zollstock-Marken im
-  Arbeitsspeicher. Unabhängige physische Targets musst du selbst
-  messen und eintragen.
+  Frames, die Erkennung der Zollstock-Marken im
+  Arbeitsspeicher und das Nachrechnen der Abweichungsstatistik gegen dein
+  eingetragenes Maßband-Referenzmaß. Unabhängige physische Targets musst du
+  selbst messen und eintragen; die App misst die Abweichung gegen deine
+  Referenz, aber nicht die Referenz selbst.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

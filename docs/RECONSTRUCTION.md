@@ -427,3 +427,23 @@ adds a collapsible checklist giving the full test order across
 and `ARKCROSS1`. The checklist is a manual guide, not a verification: the app
 does not inspect which files exist, evaluates no measurement and grants no
 approval. The grade stays `unverified`.
+
+## Metric validation: measured deviation in millimetres (`ARKVALID1`)
+
+Diagnostics app version `2.12-valid` adds button 14 and a new contract that
+finally reports *how far off* a measurement is, instead of only refusing to
+claim accuracy. `ARKVALID1` pairs one operator-measured tape-measure reference
+(whole millimetres) with the `estimated_target_m` of one pasted `ARKFEED1` or
+`ARKSCALE1` artefact, and binds each row to the SHA-256 digest of that
+artefact's text so a measurement can never be counted twice. The app computes
+mean absolute error, signed bias, maximum error, an interpolated p95 and the
+number of scenes inside a user-declared threshold; `parse()` recomputes all of
+them and rejects a ledger whose declared statistics disagree.
+
+This is a **measurement of the deviation, not a claim of accuracy**. The
+ground truth is typed in by the user and is never re-verified, no depth,
+parallax, rolling shutter or lens distortion is modelled, and
+`metric_accuracy_claimed=false` remains a hard invariant. Nine fail-closed
+invariants and a required held-out scene are unchanged in spirit from the
+earlier contracts; no calibration value is produced and no quality is
+assessed. The grade stays `unverified`.

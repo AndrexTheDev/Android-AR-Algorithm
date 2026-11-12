@@ -66,6 +66,10 @@
             android:name=".RulerScaleActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".MetricValidationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

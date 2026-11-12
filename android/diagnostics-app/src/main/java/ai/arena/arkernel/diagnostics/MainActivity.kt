@@ -78,6 +78,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var measurementButton: Button
     private lateinit var feedButton: Button
     private lateinit var rulerButton: Button
+    private lateinit var validationButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -114,9 +115,9 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.11-guide · Abschnitte, Checkliste und " +
-                "freier unterer Rand. Wenn dieser Text fehlt, ist noch " +
-                "die alte APK installiert."
+            text = "Version 2.12-valid · Metrische Validierung in " +
+                "Millimetern (Knopf 14). Wenn dieser Text fehlt, ist " +
+                "noch die alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
             setTextColor(Color.parseColor("#B45309"))
@@ -153,6 +154,9 @@ class MainActivity : DiagnosticsActivity() {
                 "erlaubt vier Messmarken; Bilder werden nicht gespeichert. " +
                 "Knopf 13 erkennt die Zentimeter-Marken eines " +
                 "ausgeklappten Zollstocks selbst im Bild. " +
+                "Knopf 14 rechnet pro Szene die Abweichung gegen " +
+                "dein Maßband aus – als gemessene Abweichung in " +
+                "Millimetern, nicht als Genauigkeitsversprechen. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -275,6 +279,11 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        validationButton = Button(this).apply {
+            text = "14. Metrische Validierung in mm (ARKVALID1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -356,6 +365,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(measurementButton, fullWidthParams())
         root.addView(feedButton, fullWidthParams())
         root.addView(rulerButton, fullWidthParams())
+        root.addView(validationButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -435,6 +445,11 @@ class MainActivity : DiagnosticsActivity() {
         rulerButton.setOnClickListener {
             startActivity(
                 Intent(this, RulerScaleActivity::class.java),
+            )
+        }
+        validationButton.setOnClickListener {
+            startActivity(
+                Intent(this, MetricValidationActivity::class.java),
             )
         }
 
@@ -996,6 +1011,9 @@ class MainActivity : DiagnosticsActivity() {
             "9. Knopf 8  -> ARKBIND1 (Sitzungsbindung)",
             "10. Knopf 10 -> ARKRETENT1 (Aufbewahrung)",
             "11. Knopf 9 -> ARKCROSS1 (Vergleich, ab 2. Gerät)",
+            "12. Knopf 14 -> ARKVALID1 (Maßband je Szene in mm)",
+            "   Erst mit 12/13 messen und teilen, dann hier",
+            "   einfügen und Referenz eintragen.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

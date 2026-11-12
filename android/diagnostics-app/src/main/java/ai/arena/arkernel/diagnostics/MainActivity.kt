@@ -80,6 +80,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var rulerButton: Button
     private lateinit var validationButton: Button
     private lateinit var signatureButton: Button
+    private lateinit var redactionButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -116,9 +117,9 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.13-sign · Signatur und Prüfung " +
-                "(Knopf 15). Wenn dieser Text fehlt, ist " +
-                "noch die alte APK installiert."
+            text = "Version 2.14-redact · Redaktion und " +
+                "Upload-Vorbereitung (Knopf 16). Wenn dieser Text " +
+                "fehlt, ist noch die alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
             setTextColor(Color.parseColor("#B45309"))
@@ -161,6 +162,10 @@ class MainActivity : DiagnosticsActivity() {
                 "Knopf 15 bindet deine Artefakte per SHA-256 in ein " +
                 "signiertes Manifest (ARKSIGN1) und prüft fremde " +
                 "Manifeste – Unversehrtheit, nicht Identität. " +
+                "Knopf 16 entfernt MAC, IPv4, Hex-Kennungen, " +
+                "Gerätenummern, Pfade und E-Mails aus deinen " +
+                "Artefakten, bevor du sie hochlädst – manuell, " +
+                "nie automatisch. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -293,6 +298,11 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        redactionButton = Button(this).apply {
+            text = "16. Redaktion & Upload (ARKREDRUN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -380,6 +390,7 @@ class MainActivity : DiagnosticsActivity() {
             fullWidthParams(),
         )
         root.addView(signatureButton, fullWidthParams())
+        root.addView(redactionButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -469,6 +480,11 @@ class MainActivity : DiagnosticsActivity() {
         signatureButton.setOnClickListener {
             startActivity(
                 Intent(this, SignatureActivity::class.java),
+            )
+        }
+        redactionButton.setOnClickListener {
+            startActivity(
+                Intent(this, RedactionActivity::class.java),
             )
         }
 
@@ -1036,6 +1052,8 @@ class MainActivity : DiagnosticsActivity() {
             "13. Knopf 15 -> ARKSIGN1 (Manifest signieren + prüfen)",
             "   Erst Schlüssel erzeugen und öffentlichen Schlüssel",
             "   einmal hochladen, danach Artefakte binden.",
+            "14. Knopf 16 -> ARKREDRUN1 (Redaktion + Freigabe)",
+            "   Danach redigierte Dateien selbst hochladen.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

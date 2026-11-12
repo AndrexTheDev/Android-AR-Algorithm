@@ -467,3 +467,24 @@ by whoever verifies, and verification reports `keyFingerprintMatches` and
 `signatureValid` separately. Nothing here says anything about measurement
 quality; `metric_accuracy_claimed` stays false and the grade stays
 `unverified`.
+
+## Redaction and upload workflow (`ARKREDRUN1`)
+
+Diagnostics app version `2.14-redact` adds button 16 and closes the gap left
+by `ARKREDACT1`: that contract was a bounded *plan* format which performed no
+redaction by design. `ARKREDRUN1` applies such a plan to real artefact texts.
+
+Every rule has to name one of six built-in detectors — MAC address, IPv4, a
+sixteen-character hexadecimal identifier, a fifteen-digit device identifier, an
+absolute storage path and an e-mail address; anything else is rejected with
+`UNKNOWN_DETECTOR` instead of being silently skipped. `drop` replaces a match
+with an opaque token, `hash` with a token plus a truncated SHA-256 so linkage
+survives without the value. Afterwards every detector *without* a rule is
+scanned again over the redacted text: anything still matching becomes a
+residual row and blocks `upload_admitted`, so a two-rule plan cannot quietly
+pass a file that still holds an e-mail address.
+
+`upload_admitted` is a filter, not a promise — it means none of the six
+detectors matches any more, not that the file is free of identifying content.
+The redacted texts never enter the ledger, four fail-closed invariants keep the
+upload manual, and the grade stays `unverified`.

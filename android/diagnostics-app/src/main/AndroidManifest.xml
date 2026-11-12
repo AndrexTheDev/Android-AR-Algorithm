@@ -74,6 +74,10 @@
             android:name=".SignatureActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".RedactionActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

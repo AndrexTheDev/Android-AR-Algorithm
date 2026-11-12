@@ -586,6 +586,42 @@ ein gerootetes Gerät oder eine kopierte Software-Schlüsseldatei ergibt eine
 formal gültige Signatur. Ebenso wenig sagt eine verifizierte Signatur etwas
 über die Qualität der Messung: `unverified` bleibt `unverified`.
 
+## Bedienung mit `2.14-redact`
+
+Neu ist Knopf **16. Redaktion & Upload (ARKREDRUN1)** im Abschnitt
+**SCHRITT 4 · Vertrauen & Upload**.
+
+1. Plan prüfen – der Standardplan deckt **alle sechs Erkenner** ab.
+2. Pro Artefakt einen Namen eintragen, den `ARK…`-Text einfügen und
+   **„Artefakt hinzufügen“** (bis zu 16 Artefakte).
+3. **„Redaktion ausführen“**. Das Ergebnis zeigt je Artefakt, ob es sich
+   geändert hat (Digest vorher/nachher), welcher Erkenner wie oft
+   zugeschlagen hat und ob Restfunde geblieben sind.
+4. Nur wenn **„freigegeben“** steht: **„Redigierte Dateien speichern“**.
+   Es entstehen `redacted_<Name>` je Artefakt plus
+   `ARKREDRUN1_<Zeitstempel>.txt` in `Downloads/ARKernelDiagnostics`.
+5. **Die Dateien lädst du selbst hier im Chat hoch.** Nie automatisch.
+
+**Die sechs Erkenner:** MAC-Adresse (`net.mac`), IPv4 (`net.ipv4`),
+16-stellige Hex-Kennung (`id.hex16`), 15-stellige Gerätenummer
+(`id.decimal15`), absoluter Speicherpfad (`path.absolute`), E-Mail
+(`contact.email`).
+
+Zwei Aktionen: `drop` ersetzt durch einen Platzhalter, `hash` durch
+`Platzhalter.h` plus 15 Hex-Zeichen des SHA-256 – so bleibt erkennbar, dass
+zwei Stellen denselben Wert hatten, ohne den Wert selbst zu zeigen.
+
+**Nachlauf ist fail-closed:** Nach dem Ersetzen sucht die App mit **allen
+Erkennern, für die der Plan keine Regel hat**, noch einmal über den
+redigierten Text. Jeder Treffer wird ein Restfund, und `upload_admitted`
+bleibt `false`. Der mitgelieferte Beispiel-Plan deckt nur zwei Erkenner ab
+und wird deshalb **nicht** freigegeben – genau das sollst du sehen.
+
+**„freigegeben“ ist ein Filter, kein Versprechen.** Es heißt: keiner der
+sechs Erkenner schlägt mehr an. Ein Wert, den die App nicht kennt – ein Name
+in einer Szenen-ID, eine Zahl, die nur im Zusammenhang ein Gerät verrät –
+bleibt unangetastet stehen. `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -602,19 +638,21 @@ formal gültige Signatur. Ebenso wenig sagt eine verifizierte Signatur etwas
   ohne zusätzlichen Laufzeitdialog; mit erteilter Kamera-Berechtigung meldet der
   Katalog auf Android 15 typischerweise `granted.3.of.4`.
 - Kein automatischer Upload, keine automatische oder universelle Kalibrierung,
-  keine Kalibrierung bei der Installation, keine Redaktion, keine
-  Redaktion. Automatisch sind nur
+  keine Kalibrierung bei der Installation. Automatisch sind nur
   Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
   kanonische Vergleich deklarierter Sitzungen, die trockene
   Retention-Vorschau, die kanonische Digest-Bindung deiner
   ARKCALIB1-Messungen, die Live-Vorschau mit Zählung der
   Frames, die Erkennung der Zollstock-Marken im
-  Arbeitsspeicher und das Nachrechnen der Abweichungsstatistik gegen dein
-  eingetragenes Maßband-Referenzmaß. Unabhängige physische Targets musst du
-  selbst messen und eintragen; die App misst die Abweichung gegen deine
-  Referenz, aber nicht die Referenz selbst. Das Signieren und Prüfen mit
-  Knopf 15 beweist Unversehrtheit und Schlüsselkontinuität, aber keine
-  Identität des Schlüsselbesitzers und keine Messqualität.
+  Arbeitsspeicher, das Nachrechnen der Abweichungsstatistik gegen dein
+  eingetragenes Maßband-Referenzmaß, die Signatur deiner Artefakte und das
+  Ersetzen der sechs bekannten Muster durch Platzhalter. Unabhängige
+  physische Targets musst du selbst messen und eintragen; die App misst die
+  Abweichung gegen deine Referenz, aber nicht die Referenz selbst. Das
+  Signieren und Prüfen mit Knopf 15 beweist Unversehrtheit und
+  Schlüsselkontinuität, aber keine Identität des Schlüsselbesitzers und
+  keine Messqualität. Die Redaktion mit Knopf 16 erkennt nur sechs Muster;
+  was sie nicht kennt, bleibt im Text.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine
   Zentimetergenauigkeit, keine thermische Ausdauer und keine

@@ -378,3 +378,31 @@ physical reference. Physical validation, centimetre accuracy and a real
 depth/ARCore-equivalent measurement remain open. The authoritative grade
 remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`; no
 upgrade was performed or claimed here.
+
+## Bounded automatic folding-ruler recognition
+
+`ArKernelRulerScaleAdapter` adds a bounded canonical `ARKSCALE1` record and
+`ArKernelRulerTickDetector` a pure, deterministic tick detector. The app
+samples luma along the roughly indicated reference line from a preview frame
+held in memory, finds the dark centimetre marks with integer thresholds and
+snaps the reference endpoints onto the nearest detected tick. The frame is
+discarded immediately: `frames_exported=0` and
+`frame_persistence_disabled=true`.
+
+Thirty-five exact metadata keys, thirteen fail-closed invariants, four marker
+rows and 2–200 ordered tick rows are enforced. `expected_tick_count` is
+derived from the length the user states they folded out (100 per metre), so
+`tick_count_consistent` exposes a wrong ruler, poor illumination or a wrongly
+entered length. `tick_regularity` is a structural property of the detected
+pattern, not an accuracy judgement.
+
+This improves **endpoint repeatability**, not metric accuracy: depth,
+parallax, perspective, rolling shutter and lens distortion are not modelled,
+so `metric_accuracy_claimed=false` and `estimated_target_m` remains a
+screen-ratio estimate assuming ruler and target share one fronto-parallel
+plane at equal depth. Diagnostics app version `2.10-ruler` adds button 13 and
+also fixes the missing rotation transform on the `2.9-feed` preview. **No real
+AI model, inference, weights or network are included**: only fixed,
+deterministic luma thresholds. Physical validation and centimetre accuracy
+remain open. The authoritative grade remains `assessReconstructionQuality`
+with `evaluateHeldOutDimensions`; no upgrade was performed or claimed here.

@@ -12,6 +12,8 @@ import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.hardware.camera2.CameraCaptureSession
@@ -32,6 +34,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
+import android.view.WindowManager
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -120,6 +123,9 @@ class MeasurementFeedActivity : android.app.Activity() {
     private var activeSurfaceTexture: SurfaceTexture? = null
     private var captureIndex = 0
     private var currentRecord: String = ""
+    private var bufferWidth = 0
+    private var bufferHeight = 0
+    private var sensorDegrees = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -472,6 +478,12 @@ class MeasurementFeedActivity : android.app.Activity() {
             statusText.text = "Keine Kamera gefunden."
             return
         }
+        val sensorOrientation = try {
+            manager.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        } catch (error: Exception) {
+            0
+        }
         val size = try {
             val map = manager.getCameraCharacteristics(cameraId)
                 .get(CameraCharacteristics
@@ -516,6 +528,10 @@ class MeasurementFeedActivity : android.app.Activity() {
                                         session: CameraCaptureSession,
                                     ) {
                                         captureSession = session
+                                        bufferWidth = size.width
+                                        bufferHeight = size.height
+                                        sensorDegrees = sensorOrientation
+                                        applyPreviewTransform()
                                         try {
                                             session.setRepeatingRequest(
                                                 builder.build(),
@@ -628,6 +644,47 @@ class MeasurementFeedActivity : android.app.Activity() {
         cameraHandler = null
         cameraThread = null
     }
+
+    /**
+     * Rotates and scales the preview so the camera buffer fills the view.
+     * Without this the rear-camera preview appears sideways on most phones.
+     */
+    private fun applyPreviewTransform() {
+        val viewWidth = textureView.width
+        val viewHeight = textureView.height
+        if (viewWidth <= 0 || viewHeight <= 0 ||
+            bufferWidth <= 0 || bufferHeight <= 0) return
+        val matrix = Matrix()
+        val buffer = RectF(
+            -bufferWidth / 2f, -bufferHeight / 2f,
+            bufferWidth / 2f, bufferHeight / 2f,
+        )
+        val rotated = RectF()
+        var degrees = (sensorDegrees - displayRotationDegrees()) % 360
+        if (degrees < 0) degrees += 360
+        matrix.setRotate(degrees.toFloat())
+        matrix.mapRect(rotated, buffer)
+        if (rotated.width() <= 0f || rotated.height() <= 0f) return
+        val scale = maxOf(
+            viewWidth / rotated.width(), viewHeight / rotated.height())
+        matrix.postScale(scale, scale)
+        matrix.postTranslate(viewWidth / 2f, viewHeight / 2f)
+        textureView.setTransform(matrix)
+    }
+
+    private fun displayRotationDegrees(): Int =
+        when (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display?.rotation ?: Surface.ROTATION_0
+        } else {
+            @Suppress("DEPRECATION")
+            (getSystemService(Context.WINDOW_SERVICE) as? WindowManager)
+                ?.defaultDisplay?.rotation ?: Surface.ROTATION_0
+        }) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
 
     private fun backCameraId(manager: CameraManager): String? = try {
         manager.getCameraIdList().firstOrNull { id ->

@@ -62,6 +62,10 @@
             android:name=".MeasurementFeedActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".RulerScaleActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

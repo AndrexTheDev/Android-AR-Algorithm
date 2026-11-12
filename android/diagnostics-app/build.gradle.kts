@@ -11,8 +11,8 @@ android {
         applicationId = "ai.arena.arkernel.diagnostics"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "2.9-feed"
+        versionCode = 12
+        versionName = "2.10-ruler"
     }
 
     compileOptions {

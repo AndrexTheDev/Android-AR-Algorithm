@@ -24,6 +24,7 @@ ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen.
 `2.7-retention` ergänzt die echte Android-Retention-Ansicht mit
 `ARKRETENT1`-Laufakte. `2.8-measure` ergänzt die geführte
 Messdurchführung (`ARKMEAS1`), die deine physischen `ARKCALIB1`-Messungen pro Szene bindet. **`2.9-feed` ergänzt endlich einen echten Live-Kamerafeed** mit vier Messmarken (`ARKFEED1`) – weiterhin dieselbe App-ID, kein neues Installationsobjekt. Auf dem Hauptbildschirm steht jetzt sichtbar `Version 2.9-feed`; fehlt dieser Text, ist noch eine alte APK installiert.
+**`2.10-ruler` ergänzt die automatische Zollstock-Erkennung (`ARKSCALE1`)**: die App findet die Zentimeter-Marken eines ausgeklappten Zollstocks selbst im Bild. Auf dem Hauptbildschirm steht jetzt sichtbar `Version 2.10-ruler`; fehlt dieser Text, ist noch eine alte APK installiert.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -448,6 +449,44 @@ dienen, nie als Ersatz für deine unabhängige physische Referenz. Keine
 automatische/universelle Kalibrierung, keine Signaturprüfung, kein
 automatischer Upload, keine Qualitätsaufstufung.
 
+## Zollstock automatisch erkennen mit `2.10-ruler`
+
+Der Knopf **13. Zollstock automatisch erkennen (ARKSCALE1)** nimmt dir das
+genaue Tippen ab. Du klappst den Zollstock auf eine bekannte Länge aus
+(**1 m** oder **2 m**), hältst ihn ins Bild und tippst nur noch **grob** die
+beiden Enden des Zollstocks und die beiden Enden des Ziels an. **„Zollstock
+erkennen"** sucht dann selbst die Zentimeter-Marken.
+
+So geht es:
+
+1. Zollstock ausklappen, flach und möglichst parallel zur Zielfläche halten.
+2. Opt-in anhaken, **Kamera starten**, vier Marken grob setzen
+   (1–2 Zollstock, 3–4 Ziel).
+3. **Ausgeklappte Länge** eintragen (Knopf **1 m** / **2 m** hilft dabei).
+4. **Zollstock erkennen** drücken. Die App meldet, wie viele Marken sie
+   gefunden hat, wie groß der Abstand und wie **gleichmäßig** sie sind, und
+   zeichnet alle erkannten Marken gelb ein.
+5. **„Erkannte Marken geprüft"** anhaken, dann **ARKSCALE1-Messung
+   aufnehmen** und die Datei hier im Chat hochladen.
+
+**Die Plausibilitätsprüfung ist der eigentliche Nutzen:** Aus der eingetragenen
+Länge erwartet die App 100 cm-Marken pro Meter. Findet sie deutlich mehr oder
+weniger, steht im Protokoll `tick_count_consistent=false` – du siehst sofort,
+ob der falsche Maßstab erkannt, der Zollstock schlecht ausgeleuchtet oder die
+Länge falsch eingetragen wurde.
+
+Steht das Bild auf dem Kopf, drehe es mit **„Bild um 180° drehen"**. Die
+Messung bleibt dabei korrekt, weil Marken und Bild dieselbe Drehung teilen.
+
+Der Bildinhalt wird **nur im Arbeitsspeicher** ausgewertet und sofort
+verworfen: kein Bild, Frame, Pixel oder Pose wird gespeichert oder geteilt,
+`frames_exported=0` und `frame_persistence_disabled=true`. Die Erkennung macht
+Endpunkte **wiederholgenau**, nicht **metrisch richtig**: Tiefe, Perspektive,
+Rolling-Shutter und Verzeichnung bleiben unberücksichtigt, daher ist
+`metric_accuracy_claimed=false`. **Kein KI-Modell, keine Inferenz, keine
+Gewichte, kein Netz** – nur feste, deterministische Luminanzschwellen.
+`unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -469,8 +508,9 @@ automatischer Upload, keine Qualitätsaufstufung.
   Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
   kanonische Vergleich deklarierter Sitzungen, die trockene
   Retention-Vorschau, die kanonische Digest-Bindung deiner
-  ARKCALIB1-Messungen und die Live-Vorschau mit Zählung der
-  Frames. Unabhängige physische Targets musst du selbst
+  ARKCALIB1-Messungen, die Live-Vorschau mit Zählung der
+  Frames und die Erkennung der Zollstock-Marken im
+  Arbeitsspeicher. Unabhängige physische Targets musst du selbst
   messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine

@@ -76,6 +76,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var retentionButton: Button
     private lateinit var measurementButton: Button
     private lateinit var feedButton: Button
+    private lateinit var rulerButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -110,9 +111,9 @@ class MainActivity : android.app.Activity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.9-feed · Knopf 12 öffnet den " +
-                "Live-Kamerafeed. Wenn dieser Text fehlt, ist noch die " +
-                "alte APK installiert."
+            text = "Version 2.10-ruler · Knopf 12 Live-Kamerafeed, " +
+                "Knopf 13 Zollstock-Autoerkennung. Wenn dieser Text " +
+                "fehlt, ist noch die alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
             setTextColor(Color.parseColor("#B45309"))
@@ -147,6 +148,8 @@ class MainActivity : android.app.Activity() {
                 "ARKCALIB1-Texte pro Szene, misst aber nichts selbst. " +
                 "Der Live-Kamerafeed (Knopf 12) zeigt die Rückkamera und " +
                 "erlaubt vier Messmarken; Bilder werden nicht gespeichert. " +
+                "Knopf 13 erkennt die Zentimeter-Marken eines " +
+                "ausgeklappten Zollstocks selbst im Bild. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -264,6 +267,12 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        rulerButton = Button(this).apply {
+            text = "13. Zollstock automatisch erkennen (ARKSCALE1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
             textSize = 12f
@@ -312,6 +321,7 @@ class MainActivity : android.app.Activity() {
         root.addView(retentionButton, fullWidthParams())
         root.addView(measurementButton, fullWidthParams())
         root.addView(feedButton, fullWidthParams())
+        root.addView(rulerButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -377,6 +387,11 @@ class MainActivity : android.app.Activity() {
         feedButton.setOnClickListener {
             startActivity(
                 Intent(this, MeasurementFeedActivity::class.java),
+            )
+        }
+        rulerButton.setOnClickListener {
+            startActivity(
+                Intent(this, RulerScaleActivity::class.java),
             )
         }
 

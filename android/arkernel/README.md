@@ -278,3 +278,15 @@ reference length, not accuracy. Frames are counted but never exported;
 controls no camera or storage, verifies no signature, uploads nothing,
 performs no automatic or universal calibration and grants no quality
 grade. The grade stays `unverified`.
+
+## Bounded folding-ruler tick detection
+
+`ArKernelRulerScaleAdapter` and `ArKernelRulerTickDetector` add a bounded
+canonical `ARKSCALE1` contract with thirty-five exact metadata keys, thirteen
+fail-closed invariants, four marker rows and 2–200 ordered tick rows. The
+detector is pure and deterministic: it uses integer luma thresholds only, no
+AI model, no inference, no weights and no network. Frames are analysed in
+memory and never persisted. It records detected tick structure and a
+screen-ratio scale, not accuracy; `metric_accuracy_claimed=false`. No
+automatic or universal calibration, no signature verification, no upload and
+no quality grade. The grade stays `unverified`.

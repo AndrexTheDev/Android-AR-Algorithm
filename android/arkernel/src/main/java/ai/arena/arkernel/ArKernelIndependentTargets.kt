@@ -512,28 +512,30 @@ object ArKernelIndependentTargetsAdapter {
             }
         }
         val requiredText = values.getValue("required_independent_targets")
-        val required = unsigned(requiredText)
+        val requiredValue = unsigned(requiredText)
             ?: return targetsReject(
                 ArKernelIndependentTargetsRejection.INVALID_VALUE,
                 lineByKey.getValue("required_independent_targets"),
                 "Invalid required independent target count")
-        if (required < 1 || required > TARGETS_MAX_REQUIRED) {
+        if (requiredValue < 1 || requiredValue > TARGETS_MAX_REQUIRED) {
             return targetsReject(
                 ArKernelIndependentTargetsRejection.INVALID_COUNT,
                 lineByKey.getValue("required_independent_targets"),
                 "Required independent targets are out of bounds")
         }
-        val targetCount = unsigned(values.getValue("target_count"))
+        val required = requiredValue.toInt()
+        val targetCountValue = unsigned(values.getValue("target_count"))
             ?: return targetsReject(
                 ArKernelIndependentTargetsRejection.INVALID_VALUE,
                 lineByKey.getValue("target_count"),
                 "Invalid independent target count")
-        if (targetCount < 1 || targetCount > TARGETS_MAX_TARGETS) {
+        if (targetCountValue < 1 || targetCountValue > TARGETS_MAX_TARGETS) {
             return targetsReject(
                 ArKernelIndependentTargetsRejection.INVALID_COUNT,
                 lineByKey.getValue("target_count"),
                 "Independent target count is out of bounds")
         }
+        val targetCount = targetCountValue.toInt()
         val consistentText = values.getValue("targets_consistent")
         val sufficientText = values.getValue("independence_sufficient")
         if (!isBoolean(consistentText) || !isBoolean(sufficientText)) {
@@ -676,7 +678,7 @@ object ArKernelIndependentTargetsAdapter {
             registryId = values.getValue("registry_id"),
             deviceToken = values.getValue("device_token"),
             campaignId = values.getValue("campaign_id"),
-            requiredIndependentTargets = required.toInt(),
+            requiredIndependentTargets = required,
             targets = targets,
         )
         if (!result.accepted) {

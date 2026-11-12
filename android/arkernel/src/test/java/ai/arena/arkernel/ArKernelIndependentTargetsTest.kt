@@ -205,7 +205,6 @@ class ArKernelIndependentTargetsTest {
     fun roleConflictIsRejectedOnParseToo() {
         val registry = registry(reindex(listOf(checkTarget())))
         val text = ArKernelIndependentTargetsAdapter.encode(registry)
-            .replace("target=0|gauge.100", "target=0|gauge.100")
             .replace("|false|true|", "|true|true|")
         val parsed = ArKernelIndependentTargetsAdapter.parse(text)
         assertFalse(parsed.accepted)

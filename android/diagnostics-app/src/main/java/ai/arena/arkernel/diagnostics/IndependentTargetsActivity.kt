@@ -17,7 +17,6 @@ import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -579,19 +578,7 @@ class IndependentTargetsActivity : DiagnosticsActivity() {
                 android.R.layout.simple_spinner_dropdown_item,
                 values,
             )
-            onItemSelectedListener =
-                object : AdapterView.OnItemSelectedListener {
-                    override fun onItemSelected(
-                        parent: AdapterView<*>?,
-                        view: View?,
-                        position: Int,
-                        id: Long,
-                    ) {
-                    }
-
-                    override fun onNothingSelected(parent: AdapterView<*>?) {
-                    }
-                }
+            contentDescription = "Auswahlliste"
         }
 
     private fun writeTextToDownloads(

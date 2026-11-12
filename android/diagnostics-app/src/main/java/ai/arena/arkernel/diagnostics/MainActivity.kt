@@ -86,6 +86,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var corpusButton: Button
     private lateinit var imuCalButton: Button
     private lateinit var guideButton: Button
+    private lateinit var hubButton: Button
     private lateinit var guideText: TextView
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
@@ -121,8 +122,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.18-imucal · IMU-Kalibrierung " +
-                "(Knopf 20). Wenn dieser Text fehlt, ist noch die " +
+            text = "Version 2.19-hub · Zentrale & Manifest " +
+                "(Knopf 21). Wenn dieser Text fehlt, ist noch die " +
                 "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -183,6 +184,9 @@ class MainActivity : DiagnosticsActivity() {
                 "Maßstab und Fehlstellung des Beschleunigers aus sechs " +
                 "Lagen sowie den Maßstabsfehler des Gyroskops gegen " +
                 "einen Winkel, den du mit einer Lehre vorgibst. " +
+                "Knopf 21 sieht nach, was von alledem schon auf dem " +
+                "Gerät liegt, prüft jede Datei gegen ihren eigenen " +
+                "Vertrag und bindet sie mit SHA-256 in ein Manifest. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -342,6 +346,11 @@ class MainActivity : DiagnosticsActivity() {
             setAllCaps(false)
         }
 
+        hubButton = Button(this).apply {
+            text = "21. Zentrale: Bestand & Manifest (ARKDSMAN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
             textSize = 14f
@@ -397,6 +406,7 @@ class MainActivity : DiagnosticsActivity() {
             sectionLabel("SCHRITT 1 · Log & Plan"),
             fullWidthParams(),
         )
+        root.addView(hubButton, fullWidthParams())
         root.addView(createButton, fullWidthParams())
         root.addView(physicalButton, fullWidthParams())
         root.addView(writeButton, fullWidthParams())
@@ -444,6 +454,11 @@ class MainActivity : DiagnosticsActivity() {
         setContentView(root)
 
         optIn.setOnCheckedChangeListener { _, _ -> updateButtons() }
+        hubButton.setOnClickListener {
+            startActivity(
+                Intent(this, ArtifactHubActivity::class.java),
+            )
+        }
         guideButton.setOnClickListener {
             val visible = guideText.visibility == View.VISIBLE
             guideText.visibility = if (visible) View.GONE else View.VISIBLE
@@ -1095,6 +1110,9 @@ class MainActivity : DiagnosticsActivity() {
             "Die App prüft NICHT selbst, was schon vorliegt; das",
             "ist eine manuelle Anleitung, keine Verifikation.",
             "",
+            "0. Knopf 21 -> ARKDSMAN1 (Bestand & Manifest)",
+            "   Zeigt, was schon vorliegt und was als Nächstes",
+            "   fehlt. Am Anfang und am Ende jedes Geräts.",
             "1. Knopf 1 (Log) + 3 (speichern) + 4 (teilen)",
             "   -> ARKFDPOL1, ARKFDPLAN1, ARKFDLOG1",
             "2. Knopf 2  -> ultimativer Planlauf, danach 3 + 4",
@@ -1111,11 +1129,14 @@ class MainActivity : DiagnosticsActivity() {
             "12. Knopf 14 -> ARKVALID1 (Maßband je Szene in mm)",
             "   Erst mit 12/13 messen und teilen, dann hier",
             "   einfügen und Referenz eintragen.",
-            "13. Knopf 15 -> ARKSIGN1 (Manifest signieren + prüfen)",
+            "13. Knopf 16 -> ARKREDRUN1 (Redaktion + Freigabe)",
+            "   Zuerst redigieren: die Redaktion schreibt NEUE",
+            "   Dateien, und nur diese lädst du hoch.",
+            "14. Knopf 15 -> ARKSIGN1 (Manifest signieren + prüfen)",
             "   Erst Schlüssel erzeugen und öffentlichen Schlüssel",
-            "   einmal hochladen, danach Artefakte binden.",
-            "14. Knopf 16 -> ARKREDRUN1 (Redaktion + Freigabe)",
-            "   Danach redigierte Dateien selbst hochladen.",
+            "   einmal hochladen, dann die redigierten Dateien",
+            "   binden. Umgekehrt deckte die Signatur Bytes ab,",
+            "   die niemand hochlädt.",
             "15. Knopf 17 -> ARKTARGET1 (Target + Rolle)",
             "   Erst danach ist eine Prüfung nicht zirkulär.",
             "16. Knopf 18 -> ARKCOND1 (Rig, Thermik, Tag/Nacht)",

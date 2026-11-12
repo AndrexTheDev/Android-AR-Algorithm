@@ -827,6 +827,62 @@ Zeitversatz zwischen Kamera und IMU bleiben unbestimmt. Die Bewertung bleibt
 funktionierendes System, kein Beweis dafür.
 
 
+## Bedienung mit `2.19-hub`
+
+Auf dem Hauptbildschirm steht sichtbar `Version 2.19-hub`. Fehlt dieser Text,
+ist noch eine alte APK installiert. Neu ist **Knopf 21** ganz oben in
+`SCHRITT 1 · Log & Plan`: die Zentrale (`ARKDSMAN1`). Sie misst nichts – sie
+sieht nach, was die anderen zwanzig Knöpfe schon gemessen haben.
+
+### Was sie tut
+
+**„1) Bestand aktualisieren“** liest `Downloads/ARKernelDiagnostics`, rechnet
+zu jeder Datei den SHA-256 und gibt **jede Datei ihrem eigenen Vertrag zum
+Prüfen**. Eine abgeschnittene oder nachträglich bearbeitete Datei fällt dabei
+durch und wird nicht als vorhanden gezählt. Danach stehen vier Dinge da:
+
+- **Die Tafel**: je Vertrag ein Zeichen – `ok` gesammelt, `!` vorhanden mit
+  offenen Urteilen, `X` unlesbar, `.` fehlt – mit Knopfnummer und Datum.
+- **Nächster Schritt**: der erste Vertrag, der in Kampagnenreihenfolge fehlt.
+- **Die Dateiliste**: Name, Größe, Prüfsumme und Status jeder Datei.
+- **Der Inhalt**: über die Auswahl und „Datei anzeigen“ liest du jede Datei
+  direkt in der App.
+
+**„2) Manifest binden“** fasst alle Dateien mit ihrem SHA-256 in eine
+`ARKDSMAN1`-Datei. **„3) Datei speichern“** und **„4) Datei teilen“** geben
+sie weiter. Hochladen tust du sie selbst.
+
+### Was die Tafel bedeutet – und was nicht
+
+`ok` heißt **gesammelt**, nicht **gut**. Keine Zeile dieser Tafel stuft die
+Qualitätsnote hoch; die bleibt `unverified`.
+
+Ein offenes Urteil wie `accel_repeat_checked` heißt **Arbeit**, nicht
+**Fehler**: die sechs Lagen wurden nicht wiederholt, also ist nichts als
+wiederholbar bekannt. Die Zentrale findet Zeilen der Form `schlüssel=false`
+und kann nicht wissen, ob eine Prüfung scheiterte oder schlicht noch niemand
+die Arbeit gemacht hat. Sie sagt es trotzdem, weil beides ein Grund ist,
+noch einmal hinzusehen.
+
+### Was sie nicht sieht
+
+Die Zentrale liest nur, was **diese App** geschrieben hat. Auf Android 10 und
+neuer sind das die Dateien, die das System der App zuordnet; eine per USB
+hereinkopierte Datei taucht unter Umständen nicht auf. Auf Android 9 und älter
+schreibt die App in ein App-Verzeichnis, das sie – anders als `Downloads` –
+lesen darf; auch dort findet sie ihre eigenen Dateien.
+
+Schlüsselexporte (`ARKSIGN1_publickey.txt`) tragen denselben Namensanfang wie
+die Signatur-Manifeste, sind aber Schlüssel. Sie werden aufgelistet und
+absichtlich nicht geprüft.
+
+### Reihenfolge: erst redigieren, dann signieren
+
+Die Checkliste in der App war hier falsch und ist korrigiert. Knopf 16
+schreibt **neue** Dateien (`redacted_…`), und nur diese lädst du hoch.
+Signierst du vorher, deckt die Signatur Bytes ab, die niemand hochlädt.
+
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**

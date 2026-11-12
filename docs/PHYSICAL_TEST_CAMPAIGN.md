@@ -5,7 +5,7 @@ physikalischen Messungen** fertigzubekommen. Es sagt, was die Test-App heute
 messend kann, was sie nur bucht, was noch fehlt, in welcher Reihenfolge es
 zusammenhängt, und was du mir jeweils schicken musst.
 
-Stand: Version `2.18-imucal` (Knopf 1–20). Bewertung über alles:
+Stand: Version `2.19-hub` (Knopf 1–21). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## 1. Was ein AR-Kern physikalisch braucht
@@ -57,6 +57,39 @@ gemessen hast, und prüft sie auf Vollständigkeit und Widersprüche:
 **Vertrauen und Transport** — 15 `ARKSIGN1`, 16 `ARKREDRUN1`, 8 `ARKBIND1`.
 Sie erzeugen keine Messwerte, sondern stellen sicher, dass das, was du mir
 schickst, unverändert ist und nichts Persönliches enthält.
+
+**Überblick** — 21 `ARKDSMAN1`. Erzeugt ebenfalls keine Messwerte, sondern
+beantwortet die Frage, die keiner der zwanzig Bildschirme beantworten konnte:
+was liegt eigentlich schon vor. Details in §2a.
+
+### 2a. Knopf 21: der Bestand (`ARKDSMAN1`)
+
+Vor `2.19-hub` erzeugte jeder der zwanzig Bildschirme eine Datei und vergaß
+sie. Die App sagte das selbst, in ihrer eigenen Checkliste: *„Die App prüft
+NICHT selbst, was schon vorliegt."* Knopf 21 tut genau das.
+
+Er listet die Dateien in `Downloads/ARKernelDiagnostics`, rechnet zu jeder den
+SHA-256, und – das ist der eigentliche Punkt – **gibt jede Datei ihrem eigenen
+Vertrag zum Prüfen**. Eine abgeschnittene oder nachträglich bearbeitete Datei
+wird damit als unlesbar gemeldet und nicht als vorhanden gezählt. Dazu nennt
+er die Urteile, die jede Datei von sich selbst als `false` meldet, und sagt,
+welcher Vertrag als Nächstes fehlt.
+
+Drei Grenzen, die der Bildschirm auch so anzeigt:
+
+- **Der Bestand ist kein Urteil.** Eine vorhandene und lesbare Datei ist
+  *gesammelt*, nicht *gut*. Keine dieser Zeilen stuft die Qualitätsnote hoch.
+- **Die Urteilssuche liest nur Text.** Sie findet Zeilen der Form
+  `schlüssel=false` und kann nicht unterscheiden, ob eine Prüfung fehlgeschlagen
+  ist oder die Arbeit schlicht noch nicht getan wurde. `accel_repeat_checked=false`
+  heißt „nicht wiederholt“, nicht „falsch“.
+- **Das Manifest bindet nur Prüfsummen.** Es merkt, wenn sich eine Datei
+  danach ändert. Wer sie geschrieben hat, beweist erst die Signatur (Knopf 15).
+
+Schlüsselexporte (`ARKSIGN1_publickey.txt`) tragen denselben Namensanfang wie
+die Signatur-Manifeste, sind aber Schlüssel und keine Manifeste. Sie werden
+daher aufgelistet und absichtlich **nicht** geprüft – sonst stünde auf jedem
+Gerät dauerhaft „unlesbar" neben der Signatur.
 
 ## 3. Neu in `2.18-imucal`: die vier IMU-Reihen
 
@@ -140,6 +173,7 @@ schickst.
 
 | Schritt | Knopf | Dauer | Ergebnisdatei |
 |---|---|---|---|
+| 0 | 21 Bestand: was liegt schon vor? | 10 s | — |
 | 1 | 20 Kadenz | 5 s | `ARKIMUCAL1_*.txt` |
 | 2 | 20 Statik 60 s | 1 min | " |
 | 3 | 20 Sechs Lagen, Durchgang 1 | 1 min | " |
@@ -151,9 +185,15 @@ schickst.
 | 9 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
 | 10 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
 | 11 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
+| 12 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
 
 Schritt 1–6 sind pro Gerät einmal fällig und danach nur noch nach
-Firmware-Wechsel oder Sturz. Schritt 7–11 pro Messsitzung.
+Firmware-Wechsel oder Sturz. Schritt 7–12 pro Messsitzung. Schritt 0 und 12
+gehören zusammen: der erste sagt, was fehlt, der letzte bindet, was da ist.
+
+**Reihenfolge 16 vor 15 ist zwingend.** Die Redaktion schreibt **neue**
+Dateien (`redacted_…`), und nur diese lädst du hoch. Signierst du zuerst,
+deckt die Signatur Bytes ab, die niemand hochlädt – sie wäre wertlos.
 
 ## 6. Was ich von dir brauche
 

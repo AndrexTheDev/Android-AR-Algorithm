@@ -592,3 +592,43 @@ estimated, no time offset is searched, and no distortion is fitted — the
 device's own report about its camera is a manufacturer's claim, not a
 measurement, and this contract does not repeat it. `calibration_sufficient` is
 a completeness gate; the grade stays `unverified`.
+
+
+## Artifact inventory and digest manifest (`ARKDSMAN1`)
+
+Diagnostics app version `2.19-hub` adds button 21. It measures nothing. It
+answers a question none of the twenty screens that do measure could answer,
+and which the app's own checklist used to admit it could not: *what is already
+here?*
+
+Every other screen writes one file and forgets it. The hub lists the files,
+digests each one, and — the part that matters — hands **every file back to its
+own contract's parser**. A truncated or edited file is therefore reported as
+unreadable rather than counted as present, which is the difference between an
+inventory and a directory listing.
+
+It then reads the verdicts each file reports as `false`, and names the first
+contract missing in campaign order.
+
+Three limits are stated on the screen rather than buried here:
+
+- **An inventory is not an assessment.** A present, accepted file has been
+  *collected*; nothing here says it is any good, and the grade stays
+  `unverified`.
+- **The verdict scan is textual.** It finds lines of the form `key=false` and
+  cannot distinguish a failed check from work that was never done.
+  `accel_repeat_checked=false` means "not repeated", not "wrong" — and it is
+  reported either way, because both are reasons to look again.
+- **The manifest binds digests, not authorship.** `ARKDSMAN1` detects that a
+  file changed afterwards. Tying the bytes to a key is what signing the
+  manifest with `ARKSIGN1` is for.
+
+Files that are not contract blocks are listed as what they are. The signature
+screen exports a public key under the same `ARKSIGN1_` prefix as its
+manifests; parsing it as a manifest would reject it on every device, forever,
+on the one screen that exists to establish trust. It is listed and left alone.
+
+Manifest entries are capped below the contract's own ceiling of 64, because
+the `ARKDSMAN1` size budget of 8,192 characters does not fit 64 entries once
+file names are long: 48 is kept, newest first, and the omitted ones are named
+rather than quietly dropped.

@@ -555,3 +555,40 @@ single-device corpus with extra steps.
 cross-device comparison is possible, not that it would mean anything. The index
 holds no captures — `captureId` is an opaque host label, and `ARKDSMAN1` remains
 the place for the files and their digests.
+
+
+## Inertial intrinsic calibration (`ARKIMUCAL1`)
+
+Diagnostics app version `2.18-imucal` adds button 20. It is the one part of a
+camera calibration that is genuinely measurable without capturing an image.
+
+Four series, in a fixed order: **cadence** (three seconds of raw delivery —
+rate, gaps, duplicate timestamps and which clock the timestamps use),
+**static** (the device at rest — gyroscope bias, noise of both triads, bias
+stability), **tumble** (six orientations, each axis up and down — the
+accelerometer's bias, scale and misalignment in closed form), and **turn**
+(rotations through an angle a jig imposed — the gyroscope's scale factor per
+axis and its cross-axis coupling).
+
+The accelerometer model comes out of the tumble without a solver: with
+`a = M · gAxis + b`, the mean of two opposite poses gives `b` and their
+difference gives one column of `M`, so six poses determine all twelve
+parameters. Two checks survive the fit — the *length* of each column has to
+come out equal to the declared `g`, and repeated poses have to agree — and
+`accel_repeat_checked` exists precisely because a single cycle makes the fit
+exact and the residual zero, which tells you the arithmetic worked and nothing
+about whether the tumble is repeatable.
+
+The gyroscope is never asked how large its own angle was: the ratio of the
+integrated angle to the angle the jig imposed is its scale factor.
+
+Two derived numbers bound what the kernel may attempt without correction —
+`angle_drift_deg_per_min` from the bias and the noise in quadrature, and
+`position_drift_m_per_min` from the residual acceleration (`t²/2`) and the
+accelerometer's white noise (`t^1.5 / √3`).
+
+Nothing here touches the camera. No image is captured, no extrinsic is
+estimated, no time offset is searched, and no distortion is fitted — the
+device's own report about its camera is a manufacturer's claim, not a
+measurement, and this contract does not repeat it. `calibration_sufficient` is
+a completeness gate; the grade stays `unverified`.

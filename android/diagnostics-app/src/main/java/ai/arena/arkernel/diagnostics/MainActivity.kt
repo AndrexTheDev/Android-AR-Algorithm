@@ -84,6 +84,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var targetsButton: Button
     private lateinit var conditionsButton: Button
     private lateinit var corpusButton: Button
+    private lateinit var imuCalButton: Button
     private lateinit var guideButton: Button
     private lateinit var guideText: TextView
 
@@ -120,8 +121,8 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         val versionText = TextView(this).apply {
-            text = "Version 2.17-corpus · Device-Farm-Korpus " +
-                "(Knopf 19). Wenn dieser Text fehlt, ist noch die " +
+            text = "Version 2.18-imucal · IMU-Kalibrierung " +
+                "(Knopf 20). Wenn dieser Text fehlt, ist noch die " +
                 "alte APK installiert."
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
@@ -177,6 +178,11 @@ class MainActivity : DiagnosticsActivity() {
                 "dein Korpus überhaupt einen Gerätevergleich trägt: " +
                 "wie viele Zellen auf mindestens zwei Geräten liegen " +
                 "und ob ein Gerät alles dominiert. " +
+                "Knopf 20 misst die Trägheitssensoren selbst: Kadenz " +
+                "und Zeitbasis, Bias und Rauschen im Stillstand, Bias, " +
+                "Maßstab und Fehlstellung des Beschleunigers aus sechs " +
+                "Lagen sowie den Maßstabsfehler des Gyroskops gegen " +
+                "einen Winkel, den du mit einer Lehre vorgibst. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -329,6 +335,12 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        imuCalButton = Button(this).apply {
+            text = "20. IMU-Kalibrierung: Kadenz, Statik, " +
+                "Lagen, Drehung (ARKIMUCAL1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -403,6 +415,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(bindingButton, fullWidthParams())
         root.addView(crossButton, fullWidthParams())
         root.addView(corpusButton, fullWidthParams())
+        root.addView(imuCalButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
@@ -529,6 +542,11 @@ class MainActivity : DiagnosticsActivity() {
         corpusButton.setOnClickListener {
             startActivity(
                 Intent(this, DeviceFarmCorpusActivity::class.java),
+            )
+        }
+        imuCalButton.setOnClickListener {
+            startActivity(
+                Intent(this, ImuCalibrationActivity::class.java),
             )
         }
 
@@ -1104,6 +1122,10 @@ class MainActivity : DiagnosticsActivity() {
             "   Belegt die Bedingungen hinter der Messung.",
             "17. Knopf 19 -> ARKCORPUS1 (Korpus-Abdeckung)",
             "   Erst danach ist ein Gerätevergleich möglich.",
+            "18. Knopf 20 -> ARKIMUCAL1 (Trägheitssensoren)",
+            "   Erst Kadenz, dann Statik, dann sechs Lagen",
+            "   (zweimal!), dann Drehungen gegen eine Lehre.",
+            "   Neu pro Gerät, nach Firmware-Wechsel erneut.",
             "",
             "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
             "Bitte die .txt-Dateien hier im Chat hochladen.",

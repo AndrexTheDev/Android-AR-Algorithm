@@ -736,6 +736,97 @@ wäre möglich. Sie heißt nicht, dass er etwas über Genauigkeit aussagt. Der
 Index enthält die Aufnahmen selbst nicht — `captureId` ist nur ein Name; die
 Dateien und ihre Digests gehören weiterhin in `ARKDSMAN1`. `unverified`.
 
+## Bedienung mit `2.18-imucal`
+
+Auf dem Hauptbildschirm steht sichtbar `Version 2.18-imucal`. Fehlt dieser
+Text, ist noch eine alte APK installiert. Neu ist **Knopf 20** in
+`SCHRITT 2 · Kalibrierung & Sitzungen`: die intrinsische
+Trägheitskalibrierung (`ARKIMUCAL1`). Sie besteht aus vier Testreihen, die in
+dieser Reihenfolge zusammengehören; die App führt dich durch jede einzelne.
+
+**Was du brauchst:** das Telefon, einen Tisch, und etwas mit einem verlässlichen
+rechten Winkel – ein rechtwinkliger Karton, eine Gehrungslade, ein
+Buchrücken im Regal. Kein Werkzeug, das misst, ist für die Reihen 1–3 nötig.
+
+### Reihe 1 · Kadenz (Knopf „1) Kadenz prüfen“)
+
+Drei Sekunden lang nichts tun, das Gerät kann liegen. Die App zählt mit, was
+die Plattform wirklich liefert: die tatsächliche Abtastrate gegen die
+zugesagte, Lücken, doppelte Zeitstempel, rückwärts laufende Zeitstempel – und
+vor allem, **auf welcher Uhr** die Zeitstempel liegen. Diese Reihe ist keine
+Physik, sondern Klempnerei: wer 200 Hz annimmt und 190 Hz mit gelegentlichen
+40-ms-Löchern bekommt, integriert falsch, bevor irgendeine Kalibrierung
+greift.
+
+### Reihe 2 · Statik (Knopf „2) Statik aufnehmen“)
+
+Dauer wählen (10, 30 oder 60 s – länger ist besser), Gerät hinlegen, Knopf
+drücken, **nicht berühren**. Daraus kommen vier Dinge: der Gyroskop-Bias, das
+Rauschen beider Sensoren als Dichte, die Bias-Stabilität (wie stark der
+*Mittelwert* wandert, nicht wie stark ein einzelner Wert zappelt) und die
+Temperatur.
+
+Die Temperatur liest die App als Batterietemperatur. Das ist ein Stellvertreter
+für die Gerätewärme, **nicht** die Temperatur des Sensorchips, und sie bewegt
+sich langsam.
+
+### Reihe 3 · Sechs Lagen (Knopf „3) Lage aufnehmen“)
+
+Oben die Lage wählen, Knopf drücken, Gerät 3 s ruhig in dieser Lage halten.
+Sechs Lagen, weil der Beschleuniger sonst nicht bestimmbar ist:
+
+| Auswahl | Bedeutung |
+|---|---|
+| `px` | +X oben – auf die **linke** Kante stellen |
+| `nx` | −X oben – auf die **rechte** Kante stellen |
+| `py` | +Y oben – aufrecht hinstellen |
+| `ny` | −Y oben – auf den Kopf stellen |
+| `pz` | +Z oben – flach hinlegen, Display nach oben |
+| `nz` | −Z oben – flach hinlegen, Display nach unten |
+
+**Mach die sechs Lagen zweimal.** Beim ersten Durchgang ist die Anpassung
+exakt und die Wiederholstreuung damit 0 – die Arithmetik funktioniert, aber
+niemand weiß, ob die Lagen wiederholbar sind. Erst der zweite Durchgang sagt
+das, und `accel_repeat_checked` bleibt so lange aus.
+
+### Reihe 4 · Drehung (Knopf „4) Drehung: START“)
+
+Achse wählen, Sollwinkel eintragen (Voreinstellung 90,0), Knopf drücken, dann
+das Gerät um genau diesen Winkel drehen und wieder STOP drücken. Der Winkel
+muss **von außen** vorgegeben sein – vom Karton, von der Gehrungslade, von
+einem Drehteller mit Marken. Das Gyroskop wird nie gefragt, wie groß sein
+eigener Winkel war; das Verhältnis der beiden ist sein Maßstabsfehler.
+
+Zum Vorzeichen: positiv ist eine Drehung rechtsherum um die Achse
+(rechte-Hand-Regel, Daumen in Achsrichtung). Wer unsicher ist, dreht in beide
+Richtungen und trägt einmal `+90` und einmal `-90` ein – ein falsches
+Vorzeichen fällt sofort durch einen Maßstabsfehler von 2000 ‰ auf.
+
+**Drehe langsam.** Ab 2000 °/s wird die Drehung abgelehnt, weil der Sensor
+dann aus seinem linearen Bereich läuft und der Maßstab unbrauchbar wird. Die
+App meldet das als `turn_rate` unter „Noch offen“.
+
+### Auswerten, Speichern, Teilen
+
+„Kalibrierung auswerten“ rechnet alles nach und zeigt den Bericht. Ganz unten
+stehen die zwei Zahlen, die sagen, was der Kern ohne jede Korrektur überhaupt
+versuchen darf: **Lagedrift in °/min** und **Positionsdrift in m/min**.
+
+„Datei speichern“ schreibt
+`arkernel-imucal-<gerät>-<sitzung>.txt` nach
+`Downloads/ARKernelDiagnostics`. „Datei teilen“ und „In die
+Zwischenablage“ geben denselben Text weiter. Hochladen tust du ihn selbst; die
+App lädt nichts hoch.
+
+### Was dieser Bildschirm nicht tut
+
+Er nimmt **kein Bild** auf. Brennweite, Hauptpunkt und Verzeichnung der Kamera
+sind damit weiterhin eine Angabe des Herstellers und keine Messung; Einbau und
+Zeitversatz zwischen Kamera und IMU bleiben unbestimmt. Die Bewertung bleibt
+`unverified`: eine gute Trägheitskalibrierung ist eine Voraussetzung für ein
+funktionierendes System, kein Beweis dafür.
+
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**

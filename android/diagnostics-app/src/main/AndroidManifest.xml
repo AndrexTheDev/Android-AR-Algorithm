@@ -90,6 +90,10 @@
             android:name=".DeviceFarmCorpusActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".ImuCalibrationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

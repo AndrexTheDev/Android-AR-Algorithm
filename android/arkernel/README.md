@@ -266,3 +266,15 @@ inference, includes no AI model, controls no storage, verifies no signature,
 uploads nothing, performs no automatic or universal calibration and grants no
 quality grade. `verify()` does not re-parse source texts. The grade stays
 `unverified`.
+
+## Bounded live camera capture record
+
+`ArKernelMeasurementFeedAdapter` adds a bounded canonical `ARKFEED1`
+contract with twenty-seven exact metadata keys, eleven fail-closed
+invariants, four ordered marker rows and derived screen-ratio geometry. It
+records user-placed overlay markers and one independently measured
+reference length, not accuracy. Frames are counted but never exported;
+`metric_accuracy_claimed=false`. It includes no AI model and no inference,
+controls no camera or storage, verifies no signature, uploads nothing,
+performs no automatic or universal calibration and grants no quality
+grade. The grade stays `unverified`.

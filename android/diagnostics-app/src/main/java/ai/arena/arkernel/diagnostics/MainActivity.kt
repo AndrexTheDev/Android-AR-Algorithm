@@ -75,6 +75,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var crossButton: Button
     private lateinit var retentionButton: Button
     private lateinit var measurementButton: Button
+    private lateinit var feedButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -108,6 +109,16 @@ class MainActivity : android.app.Activity() {
             setTypeface(null, Typeface.BOLD)
         }
 
+        val versionText = TextView(this).apply {
+            text = "Version 2.9-feed · Knopf 12 öffnet den " +
+                "Live-Kamerafeed. Wenn dieser Text fehlt, ist noch die " +
+                "alte APK installiert."
+            textSize = 11f
+            gravity = Gravity.CENTER_HORIZONTAL
+            setTextColor(Color.parseColor("#B45309"))
+            contentDescription = "Versionskennung der installierten APK"
+        }
+
         val intro = TextView(this).apply {
             text = "Eine installierte App, viele zukünftige Testläufe: unten steht ein " +
                 "ARKFDPLAN1-Textplan. Dauer, Reihenfolge, Wiederholungen und Parameter " +
@@ -134,6 +145,8 @@ class MainActivity : android.app.Activity() {
                 "Kalibrierwerte. Der Retention-Bildschirm ist ein trockener " +
                 "UX-Lauf ohne Löschung. Die Messdurchführung bindet deine " +
                 "ARKCALIB1-Texte pro Szene, misst aber nichts selbst. " +
+                "Der Live-Kamerafeed (Knopf 12) zeigt die Rückkamera und " +
+                "erlaubt vier Messmarken; Bilder werden nicht gespeichert. " +
                 "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
@@ -246,6 +259,11 @@ class MainActivity : android.app.Activity() {
             setAllCaps(false)
         }
 
+        feedButton = Button(this).apply {
+            text = "12. Live-Kamerafeed & Messung (ARKFEED1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
             textSize = 12f
@@ -266,6 +284,7 @@ class MainActivity : android.app.Activity() {
         }
 
         root.addView(title, fullWidthParams())
+        root.addView(versionText, fullWidthParams())
         root.addView(intro, fullWidthParams())
         root.addView(safetyText, fullWidthParams())
         root.addView(optIn, fullWidthParams())
@@ -292,6 +311,7 @@ class MainActivity : android.app.Activity() {
         root.addView(crossButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
         root.addView(measurementButton, fullWidthParams())
+        root.addView(feedButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -352,6 +372,11 @@ class MainActivity : android.app.Activity() {
         measurementButton.setOnClickListener {
             startActivity(
                 Intent(this, MeasurementActivity::class.java),
+            )
+        }
+        feedButton.setOnClickListener {
+            startActivity(
+                Intent(this, MeasurementFeedActivity::class.java),
             )
         }
 

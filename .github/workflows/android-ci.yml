@@ -157,6 +157,11 @@ jobs:
             android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
           ls -lh \
             android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
+          VERSION=$(awk -F'"' '/versionName/ { print $2; exit }' \
+            android/diagnostics-app/build.gradle.kts)
+          test -n "$VERSION"
+          cp "$SRC" \
+            "android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug-$VERSION.apk"
       - name: Upload diagnostics APK
         uses: actions/upload-artifact@v4
         with:
@@ -171,10 +176,13 @@ jobs:
           set -e
           TAG="diagnostics-apk-latest"
           APK="android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk"
+          VERSION=$(awk -F'"' '/versionName/ { print $2; exit }' \
+            android/diagnostics-app/build.gradle.kts)
+          VERSIONED="android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug-$VERSION.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --clobber
+            gh release upload "$TAG" "$APK" "$VERSIONED" --clobber
           else
-            gh release create "$TAG" "$APK" \
+            gh release create "$TAG" "$APK" "$VERSIONED" \
               --target "$GITHUB_SHA" \
               --title "AR-Kern Diagnose APK (latest)" \
               --notes "Single installed ARKFDPLAN1 plan-driven diagnostics app for sideloading on a physical device. Writes opted-in ARKFDPOL1, ARKFDPLAN1 and ARKFDLOG1 text files; declares HIGH_SAMPLING_RATE_SENSORS for SENSOR_DELAY_FASTEST sensor tests. Debug build, quality unverified; no images, poses, trajectories, automatic upload or physical accuracy claims. See android/diagnostics-app/README.md."

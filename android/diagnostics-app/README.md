@@ -23,8 +23,7 @@ fail-closed Sitzungsbindung (`ARKBIND1`) der drei Textdateien. `2.6-cross`
 ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen.
 `2.7-retention` ergänzt die echte Android-Retention-Ansicht mit
 `ARKRETENT1`-Laufakte. `2.8-measure` ergänzt die geführte
-Messdurchführung (`ARKMEAS1`), die deine physischen `ARKCALIB1`-Messungen pro Szene bindet – weiterhin dieselbe App-ID, kein neues
-Installationsobjekt.
+Messdurchführung (`ARKMEAS1`), die deine physischen `ARKCALIB1`-Messungen pro Szene bindet. **`2.9-feed` ergänzt endlich einen echten Live-Kamerafeed** mit vier Messmarken (`ARKFEED1`) – weiterhin dieselbe App-ID, kein neues Installationsobjekt. Auf dem Hauptbildschirm steht jetzt sichtbar `Version 2.9-feed`; fehlt dieser Text, ist noch eine alte APK installiert.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
 
@@ -417,6 +416,38 @@ keine automatische/universelle Kalibrierung, keine Signaturprüfung, kein
 automatischer Upload, keine Zentimetervalidierung, keine
 Qualitätsaufstufung; `unverified`.
 
+## Live-Kamerafeed mit `2.9-feed`
+
+Der Knopf **12. Live-Kamerafeed & Messung (ARKFEED1)** öffnet nach
+ausdrücklichem Opt-in eine echte Vorschau der Rückkamera (Camera2,
+`TextureView`). So geht es:
+
+1. **Opt-in** anhaken, **Kamera starten**. Die App zählt Vorschaubilder,
+   speichert aber **kein einziges Bild**.
+2. Zwei Marken auf eine bekannte Referenzstrecke tippen (z. B. 30 cm
+   Zollstock), dann zwei Marken auf das Ziel. Grün = Referenz, Blau = Ziel.
+3. **Referenzlänge in m** und Unsicherheit eintragen, Szenenart und
+   Bedingung wählen, **„Ich habe die Referenz selbst … bestätige diese
+   Aufnahme"** anhaken.
+4. **ARKFEED1-Messung aufnehmen** schreibt
+   `ARKFEED1_<run>_<index>.txt` nach `Downloads/ARKernelDiagnostics`;
+   **ARKFEED1 teilen** gibt den Text hier im Chat weiter.
+
+Der `ARKFEED1`-Vertrag hat 27 feste Schlüssel, 11 verbindliche
+Fail-closed-Invarianten, vier geordnete Markerzeilen und eine
+konsistente Bildverhältnis-Geometrie. `frames_exported` ist immer `0`;
+`frames_observed` zählt nur. `metric_accuracy_claimed` ist immer `false`:
+`estimated_target_m` ist eine **Bildverhältnis-Schätzung** unter der
+Annahme einer frontoparallelen Ebene gleicher Tiefe – **keine metrische
+Messung**, keine Zentimetergenauigkeit, kein ARCore-Tiefenersatz. Marken
+liegen in Bildschirm-Pixeln, nicht in Metern. `unverified`.
+
+**Kein echtes KI-Modell, keine Inferenz, keine Gewichte, kein Netz.** Ein
+Modell könnte auch hier höchstens als versionierter Konformitätstest
+dienen, nie als Ersatz für deine unabhängige physische Referenz. Keine
+automatische/universelle Kalibrierung, keine Signaturprüfung, kein
+automatischer Upload, keine Qualitätsaufstufung.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -437,8 +468,9 @@ Qualitätsaufstufung; `unverified`.
   Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
   Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
   kanonische Vergleich deklarierter Sitzungen, die trockene
-  Retention-Vorschau und die kanonische Digest-Bindung deiner
-  ARKCALIB1-Messungen. Unabhängige physische Targets musst du selbst
+  Retention-Vorschau, die kanonische Digest-Bindung deiner
+  ARKCALIB1-Messungen und die Live-Vorschau mit Zählung der
+  Frames. Unabhängige physische Targets musst du selbst
   messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine

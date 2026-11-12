@@ -352,3 +352,29 @@ test, never as a substitute for an independent physical reference. Physical
 validation and centimetre accuracy remain open host work. The authoritative
 grade remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`;
 no upgrade was performed or claimed here.
+
+## Bounded live camera measurement feed
+
+`ArKernelMeasurementFeedAdapter` adds a bounded canonical `ARKFEED1` record
+with twenty-seven exact metadata keys, eleven mandatory fail-closed
+invariants, four ordered marker rows and a self-consistent screen-ratio
+geometry. Each capture binds four user-placed overlay markers, one
+independently measured reference length and the counted preview frames to a
+single record. `frames_exported` is always zero and
+`metric_accuracy_claimed` is always false: `estimated_target_m` is a
+screen-ratio estimate that assumes a fronto-parallel plane at equal depth,
+not a metric measurement. `parse()` re-checks derived distances, scale and
+estimate with a small numeric tolerance; `summarize()` reports structural
+completeness only.
+
+Diagnostics app version `2.9-feed` adds an opt-in Camera2 rear preview with
+a marker overlay and writes `ARKFEED1_<run>_<index>.txt`. It exports no
+frame, image, pixel, pose or trajectory, computes no metric accuracy,
+performs no automatic or universal calibration, verifies no signature,
+uploads nothing and grants no quality grade. **No real AI model, inference,
+weights or network are included**: a model could only act as a versioned
+conformance admission test, never as a substitute for an independent
+physical reference. Physical validation, centimetre accuracy and a real
+depth/ARCore-equivalent measurement remain open. The authoritative grade
+remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`; no
+upgrade was performed or claimed here.

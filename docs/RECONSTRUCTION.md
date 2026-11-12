@@ -326,3 +326,29 @@ digests only. The grade
 stays `unverified`. The authoritative quality path remains
 `assessReconstructionQuality` with `evaluateHeldOutDimensions`; no upgrade was
 performed or claimed here.
+
+## Bounded guided measurement execution
+
+`ArKernelMeasurementAdapter` adds a bounded canonical `ARKMEAS1` ledger with
+twenty exact metadata keys, eleven mandatory fail-closed invariants and 1–16
+unique scene rows. Each row binds one host-supplied `ARKCALIB1` envelope by the
+lowercase SHA-256 digest of its canonical re-encoding, carries one of the nine
+canonical campaign scene kinds, one of six environmental conditions, an
+explicit user confirmation and an optional held-out flag. `create()` requires
+unique scene IDs, unique digests, confirmation of every scene and at least one
+held-out scene. `summarize()` reports structural counts only and
+`evidenceComplete` is a completeness fact, not an answer, accuracy judgement or
+grade. `verify()` is structural and deliberately does not re-parse the source
+texts (`sourceReverificationPerformed=false`).
+
+Diagnostics app version `2.8-measure` adds a guided nine-scene screen that
+takes 1–9 physical `ARKCALIB1` texts opt-in and writes `ARKMEAS1_<run>.txt`.
+It performs no measurement itself, captures no image, pixel, frame, pose or
+trajectory, computes no accuracy, performs no automatic or universal
+calibration, verifies no signature, uploads nothing and grants no quality
+grade. **No real AI model, no inference, no weights and no network are
+included**: a model could only serve as a versioned conformance admission
+test, never as a substitute for an independent physical reference. Physical
+validation and centimetre accuracy remain open host work. The authoritative
+grade remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`;
+no upgrade was performed or claimed here.

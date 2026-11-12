@@ -255,3 +255,14 @@ facts only; explicit confirmation, a dry run and disabled physical-device
 validation are mandatory. The adapter shows no dialog, deletes no frame or
 key, controls no storage, verifies no signature, uploads nothing, performs no
 file I/O and grants no upgrade. The grade stays `unverified`.
+
+## Bounded guided measurement execution ledger
+
+`ArKernelMeasurementAdapter` adds a bounded canonical `ARKMEAS1` contract with
+twenty exact metadata keys, eleven fail-closed invariants, nine canonical scene
+kinds and SHA-256 digest binding of canonical `ARKCALIB1` texts. It records
+host-executed physical measurement scenes, not accuracy. It performs no
+inference, includes no AI model, controls no storage, verifies no signature,
+uploads nothing, performs no automatic or universal calibration and grants no
+quality grade. `verify()` does not re-parse source texts. The grade stays
+`unverified`.

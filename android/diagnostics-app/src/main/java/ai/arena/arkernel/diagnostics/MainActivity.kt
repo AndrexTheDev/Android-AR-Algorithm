@@ -74,6 +74,7 @@ class MainActivity : android.app.Activity() {
     private lateinit var bindingButton: Button
     private lateinit var crossButton: Button
     private lateinit var retentionButton: Button
+    private lateinit var measurementButton: Button
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -131,7 +132,9 @@ class MainActivity : android.app.Activity() {
                 "Sitzungsbindung prüft nur digestgenaue Zusammengehörigkeit. " +
                 "Der Gerätevergleich bindet nur deklarierte Sitzungen, keine " +
                 "Kalibrierwerte. Der Retention-Bildschirm ist ein trockener " +
-                "UX-Lauf ohne Löschung. Kein Bodentruth im Log, kein Upload, " +
+                "UX-Lauf ohne Löschung. Die Messdurchführung bindet deine " +
+                "ARKCALIB1-Texte pro Szene, misst aber nichts selbst. " +
+                "Kein Bodentruth im Log, kein Upload, " +
                 "Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
@@ -237,6 +240,11 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        measurementButton = Button(this).apply {
+            text = "11. Geführte Messdurchführung (ARKMEAS1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -283,6 +291,7 @@ class MainActivity : android.app.Activity() {
         root.addView(bindingButton, fullWidthParams())
         root.addView(crossButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
+        root.addView(measurementButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -338,6 +347,11 @@ class MainActivity : android.app.Activity() {
         retentionButton.setOnClickListener {
             startActivity(
                 Intent(this, RetentionActivity::class.java),
+            )
+        }
+        measurementButton.setOnClickListener {
+            startActivity(
+                Intent(this, MeasurementActivity::class.java),
             )
         }
 

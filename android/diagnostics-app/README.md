@@ -22,7 +22,8 @@ Messkampagnenplan (`ARKCAMPAIGN1`). `2.5-binding` ergänzt die
 fail-closed Sitzungsbindung (`ARKBIND1`) der drei Textdateien. `2.6-cross`
 ergänzt den systematischen Gerätevergleich (`ARKCROSS1`) mehrerer Sitzungen.
 `2.7-retention` ergänzt die echte Android-Retention-Ansicht mit
-`ARKRETENT1`-Laufakte – weiterhin dieselbe App-ID, kein neues
+`ARKRETENT1`-Laufakte. `2.8-measure` ergänzt die geführte
+Messdurchführung (`ARKMEAS1`), die deine physischen `ARKCALIB1`-Messungen pro Szene bindet – weiterhin dieselbe App-ID, kein neues
 Installationsobjekt.
 
 Nach **explizitem Opt-in** schreibt die App drei reine Textdateien:
@@ -380,6 +381,42 @@ Keine Signaturprüfung, kein automatischer Upload, keine Bilder/Posen/
 Trajektorien, keine automatische/universelle Kalibrierung, keine
 Qualitätsaufstufung; `unverified`.
 
+## Geführte Messdurchführung mit `2.8-measure`
+
+Der Knopf **11. Geführte Messdurchführung (ARKMEAS1)** führt dich durch die
+neun festen Szenen des portablen Protokolls: kurzes Innenmaß, langes Außenmaß,
+rechter Winkel, Stillstand, Thermik-Wiederholung, Tag/Nacht, Held-out,
+Sitzungsvergleich und Gerätevergleich. Du misst **selbst** mit unabhängiger
+Referenz (Zollstock, Baustelle) und fügst für jede Szene den zugehörigen
+`ARKCALIB1`-Text ein – mehrere Texte werden durch eine Zeile `===` getrennt.
+Maximal neun Szenen in fester Reihenfolge.
+
+Bedienung:
+
+1. Für jede Szene in Knopf **5** ein `ARKCALIB1_<run>.txt` erzeugen (mit
+   `capture_opt_in`, Referenzwert, gemessenem Wert, Unsicherheit, Held-out).
+2. In Knopf **11** die Texte in derselben Reihenfolge einfügen, Kampagnen-ID
+   und Geräteklasse wählen, **„Ich habe alle Szenen selbst … bestätige sie"**
+   anhaken und mindestens eine **Held-out**-Messung markieren.
+3. **ARKMEAS1 prüfen & speichern** schreibt `ARKMEAS1_<run>.txt` nach
+   `Downloads/ARKernelDiagnostics`; **ARKMEAS1 teilen** gibt den Text hier
+   im Chat weiter.
+
+Jeder `ARKCALIB1`-Text wird kanonisch neu kodiert und mit SHA-256 gebunden;
+`create()` verlangt eindeutige Digests, eindeutige Szenen-IDs, ausdrückliche
+Bestätigung **jeder** Szene und mindestens eine Held-out-Szene. Die Vorschau
+meldet nur Strukturzahlen (Szenen, bestätigte, Held-out, Digests) und
+`evidenceComplete` als **Strukturvollständigkeit** – kein Genauigkeitsurteil.
+`verify()` prüft nur die `ARKMEAS1`-Struktur, nicht die Quelltexte erneut
+(`sourceReverificationPerformed=false`).
+
+**Kein echtes KI-Modell, keine Inferenz, keine Gewichte, kein Netz.** Ein
+Modell könnte hier höchstens als versionierter Konformitätstest dienen, nie als
+Ersatz für deine physische Referenz. Keine Bilder, Posen oder Trajektorien,
+keine automatische/universelle Kalibrierung, keine Signaturprüfung, kein
+automatischer Upload, keine Zentimetervalidierung, keine
+Qualitätsaufstufung; `unverified`.
+
 ## Grenzen
 
 - Ein Plan kann **keine neue Android-API**, **keine fehlende Plattformberechtigung**
@@ -399,8 +436,9 @@ Qualitätsaufstufung; `unverified`.
   keine Kalibrierung bei der Installation, keine Redaktion, keine
   Signaturverifikation, keine Messung von Zentimetern. Automatisch sind nur
   Geräteerkennung, Profilwahl, Planerzeugung, digestgenaue Bindung, der
-  kanonische Vergleich deklarierter Sitzungen und die trockene
-  Retention-Vorschau. Unabhängige physische Targets musst du selbst
+  kanonische Vergleich deklarierter Sitzungen, die trockene
+  Retention-Vorschau und die kanonische Digest-Bindung deiner
+  ARKCALIB1-Messungen. Unabhängige physische Targets musst du selbst
   messen und eintragen.
 - Die Selbsttests prüfen nur modellunabhängige Strukturinvarianten; sie
   beweisen keine Linsen-/IMU-Kalibrierung, keine optische Qualität, keine

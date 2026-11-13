@@ -944,12 +944,55 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.26-catalogue`
+## Bedienung mit `2.27-wizard`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.26-catalogue`. Fehlt dieser
-Text, ist noch eine alte APK installiert — und dann sagt Knopf 7 dir nicht,
-welchen Knopf du für welche Frage ausführen sollst; daran erkennst du, dass
-du die falsche Version hast.
+Auf dem Hauptbildschirm steht sichtbar `Version 2.27-wizard`. Fehlt dieser
+Text, ist noch eine alte APK installiert — und dann fehlt dir Knopf 27, der
+Assistent; daran erkennst du, dass du die falsche Version hast.
+
+### Der Assistent: Knopf 27
+
+Ganz oben auf dem Hauptbildschirm steht **Knopf 27**. Er ist der Einstieg,
+wenn du nicht weißt, wo du anfangen sollst — und er ist keine zusätzliche
+Messung: er schreibt selbst **keinen** Datensatz und lädt nichts hoch.
+
+Er zeigt dir immer **genau einen Schritt**:
+
+- was du dafür brauchst (Zollstock, Maßband, ein strukturiertes Ziel — oder
+  nichts),
+- was du vorher vorbereitest,
+- was du tust,
+- **woran du siehst, dass es gezählt hat** — immer daran, dass eine Datei mit
+  dem richtigen Kürzel im Namen in `Downloads/ARKernelDiagnostics` liegt,
+- was den Durchlauf kaputt macht,
+- und warum dieser Schritt genau an dieser Stelle steht.
+
+Darunter steht der ganze Weg als Liste, mit einem Zeichen vor jedem Schritt:
+`[x]` fertig, `[>]` jetzt dran, `[!]` wiederholen, `[ ]` wartet noch.
+
+**Zwei Dinge sind daran absichtlich so, wie sie sind.**
+
+*Es gibt keinen Haken zum Abhaken.* Ob ein Schritt fertig ist, liest der
+Assistent aus deinen Dateien — nicht aus deinem Gedächtnis und nicht aus
+einem Knopf, den du gedrückt hast. Ein Assistent, der sich merkt, was du
+gedrückt hast, meldet einen Schritt als erledigt, weil du ihn einmal
+angetippt hast. Das ist genau der Irrtum, der eine ganze Messrunde kostet.
+
+*Es ist immer nur ein Schritt machbar.* Alles, was hinter einem unfertigen
+Schritt liegt, wird zurückgehalten. Du kannst also nicht versehentlich eine
+Messung machen, deren Voraussetzungen noch gar nicht existieren — etwa Knopf
+26 vor Knopf 24. Falsch wählen kannst du nicht.
+
+Wenn eine Datei zwar da ist, aber nicht zählt — weil sie unlesbar ist oder
+ein Prüfgatter offen lässt —, dann steht das dort (`[!]`) und der Assistent
+nennt das offene Gatter beim Namen. Er sagt dir nicht, dass deine Messung
+richtig ist. Er sagt dir nur, dass sie **vollständig** ist. Das ist etwas
+anderes.
+
+**Der Assistent beschreibt nicht, wie du den jeweiligen Knopf bedienst.** Das
+sagt dir der Bildschirm, den er öffnet. Eine Kopie dieser Anleitung würde
+beim ersten Mal veralten, wo sich der Bildschirm ändert — und wäre dann mit
+der Selbstverständlichkeit einer schriftlichen Anleitung falsch.
 
 ### Was `2.26-catalogue` gegenüber `2.25-route` korrigiert
 

@@ -133,7 +133,9 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon --stacktrace :android:diagnostics-app:assembleDebug \
+          gradle --no-daemon --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs=-Xmx2g \
+            :android:diagnostics-app:assembleDebug \
             2>&1 | tee diagnostics-apk-gradle.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -143,19 +145,13 @@ jobs:
               tail -n 160 diagnostics-apk-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            detail=$(tail -n 120 diagnostics-apk-gradle.log)
+            detail=$(grep -E \
+              '^e: |^w: .*error|FAILURE:|What went wrong|Execution failed for task|Caused by:|daemon|Could not|[Ee]rror:' \
+              diagnostics-apk-gradle.log | tail -n 60)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}
-            echo "::error title=Diagnostics APK build tail::$detail"
-            lines=$(wc -l < diagnostics-apk-gradle.log)
-            counts=${lines//'%'/'%25'}
-            echo "::error title=Diagnostics APK log lines::$counts"
-            head=$(head -n 302 diagnostics-apk-gradle.log)
-            head=${head//'%'/'%25'}
-            head=${head//$'\r'/'%0D'}
-            head=${head//$'\n'/'%0A'}
-            echo "::error title=Diagnostics APK log head::$head"
+            echo "::error title=Diagnostics APK build failure::$detail"
           fi
           exit "$status"
       - name: Prepare named diagnostics APK

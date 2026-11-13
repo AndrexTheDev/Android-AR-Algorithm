@@ -169,13 +169,13 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         scroll.addView(root)
 
         root.addView(TextView(this).apply {
-            text = "Maßstabsleiter über die Entfernung"
+            setText("Maßstabsleiter über die Entfernung")
             textSize = 20f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, 0, 0, 12)
         })
         root.addView(TextView(this).apply {
-            text = "Beantwortet die Frage, ob ein einziger Skalierungsfaktor " +
+            setText("Beantwortet die Frage, ob ein einziger Skalierungsfaktor " +
                 "im Kern überhaupt reicht. Wenn der Maßstabsfehler mit der " +
                 "Entfernung wächst, tut er das nicht.\n\n" +
                 "So wird gemessen: Ein Zollstock wird bei mehreren " +
@@ -184,45 +184,45 @@ class ScaleLadderActivity : DiagnosticsActivity() {
                 "Meter bei diesem Abstand einnimmt. Bei einer Lochkamera " +
                 "gilt: Bildpunkte pro Meter mal Abstand ist die " +
                 "Brennweite in Bildpunkten — und die muss bei jeder " +
-                "Sprosse dieselbe Zahl sein."
+                "Sprosse dieselbe Zahl sein.")
             setPadding(0, 0, 0, 12)
         })
         root.addView(TextView(this).apply {
-            text = "Ablauf\n" +
+            setText("Ablauf\n" +
                 "1. Zollstock so halten, dass er das Bild gut füllt und " +
                 "möglichst parallel zum Bildrand liegt.\n" +
                 "2. Abstand zum Zollstock mit dem Maßband messen und " +
                 "eintragen.\n" +
                 "3. Die beiden Enden des sichtbaren Stücks antippen.\n" +
                 "4. „Marken erkennen“ und dann „Sprosse aufnehmen“.\n" +
-                "5. Mit mehreren Abständen wiederholen, mindestens dreimal."
+                "5. Mit mehreren Abständen wiederholen, mindestens dreimal.")
             setPadding(0, 0, 0, 12)
         })
         root.addView(TextView(this).apply {
-            text = "Nah hält man ein kurzes Stück Zollstock ins Bild, fern " +
+            setText("Nah hält man ein kurzes Stück Zollstock ins Bild, fern " +
                 "ein langes: bei 0,5 m füllen 20 cm das Bild, bei 5 m " +
                 "braucht es dafür 2 m. Die Zentimeter-Marken sind in " +
                 "beiden Fällen gleich weit voneinander entfernt, deshalb " +
-                "bleibt die Wahrheit dieselbe."
+                "bleibt die Wahrheit dieselbe.")
             setPadding(0, 0, 0, 12)
         })
         root.addView(TextView(this).apply {
-            text = "Es wird kein Bild gespeichert. Jedes Bild wird im " +
+            setText("Es wird kein Bild gespeichert. Jedes Bild wird im " +
                 "Speicher auf eine Helligkeitslinie reduziert und sofort " +
-                "verworfen."
+                "verworfen.")
             setPadding(0, 0, 0, 16)
         })
 
         optInBox = CheckBox(this).apply {
-            text = "Ich habe die Hinweise gelesen und stimme der " +
-                "Messung zu."
+            setText("Ich habe die Hinweise gelesen und stimme der " +
+                "Messung zu.")
         }
         root.addView(optInBox)
 
         distanceInput = EditText(this).apply {
             hint = "Abstand in mm (z. B. 1000)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            text = "1000"
+            setText("1000")
         }
         root.addView(labelled("Abstand zum Zollstock (Maßband, mm)",
             distanceInput))
@@ -232,8 +232,8 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         }
         for (distance in listOf("500", "1000", "2000", "5000")) {
             quickRow.addView(Button(this).apply {
-                text = "${distance.toLong() / 10} cm"
-                setOnClickListener { distanceInput.text = distance }
+                setText("${distance.toLong() / 10} cm")
+                setOnClickListener { distanceInput.setText(distance) }
             })
         }
         root.addView(quickRow)
@@ -241,24 +241,24 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         visibleInput = EditText(this).apply {
             hint = "Sichtbares Stück in cm (z. B. 20)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            text = "20"
+            setText("20")
         }
         root.addView(labelled(
             "Sichtbares Zollstockstück (cm) – nur als Gegenprobe",
             visibleInput))
 
         root.addView(TextView(this).apply {
-            text = "Der Maßstab kommt aus dem Abstand der Marken, nicht " +
+            setText("Der Maßstab kommt aus dem Abstand der Marken, nicht " +
                 "aus dieser Zahl. Sie dient nur dazu zu prüfen, ob die " +
                 "Erkennung jede Zentimeter-Marke gefunden hat — sonst " +
                 "wäre das Ergebnis stillschweigend um ein Vielfaches " +
-                "falsch."
+                "falsch.")
             textSize = 12f
             setPadding(0, 0, 0, 16)
         })
 
         startButton = Button(this).apply {
-            text = "Vorschau starten"
+            setText("Vorschau starten")
             setOnClickListener { openCamera() }
         }
         root.addView(startButton)
@@ -279,13 +279,13 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         root.addView(previewFrame)
 
         detectButton = Button(this).apply {
-            text = "Marken erkennen"
+            setText("Marken erkennen")
             setOnClickListener { detectTicks() }
         }
         root.addView(detectButton)
 
         addButton = Button(this).apply {
-            text = "Sprosse aufnehmen"
+            setText("Sprosse aufnehmen")
             setOnClickListener { addRung() }
         }
         root.addView(addButton)
@@ -298,7 +298,7 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         root.addView(rungText)
 
         evaluateButton = Button(this).apply {
-            text = "Leiter auswerten"
+            setText("Leiter auswerten")
             setOnClickListener { evaluate() }
         }
         root.addView(evaluateButton)
@@ -316,14 +316,14 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         root.addView(statusText)
 
         shareButton = Button(this).apply {
-            text = "ARKLADDER1 teilen"
+            setText("ARKLADDER1 teilen")
             isEnabled = false
             setOnClickListener { shareRecord() }
         }
         root.addView(shareButton)
 
         copyButton = Button(this).apply {
-            text = "In die Zwischenablage"
+            setText("In die Zwischenablage")
             isEnabled = false
             setOnClickListener { copyRecord() }
         }
@@ -334,11 +334,9 @@ class ScaleLadderActivity : DiagnosticsActivity() {
 
         savedInstanceState?.let {
             optInBox.isChecked = it.getBoolean(STATE_OPT_IN, false)
-            distanceInput.text =
-                it.getString(STATE_DISTANCE, "1000") ?: "1000"
-            visibleInput.text =
-                it.getString(STATE_VISIBLE, "20") ?: "20"
-            statusText.text = it.getString(STATE_STATUS, "") ?: ""
+            distanceInput.setText(it.getString(STATE_DISTANCE, "1000") ?: "1000")
+            visibleInput.setText(it.getString(STATE_VISIBLE, "20") ?: "20")
+            statusText.setText(it.getString(STATE_STATUS, "") ?: "")
             currentRecord = it.getString(STATE_RECORD, "") ?: ""
             if (currentRecord.isNotEmpty()) {
                 shareButton.isEnabled = true
@@ -366,7 +364,7 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(this@ScaleLadderActivity).apply {
-                text = label
+                setText(label)
                 textSize = 12f
             })
             addView(view)
@@ -376,7 +374,7 @@ class ScaleLadderActivity : DiagnosticsActivity() {
 
     private fun refreshRungs() {
         if (rungs.isEmpty()) {
-            rungText.text = "Noch keine Sprosse."
+            rungText.setText("Noch keine Sprosse.")
             return
         }
         val builder = StringBuilder()
@@ -388,23 +386,23 @@ class ScaleLadderActivity : DiagnosticsActivity() {
                     rung.scaleMilliPxPerM / 1_000.0,
                     rung.impliedFocalPx))
         }
-        rungText.text = builder.toString()
+        rungText.setText(builder.toString())
     }
 
     private fun detectTicks() {
         if (!optInBox.isChecked) {
-            statusText.text = "Bitte zuerst das Opt-in anhaken."
+            statusText.setText("Bitte zuerst das Opt-in anhaken.")
             return
         }
         if (overlay.markerCount() != 2) {
-            statusText.text = "Bitte die beiden Enden des Zollstocks " +
-                "antippen. Aktuell: ${overlay.markerCount()}/2."
+            statusText.setText("Bitte die beiden Enden des Zollstocks " +
+                "antippen. Aktuell: ${overlay.markerCount()}/2.")
             return
         }
         val luma = latestLuma
         if (luma == null) {
-            statusText.text = "Noch kein Bild im Speicher – bitte kurz " +
-                "warten, bis die Vorschau läuft."
+            statusText.setText("Noch kein Bild im Speicher – bitte kurz " +
+                "warten, bis die Vorschau läuft.")
             return
         }
         val start = overlay.markerAt(0)
@@ -421,15 +419,15 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         val detection = try {
             ArKernelRulerTickDetector.detect(profile)
         } catch (error: IllegalArgumentException) {
-            statusText.text = "Erkennung abgelehnt: ${error.message}"
+            statusText.setText("Erkennung abgelehnt: ${error.message}")
             return
         }
         if (!detection.detected) {
             detectedTickIndices = emptyList()
             pendingScaleMilliPxPerM = 0L
-            statusText.text = "Keine gleichmäßigen Marken erkannt " +
+            statusText.setText("Keine gleichmäßigen Marken erkannt " +
                 "(gefunden: ${detection.indices.size}). Bitte Zollstock " +
-                "näher, flacher und heller ins Bild halten."
+                "näher, flacher und heller ins Bild halten.")
             overlay.setTicks(emptyList(), start, end)
             return
         }
@@ -454,20 +452,20 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         } else {
             "erwartet etwa ${visibleCm.toLong()} Marken"
         }
-        statusText.text = "Erkannt: ${detection.indices.size} Marken " +
+        statusText.setText("Erkannt: ${detection.indices.size} Marken " +
             "($expectation)\nGleichmäßigkeit: " +
             "${(detection.regularity * 1_000.0).toLong() / 10.0} %\n" +
-            "Maßstab: ${scalePxPerM.toLong()} px/m"
+            "Maßstab: ${scalePxPerM.toLong()} px/m")
         announce("${detection.indices.size} Marken erkannt")
     }
 
     private fun addRung() {
         if (!optInBox.isChecked) {
-            statusText.text = "Bitte zuerst das Opt-in anhaken."
+            statusText.setText("Bitte zuerst das Opt-in anhaken.")
             return
         }
         if (detectedTickIndices.isEmpty() || pendingScaleMilliPxPerM <= 0L) {
-            statusText.text = "Bitte zuerst „Marken erkennen“ ausführen."
+            statusText.setText("Bitte zuerst „Marken erkennen“ ausführen.")
             return
         }
         val distanceMm = distanceInput.text.toString().trim().toLongOrNull()
@@ -475,28 +473,28 @@ class ScaleLadderActivity : DiagnosticsActivity() {
             distanceMm < LADDER_MIN_DISTANCE_MM ||
             distanceMm > LADDER_MAX_DISTANCE_MM
         ) {
-            statusText.text = "Bitte einen Abstand zwischen " +
+            statusText.setText("Bitte einen Abstand zwischen " +
                 "${LADDER_MIN_DISTANCE_MM} und " +
-                "${LADDER_MAX_DISTANCE_MM} mm eintragen."
+                "${LADDER_MAX_DISTANCE_MM} mm eintragen.")
             return
         }
         val visibleCm = visibleInput.text.toString().trim().toDoubleOrNull()
         if (visibleCm == null || visibleCm < 1.0 || visibleCm > 500.0) {
-            statusText.text = "Bitte das sichtbare Zollstockstück in " +
-                "Zentimetern eintragen (1–500)."
+            statusText.setText("Bitte das sichtbare Zollstockstück in " +
+                "Zentimetern eintragen (1–500).")
             return
         }
         if (rungs.size >= LADDER_MAX_RUNGS) {
-            statusText.text = "Die Leiter ist voll " +
-                "($LADDER_MAX_RUNGS Sprossen)."
+            statusText.setText("Die Leiter ist voll " +
+                "($LADDER_MAX_RUNGS Sprossen).")
             return
         }
         if (rungs.isNotEmpty() &&
             distanceMm <= rungs[rungs.size - 1].distanceMm
         ) {
-            statusText.text = "Die Abstände müssen von Sprosse zu Sprosse " +
+            statusText.setText("Die Abstände müssen von Sprosse zu Sprosse " +
                 "größer werden, sonst gibt die Leiter keine Richtung her. " +
-                "Zuletzt: ${rungs[rungs.size - 1].distanceMm} mm."
+                "Zuletzt: ${rungs[rungs.size - 1].distanceMm} mm.")
             return
         }
         // The cross-check: a detector that locked onto every other tick would
@@ -506,17 +504,17 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         val tolerance = max(TICK_TOLERANCE_MINIMUM,
             expected * TICK_TOLERANCE_FRACTION)
         if (abs(detectedTickIndices.size - expected) > tolerance) {
-            statusText.text = "Gegenprobe fehlgeschlagen: ${detectedTickIndices.size} " +
+            statusText.setText("Gegenprobe fehlgeschlagen: ${detectedTickIndices.size} " +
                 "Marken erkannt, aber bei $expected cm Zollstock " +
                 "wären etwa ${expected.toLong()} zu erwarten.\n" +
                 "Wahrscheinlich hat die Erkennung Marken übersprungen " +
                 "oder doppelt gezählt. Bitte das markierte Stück " +
-                "nachmessen und neu erkennen."
+                "nachmessen und neu erkennen.")
             return
         }
         if (pendingScaleMilliPxPerM > LADDER_MAX_SCALE_MILLI) {
-            statusText.text = "Der abgeleitete Maßstab ist zu groß – " +
-                "bitte die Marken prüfen."
+            statusText.setText("Der abgeleitete Maßstab ist zu groß – " +
+                "bitte die Marken prüfen.")
             return
         }
         rungs.add(
@@ -534,18 +532,18 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         overlay.setTicks(emptyList(), null, null)
         overlay.clearMarkers()
         refreshRungs()
-        statusText.text = "Sprosse ${rungs.size} aufgenommen. " +
+        statusText.setText("Sprosse ${rungs.size} aufgenommen. " +
             "Nächsten Abstand messen, Zollstock neu antippen, " +
-            "„Marken erkennen“ drücken."
+            "„Marken erkennen“ drücken.")
         Toast.makeText(this, "Sprosse ${rungs.size} aufgenommen",
             Toast.LENGTH_SHORT).show()
     }
 
     private fun evaluate() {
         if (rungs.size < LADDER_MIN_RUNGS) {
-            statusText.text = "Mindestens $LADDER_MIN_RUNGS Sprossen, " +
+            statusText.setText("Mindestens $LADDER_MIN_RUNGS Sprossen, " +
                 "sonst lässt sich ein Trend nicht von Zufall unterscheiden. " +
-                "Aktuell: ${rungs.size}."
+                "Aktuell: ${rungs.size}.")
             return
         }
         val record = ArKernelScaleLadder(
@@ -557,19 +555,19 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         val text = ArKernelScaleLadderAdapter.encode(record)
         val parsed = ArKernelScaleLadderAdapter.parse(text)
         if (parsed.record == null) {
-            statusText.text = "Datensatz abgelehnt: ${parsed.rejection} " +
-                "(${parsed.detail})"
+            statusText.setText("Datensatz abgelehnt: ${parsed.rejection} " +
+                "(${parsed.detail})")
             return
         }
         currentRecord = text
-        resultText.text = describe(record)
+        resultText.setText(describe(record))
         shareButton.isEnabled = true
         copyButton.isEnabled = true
         Thread {
             val written = writeTextToDownloads(
                 "ladder-$runId.txt", text)
             runOnUiThread {
-                statusText.text = "Datei: $written"
+                statusText.setText("Datei: $written")
                 Toast.makeText(this@ScaleLadderActivity,
                     "ARKLADDER1 erzeugt. Bitte Text hier im Chat hochladen.",
                     Toast.LENGTH_LONG).show()
@@ -660,12 +658,12 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         }
         val manager = getSystemService(CAMERA_SERVICE) as? CameraManager
         if (manager == null) {
-            statusText.text = "Kein Kamera-Dienst verfügbar."
+            statusText.setText("Kein Kamera-Dienst verfügbar.")
             return
         }
         val cameraId = backCameraId(manager)
         if (cameraId == null) {
-            statusText.text = "Keine Rückkamera gefunden."
+            statusText.setText("Keine Rückkamera gefunden.")
             return
         }
         sensorDegrees = try {
@@ -680,7 +678,7 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         cameraThread = thread
         cameraHandler = handler
         val surfaceTexture = textureView.surfaceTexture ?: run {
-            statusText.text = "Vorschau noch nicht bereit."
+            statusText.setText("Vorschau noch nicht bereit.")
             return
         }
         try {
@@ -749,11 +747,10 @@ class ScaleLadderActivity : DiagnosticsActivity() {
                                             session.setRepeatingRequest(
                                                 builder.build(), null, handler)
                                             runOnUiThread {
-                                                statusText.text =
-                                                    "Vorschau läuft. " +
+                                                statusText.setText("Vorschau läuft. " +
                                                     "Zollstock ins Bild " +
                                                     "halten und die beiden " +
-                                                    "Enden antippen."
+                                                    "Enden antippen.")
                                             }
                                         } catch (error: Exception) {
                                             fail("Vorschau-Anfrage " +
@@ -790,7 +787,7 @@ class ScaleLadderActivity : DiagnosticsActivity() {
     }
 
     private fun fail(message: String) {
-        runOnUiThread { statusText.text = message }
+        runOnUiThread { statusText.setText(message) }
     }
 
     private fun previewSizeOf(manager: CameraManager, cameraId: String): Size =

@@ -5,7 +5,7 @@ sicher". Es führt jede Behauptung des AR-Kerns, jeden physikalischen Test, der
 sie stützen müsste, und den Knopf, der ihn durchführt — oder den Grund, warum
 es ihn nicht gibt.
 
-Stand: Version `2.22-camimu` (Knopf 1–24). Bewertung über alles:
+Stand: Version `2.23-ladder` (Knopf 1–25). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## Wie die Matrix zu lesen ist
@@ -159,13 +159,18 @@ Widersprüche; sie sieht dein Werkzeug nicht.
 | Die Abweichung gegen dein Maß ist bekannt | metrische Validierung in mm | 14 | `ARKVALID1` | **gebucht** |
 | Mindestens ein Target war zurückgehalten | unabhängige Targets | 17 | `ARKTARGET1` | **gebucht** |
 | Die Messmarken im Live-Bild sind gesetzt | Kamerafeed | 12 | `ARKFEED1` | **gemessen** |
-| Der Maßstab gilt auch über die Entfernung | Maßstabsleiter | 14 | `ARKVALID1` | **fehlt** |
+| Der Maßstab gilt auch über die Entfernung | Maßstabsleiter | 25 | `ARKLADDER1` | **gemessen** |
 | Tag und Nacht wurden wirklich gemessen | Bedingungen | 18 | `ARKCOND1` | **gemessen** (Helligkeit, Thermik) |
 
-Der vorletzte Punkt ist der wichtigste offene: `ARKVALID1` prüft den Maßstab
-in einer Szene. Ein Kern, der in einem Meter stimmt und in fünf Metern nicht,
-hat kein Maßstabsproblem, sondern ein Skalierungsproblem — und dafür gibt es
-noch keine Reihe.
+Dieser Punkt war lange der wichtigste offene: `ARKVALID1` prüft den Maßstab in
+einer Szene, und ein Kern, der in einem Meter stimmt und in fünf Metern nicht,
+hat kein Maßstabsproblem, sondern ein Skalierungsproblem. Mit Knopf 25 gibt es
+dafür jetzt eine Reihe — und sie misst genau das, weil die Zentimeter-Marken
+des Zollstocks bei jedem Abstand dieselbe Wahrheit liefern.
+
+Was sie **nicht** liefert, ist eine Aussage über die Richtigkeit des Maßstabs
+selbst. Die Leiter prüft die Selbstkonsistenz über die Entfernung; ob der
+Maßstab absolut stimmt, bleibt die Frage von `ARKVALID1` und deinem Maßband.
 
 ## Schicht 5 — Systembehauptungen des Kerns
 

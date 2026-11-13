@@ -5,7 +5,7 @@ physikalischen Messungen** fertigzubekommen. Es sagt, was die Test-App heute
 messend kann, was sie nur bucht, was noch fehlt, in welcher Reihenfolge es
 zusammenhängt, und was du mir jeweils schicken musst.
 
-Stand: Version `2.22-camimu` (Knopf 1–24). Bewertung über alles:
+Stand: Version `2.23-ladder` (Knopf 1–25). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## 1. Was ein AR-Kern physikalisch braucht
@@ -26,7 +26,7 @@ darunterliegende nicht stimmt:
 | 6 | Kamera-Intrinsics (fx, fy, cx, cy, Verzeichnung) | braucht Bilder | **blockiert** – siehe §4 |
 | 7 | Kamera-IMU-Zeitversatz (`t_d`) und Achsenabbildung | Telefon + geführte Bewegung | **messbar** (`ARKCAMIMU1`) |
 | 7b | Kamera-IMU-Einbau (`R`, `t`) | braucht Bilder + Intrinsics | **fehlt** – hängt an Stück 6 |
-| 8 | Maßstab über die Entfernung | Zollstock + bekannte Abstände | **teilweise** (`ARKVALID1`, `ARKSCALE1`) |
+| 8 | Maßstab über die Entfernung | Zollstock + Maßband | **messbar** (`ARKLADDER1`) |
 
 Stück 0 ist kein Sensorwert, sondern die Voraussetzung dafür, dass überhaupt
 ein Sensorwert etwas bedeutet. Es stand bis `2.21-devhw` in keiner Tabelle, und
@@ -212,7 +212,7 @@ er lässt sich auf zwei Arten schließen:
   Geräteangaben (`CameraCharacteristics`), und ich kann sie höchstens auf
   Selbstwiderspruch prüfen — niemals auf Richtigkeit. Der Maßstab bleibt dort,
   wo er heute ist: bei deinem Zollstock.
-- **(B) Ein lokaler Kalibrierlauf mitTarget, dessen Bilder das Gerät nie
+- **(B) Ein lokaler Kalibrierlauf mit Target, dessen Bilder das Gerät nie
   verlassen.** Die App nimmt N Aufnahmen eines ausgedruckten
   Schachbrettmusters auf, rechnet daraus fx, fy, cx, cy und die
   Verzeichnungskoeffizienten, speichert **nur die Zahlen** und verwirft jedes
@@ -231,12 +231,37 @@ Gatter für „war die Bewegung überhaupt beobachtbar“ existieren. Es fehlt d
 Host-Aufnahme, die Gyroskop-Folge und Bildfolge **paarweise** ablegt. Setzt
 4.1(B) voraus.
 
-### 4.3 Maßstabsleiter (Stück 7)
+### 4.3 Maßstabsleiter (Stück 8) — gemessen ab `2.23-ladder`
 
-`ARKVALID1` prüft eine Abweichung gegen dein Maß. Was fehlt, ist die
-**Leiter**: derselbe Maßstab bei 0,5 m, 1 m, 2 m und 5 m. Erst die Leiter zeigt,
-ob der Maßstabsfehler konstant ist oder mit der Entfernung wächst — das ist die
-Frage, die entscheidet, ob ein Skalierungsfaktor im Kern überhaupt reicht.
+Knopf 25 misst die Leiter, und zwar ohne ein einziges Bild zu behalten. Der
+Zollstock wird bei mehreren Abständen ins Bild gehalten; die App erkennt seine
+Zentimeter-Marken und bestimmt, wie viele Bildpunkte ein Meter bei diesem
+Abstand einnimmt.
+
+Der Punkt, der das ohne Intrinsics möglich macht: die **Zentimeter-Marken sind
+selbst die Wahrheit**. Der Maßstab braucht keine bekannte Länge, keine
+Brennweite und kein separates Zielobjekt — nur den Abstand, und den misst du
+mit dem Maßband.
+
+Bei einer Lochkamera gilt: Bildpunkte pro Meter mal Abstand ist die Brennweite
+in Bildpunkten, und **dieselbe Zahl muss bei jeder Sprosse herauskommen**. Tut
+sie das, gehorcht der Maßstab dem Modell und ein einziger Faktor genügt. Driftet
+sie mit dem Abstand, wächst der Maßstabsfehler mit der Entfernung und kein
+einzelner Faktor kann ihn korrigieren. Die App zeigt die abgeleitete Brennweite
+nach jeder Sprosse an, damit eine driftende Leiter sichtbar wird, während sie
+entsteht — nicht erst nach der Auswertung.
+
+Der absolute Wert dieser Brennweite ist **keine gemessene Intrinsic**. Der
+Zollstock steht selten exakt parallel, die Verzeichnung wächst zum Bildrand,
+und das Maßband misst bis zu der Ebene, die du dafür hältst. Diese Einflüsse
+wirken bei jedem Abstand ähnlich, deshalb ist der **Trend über die Sprossen**
+verlässlich und der absolute Wert nicht.
+
+Eine Gegenprobe verhindert den gefährlichsten Fehler dieser Messung: fände die
+Erkennung nur jede zweite Zentimeter-Marke, wäre der Maßstab stillschweigend
+um den Faktor zwei falsch — und die Gleichmäßigkeit der Abstände sähe genauso
+gut aus. Deshalb wird die erkannte Markenzahl gegen das angegebene Zollstock-
+stück geprüft und die Sprosse bei Widerspruch abgelehnt.
 
 ### 4.4 Thermikreihe mit echter Korrelation
 

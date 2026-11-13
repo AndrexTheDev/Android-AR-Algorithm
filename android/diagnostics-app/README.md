@@ -944,12 +944,11 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.22-camimu`
+## Bedienung mit `2.23-ladder`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.22-camimu`. Fehlt dieser
-Text, ist noch eine alte APK installiert. Neu ist **Knopf 24** in
-`SCHRITT 2 · Kalibrierung & Sitzungen`: Kamera-IMU-Zeitversatz
-(`ARKCAMIMU1`).
+Auf dem Hauptbildschirm steht sichtbar `Version 2.23-ladder`. Fehlt dieser
+Text, ist noch eine alte APK installiert. Neu ist **Knopf 25** in
+`SCHRITT 4 · Geometrie und Maßstab`: Maßstabsleiter (`ARKLADDER1`).
 
 ### Warum dieser Knopf vor den anderen kommt
 
@@ -1066,6 +1065,63 @@ Jedes Bild wird im Arbeitsspeicher auf ein Raster von 128 × 8
 Helligkeitswerten reduziert und sofort verworfen. Nur diese kleinen Raster
 überleben bis zur Korrelation und werden mit dem Ergebnis verworfen. Es wird
 kein Bild geschrieben, exportiert oder geteilt.
+
+## Bedienung mit Knopf 25 — Maßstabsleiter (`ARKLADDER1`)
+
+Dieser Knopf beantwortet die Frage, ob ein einziger Skalierungsfaktor im Kern
+überhaupt reicht. Wenn der Maßstabsfehler mit der Entfernung wächst, tut er
+das nicht.
+
+### So wird gemessen
+
+Ein Zollstock wird bei mehreren Abständen ins Bild gehalten. Die App erkennt
+seine Zentimeter-Marken und bestimmt, wie viele Bildpunkte ein Meter bei
+diesem Abstand einnimmt.
+
+**Die Zentimeter-Marken sind dabei selbst die Wahrheit.** Es braucht keine
+bekannte Länge, keine Brennweite und kein separates Zielobjekt — nur den
+Abstand, und den misst du mit dem Maßband.
+
+Bei einer Lochkamera gilt: Bildpunkte pro Meter mal Abstand ist die Brennweite
+in Bildpunkten, und **dieselbe Zahl muss bei jeder Sprosse herauskommen**. Die
+App zeigt sie nach jeder aufgenommenen Sprosse an. Bleibt sie stehen, ist
+alles in Ordnung; wandert sie, siehst du das sofort und nicht erst nach der
+Auswertung.
+
+### Ablauf
+
+1. Zollstock so halten, dass er das Bild gut füllt und möglichst parallel zum
+   Bildrand liegt.
+2. Abstand zum Zollstock mit dem Maßband messen und eintragen.
+3. Die beiden Enden des sichtbaren Stücks antippen.
+4. „Marken erkennen" und dann „Sprosse aufnehmen".
+5. Mit mindestens drei Abständen wiederholen.
+
+Nah hält man ein kurzes Stück Zollstock ins Bild, fern ein langes: bei 0,5 m
+füllen 20 cm das Bild, bei 5 m braucht es dafür 2 m. Die Zentimeter-Marken
+sind in beiden Fällen gleich weit voneinander entfernt, deshalb bleibt die
+Wahrheit dieselbe.
+
+### Warum nach dem sichtbaren Stück gefragt wird
+
+Der Maßstab kommt **nicht** aus dieser Zahl, sondern aus dem Abstand der
+Marken. Sie dient nur als Gegenprobe auf die Markenzahl: fände die Erkennung
+nur jede zweite Zentimeter-Marke, wäre der Maßstab stillschweigend um den
+Faktor zwei falsch — und die Gleichmäßigkeit der Abstände sähe dabei genauso
+gut aus. Die Gegenprobe macht daraus eine sichtbare Ablehnung.
+
+### Was das Ergebnis nicht sagt
+
+Die angezeigte Brennweite ist **keine gemessene Intrinsic**. Der Zollstock
+steht selten exakt parallel, die Verzeichnung wächst zum Bildrand, und das
+Maßband misst bis zu der Ebene, die du dafür hältst. Diese Einflüsse wirken
+bei jedem Abstand ähnlich, deshalb ist der **Trend über die Sprossen**
+verlässlich und der absolute Wert nicht.
+
+### Kein Bild wird behalten
+
+Jedes Bild wird im Arbeitsspeicher auf eine Helligkeitslinie reduziert und
+sofort verworfen. Es wird kein Bild geschrieben, exportiert oder geteilt.
 
 ## Grenzen
 

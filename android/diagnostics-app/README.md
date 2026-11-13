@@ -978,12 +978,21 @@ So läuft es ab:
 Danach „ARKINTR1 erzeugen“. Wenn die Messung angenommen wird, liegt unter
 `Downloads/ARKernelDiagnostics/` eine Datei `ARKINTR1_<Zeitstempel>.txt`.
 
-**Zwei Dinge, die du über diese Datei wissen musst:**
+**Was du über diese Datei wissen musst:**
 
 * Das Raster muss nur **quadratisch** sein, nicht gemessen. Die Kästchengröße
-  in Millimetern geht in keine Rechnung ein, ein Ausdruck genügt. Daraus folgt
-  deshalb **kein Maß in Metern und keine Entfernung** — beides steht als `false`
-  in der Datei, damit es niemand später hineinliest.
+  in Millimetern geht in die Kamerawerte nicht ein, ein Ausdruck genügt.
+* Die **Kästchengröße** kannst du trotzdem eintragen — dafür miss eine Kante
+  mit dem Maßband, z. B. `40` für vier Zentimeter. Dann stehen in der Datei
+  zusätzlich die **Entfernungen zum Brett in Metern**. Das Feld leer zu
+  lassen ist kein Notbehelf: die Kamerawerte kommen so oder so. Der
+  Unterschied ist nur, ob der Maßstab bekannt ist — und aus Bildpunkten
+  allein ist er das nicht. Ein kleines Brett nah und ein großes Brett fern
+  werfen genau dasselbe Bild, und keine Rechnung an diesen Ecken kann die
+  beiden unterscheiden.
+* Die Entfernung ist die einzige Zahl in dieser Datei, die du **mit dem
+  Maßband nachprüfen** kannst. Wenn du sie nachmisst und sie nicht stimmt,
+  stimmt etwas an der Kalibrierung nicht — das ist der Sinn davon.
 * In der Datei stehen **die Eckpunkte, aus denen gerechnet wurde**. Wer sie
   liest, rechnet die Kamerawerte nach; stimmen sie nicht mit den gespeicherten
   überein, wird die Datei abgelehnt. Du kannst also die Zahlen nicht

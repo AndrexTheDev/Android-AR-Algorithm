@@ -39,6 +39,9 @@ class ArKernelIntrinsicsObservationTest {
         const val K1 = -0.12
         const val K2 = 0.02
 
+        /** A real printed square: four centimetres along the edge. */
+        const val SQUARE_METRES = 0.04
+
         private fun rotation(
             xDeg: Double,
             yDeg: Double,
@@ -128,6 +131,7 @@ class ArKernelIntrinsicsObservationTest {
 
     private fun bundle(
         views: List<ArKernelIntrinsicsObservationView> = views(),
+        squareSizeMeters: Double? = null,
     ): ArKernelIntrinsicsObservationBundle {
         val estimate = ArKernelIntrinsicsEstimator.estimate(
             views = views.map { ArKernelIntrinsicsView(it.corners) },
@@ -135,6 +139,7 @@ class ArKernelIntrinsicsObservationTest {
             gridRows = ROWS,
             imageWidthPx = WIDTH,
             imageHeightPx = HEIGHT,
+            squareSizeMeters = squareSizeMeters,
         )
         assertTrue(
             "the fixture must estimate cleanly: ${estimate.detail}",
@@ -149,6 +154,8 @@ class ArKernelIntrinsicsObservationTest {
             imageHeight = HEIGHT,
             sensorRotationDeg = 90,
             views = views,
+            squareSizeMeters = squareSizeMeters,
+            boardPoses = estimate.boardPoses,
             intrinsics = estimate.intrinsics!!,
             rmsPx = estimate.rmsPx,
             maxPx = estimate.maxPx,
@@ -225,6 +232,101 @@ class ArKernelIntrinsicsObservationTest {
             ArKernelIntrinsicsObservationAdapter.parse(
                 text.replace("sensor_rotation_deg=90", "sensor_rotation_deg=45")
             ).rejection,
+        )
+    }
+
+    // ------------------------------------------------- distance, if measured
+
+    @Test
+    fun aMeasuredSquareCarriesTheDistance() {
+        // The distance is the one number here the operator can check with a
+        // tape. It travels with the corners so the reader recomputes it too.
+        val written = bundle(squareSizeMeters = SQUARE_METRES)
+        assertTrue("the fixture must recover poses", written.metric)
+        val text = ArKernelIntrinsicsObservationAdapter.encode(written)
+        assertTrue(text.contains("square_size_known=true"))
+        assertTrue(text.contains("translation_recovered=true"))
+        assertTrue(text.contains("square_size_mm=40"))
+        assertTrue(text.contains("boardpose=0|"))
+        val parsed = ArKernelIntrinsicsObservationAdapter.parse(text)
+        assertTrue(parsed.detail, parsed.accepted)
+        val read = parsed.bundle!!
+        assertTrue("must still be metric after reading", read.metric)
+        assertEquals(written.views.size, read.boardPoses.size)
+        for (index in written.boardPoses.indices) {
+            assertEquals(
+                written.boardPoses[index].distanceMeters,
+                read.boardPoses[index].distanceMeters,
+                0.0005,
+            )
+        }
+    }
+
+    @Test
+    fun theDistanceIsWhatTheBoardWasRenderedAt() {
+        // Not merely self-consistent: the corners were rendered with the
+        // board at a known distance, so the recovered distance is a
+        // measurement of that, not a restatement of the file.
+        val written = bundle(squareSizeMeters = SQUARE_METRES)
+        for (pose in written.boardPoses) {
+            assertTrue(
+                "distance ${pose.distanceMeters} m is not plausible",
+                pose.distanceMeters > 0.15 && pose.distanceMeters < 1.5,
+            )
+            assertTrue("board must be in front: ${pose.tZMeters}",
+                pose.tZMeters > 0.0)
+        }
+    }
+
+    @Test
+    fun aDistanceThatDoesNotFollowFromTheCornersIsRefused() {
+        // Same reasoning as the focal length, applied to the one number
+        // someone will actually go and measure: if it does not come out of
+        // the corners, it is not a measurement of this board.
+        val text = ArKernelIntrinsicsObservationAdapter.encode(
+            bundle(squareSizeMeters = SQUARE_METRES))
+        val edited = Regex("boardpose=0\\|[-0-9.]+\\|[-0-9.]+\\|[-0-9.]+")
+            .replace(text, "boardpose=0|10|-20|9000")
+        val parsed = ArKernelIntrinsicsObservationAdapter.parse(edited)
+        assertFalse(parsed.accepted)
+        assertEquals(
+            parsed.detail,
+            ArKernelIntrinsicsObservationRejection.ESTIMATE_MISMATCH,
+            parsed.rejection,
+        )
+    }
+
+    @Test
+    fun distancesWithoutAMeasuredSquareAreRefused() {
+        // This is the failure that would quietly make the whole record
+        // metric. Nothing in the file would look wrong on its own.
+        val text = ArKernelIntrinsicsObservationAdapter.encode(
+            bundle(squareSizeMeters = SQUARE_METRES))
+            .replace("square_size_known=true", "square_size_known=false")
+        assertEquals(
+            ArKernelIntrinsicsObservationRejection.BOOLEAN,
+            ArKernelIntrinsicsObservationAdapter.parse(text).rejection,
+        )
+    }
+
+    @Test
+    fun anUnmeasuredBoardCarriesNoDistanceAtAll() {
+        val text = ArKernelIntrinsicsObservationAdapter.encode(bundle())
+        assertFalse(text.contains("boardpose="))
+        assertTrue(text.contains("square_size_known=false"))
+        assertTrue(text.contains("translation_recovered=false"))
+        assertTrue(text.contains("square_size_mm=0"))
+    }
+
+    @Test
+    fun aDistanceBehindTheCameraIsRefused() {
+        val text = ArKernelIntrinsicsObservationAdapter.encode(
+            bundle(squareSizeMeters = SQUARE_METRES))
+        val edited = Regex("boardpose=0\\|[-0-9.]+\\|[-0-9.]+\\|[-0-9.]+")
+            .replace(text, "boardpose=0|10|-20|-900")
+        assertEquals(
+            ArKernelIntrinsicsObservationRejection.NUMBER,
+            ArKernelIntrinsicsObservationAdapter.parse(edited).rejection,
         )
     }
 

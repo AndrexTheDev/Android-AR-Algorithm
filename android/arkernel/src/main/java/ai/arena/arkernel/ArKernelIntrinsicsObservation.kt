@@ -56,6 +56,9 @@ private const val INTR_RELATIVE_TOLERANCE = 1e-3
 /** Absolute slack, in pixels, for quantities that can pass through zero. */
 private const val INTR_ABSOLUTE_TOLERANCE_PX = 0.05
 
+/** How far a stated distance may sit from the recomputed one, in mm. */
+private const val DISTANCE_TOLERANCE_MM = 5.0
+
 private val INTR_TOKEN = Regex("[A-Za-z0-9._:-]{1,64}")
 private val INTR_UNSIGNED = Regex("0|[1-9][0-9]*")
 private val INTR_DECIMAL = Regex("-?(0|[1-9][0-9]{0,6})(\\.[0-9]{1,6})?")
@@ -73,6 +76,7 @@ private val INTR_KEYS = listOf(
     "sensor_rotation_deg",
     "view_count",
     "square_size_known",
+    "square_size_mm",
     "translation_recovered",
     "images_disabled",
     "automatic_upload_disabled",
@@ -151,6 +155,12 @@ data class ArKernelIntrinsicsObservationBundle(
      */
     val sensorRotationDeg: Int,
     val views: List<ArKernelIntrinsicsObservationView>,
+
+    /** Measured square edge in metres, or null when it was not measured. */
+    val squareSizeMeters: Double? = null,
+
+    /** One per view, in the same order; empty unless the square was measured. */
+    val boardPoses: List<ArKernelIntrinsicsBoardPose> = emptyList(),
     val intrinsics: ArKernelCameraIntrinsics,
     val rmsPx: Double,
     val maxPx: Double,
@@ -162,7 +172,23 @@ data class ArKernelIntrinsicsObservationBundle(
         require(sensorRotationDeg in setOf(0, 90, 180, 270)) {
             "Sensor rotation must be a quarter turn"
         }
+        // A distance without a measured square, or a square without
+        // distances, is a record that contradicts itself about whether it
+        // knows the scale.
+        require(boardPoses.isEmpty() || squareSizeMeters != null) {
+            "Distances require a measured square size"
+        }
+        require(squareSizeMeters == null || boardPoses.size == views.size) {
+            "A measured square needs one pose per view"
+        }
     }
+
+    /** True when anything in this record may be read in metres. */
+    val metric: Boolean get() =
+        squareSizeMeters != null && boardPoses.size == views.size
+
+    /** Distance to the board for each view, in metres; empty if not metric. */
+    val distancesMeters: List<Double> get() = boardPoses.map { it.distanceMeters }
 
     /** Horizontal field of view, which is the one number a person can check. */
     fun horizontalFovDeg(): Double = intrinsics.horizontalFovDeg(imageWidth)
@@ -202,8 +228,13 @@ object ArKernelIntrinsicsObservationAdapter {
         // Stated, not assumed: the grid is square but unmeasured, and no
         // translation is recovered. Both are written so that a reader cannot
         // take this file for something it is not.
-        lines.add("square_size_known=false")
-        lines.add("translation_recovered=false")
+        lines.add(
+            "square_size_known=" +
+                (if (bundle.squareSizeMeters != null) "true" else "false"))
+        lines.add("square_size_mm=${decimal(millimetres(bundle.squareSizeMeters))}")
+        lines.add(
+            "translation_recovered=" +
+                (if (bundle.boardPoses.isEmpty()) "false" else "true"))
         lines.add("images_disabled=true")
         lines.add("automatic_upload_disabled=true")
         // Always true, and written so that a reader does not have to infer
@@ -225,6 +256,14 @@ object ArKernelIntrinsicsObservationAdapter {
                 "${decimal(corner.xPx)},${decimal(corner.yPx)}"
             }
             lines.add("view=${view.index}|${view.corners.size}|$body")
+        }
+        // Distances travel with the corners, so the reader can check them
+        // the same way it checks the focal length: by recomputing.
+        bundle.boardPoses.forEachIndexed { index, pose ->
+            lines.add(
+                "boardpose=$index|${decimal(pose.tXMeters * 1000.0)}|" +
+                    "${decimal(pose.tYMeters * 1000.0)}|" +
+                    "${decimal(pose.tZMeters * 1000.0)}")
         }
         lines.add(INTR_END)
         val text = lines.joinToString("\n")
@@ -276,6 +315,7 @@ object ArKernelIntrinsicsObservationAdapter {
 
         val values = LinkedHashMap<String, String>()
         val views = ArrayList<ArKernelIntrinsicsObservationView>()
+        val poses = ArrayList<ArKernelIntrinsicsBoardPose>()
         var keyIndex = 0
         for (line in body) {
             val separator = line.indexOf('=')
@@ -289,6 +329,13 @@ object ArKernelIntrinsicsObservationAdapter {
                 views += parseView(value, views.size) ?: return refused(
                     ArKernelIntrinsicsObservationRejection.VIEW_ORDER,
                     "Ansicht ${views.size} ist nicht lesbar: ${preview(value)}")
+                continue
+            }
+            if (key == "boardpose") {
+                poses += parsePose(value, poses.size) ?: return refused(
+                    ArKernelIntrinsicsObservationRejection.VIEW_ORDER,
+                    "Entfernung ${poses.size} ist nicht lesbar: " +
+                        preview(value))
                 continue
             }
             if (keyIndex >= INTR_KEYS.size || INTR_KEYS[keyIndex] != key) {
@@ -334,10 +381,9 @@ object ArKernelIntrinsicsObservationAdapter {
             return refused(ArKernelIntrinsicsObservationRejection.BOOLEAN,
                 "Bilder und automatisches Hochladen muessen abgeschaltet sein")
         }
-        if (values["translation_recovered"] != "false") {
-            return refused(ArKernelIntrinsicsObservationRejection.BOOLEAN,
-                "Dieser Datensatz stellt keine Verschiebung wieder")
-        }
+        // A translation may be claimed, but only if the file actually carries
+        // distances - and that is checked further down against the poses, not
+        // taken from this flag.
 
         val gridColumns = unsigned(values["grid_columns"])
             ?: return refused(ArKernelIntrinsicsObservationRejection.GRID,
@@ -386,6 +432,48 @@ object ArKernelIntrinsicsObservationAdapter {
         }
 
         val expected = gridColumns * gridRows
+
+        // The two denials have to agree with what is actually in the file, or
+        // the record is claiming a scale it does not have - which is the one
+        // claim here that would silently turn everything downstream metric.
+        val squareMm = decimal(values["square_size_mm"])
+            ?: return refused(ArKernelIntrinsicsObservationRejection.NUMBER,
+                "square_size_mm ist keine Zahl")
+        if (squareMm < 0.0 || squareMm > 10_000.0) {
+            return refused(ArKernelIntrinsicsObservationRejection.NUMBER,
+                "square_size_mm liegt ausserhalb des zulaessigen Bereichs")
+        }
+        val squareKnown = values["square_size_known"] == "true"
+        val translationKnown = values["translation_recovered"] == "true"
+        val squareSizeMeters = if (squareKnown) squareMm / 1000.0 else null
+        if (translationKnown != poses.isNotEmpty()) {
+            return refused(ArKernelIntrinsicsObservationRejection.BOOLEAN,
+                "translation_recovered widerspricht dem Inhalt der Datei")
+        }
+        if (poses.isNotEmpty() && poses.size != views.size) {
+            return refused(
+                ArKernelIntrinsicsObservationRejection.VIEW_COUNT,
+                "${poses.size} Entfernungen fuer ${views.size} Ansichten")
+        }
+        if (squareSizeMeters == null && poses.isNotEmpty()) {
+            return refused(ArKernelIntrinsicsObservationRejection.BOOLEAN,
+                "Entfernungen ohne gemessene Kaestchengroesse")
+        }
+        for (pose in poses) {
+            if (!pose.tXMeters.isFinite() || !pose.tYMeters.isFinite() ||
+                !pose.tZMeters.isFinite()
+            ) {
+                return refused(
+                    ArKernelIntrinsicsObservationRejection.NUMBER,
+                    "Eine Entfernung ist keine endliche Zahl")
+            }
+            if (pose.tZMeters <= 0.0) {
+                return refused(
+                    ArKernelIntrinsicsObservationRejection.NUMBER,
+                    "Eine Entfernung liegt hinter der Kamera")
+            }
+        }
+
         for (view in views) {
             if (view.corners.size != expected) {
                 return refused(ArKernelIntrinsicsObservationRejection.CORNER_COUNT,
@@ -458,6 +546,8 @@ object ArKernelIntrinsicsObservationAdapter {
             imageHeight = imageHeight,
             sensorRotationDeg = rotation,
             views = views,
+            squareSizeMeters = squareSizeMeters,
+            boardPoses = poses,
             intrinsics = ArKernelCameraIntrinsics(fx, fy, cx, cy, k1, k2),
             rmsPx = rms,
             maxPx = maxError,
@@ -475,6 +565,7 @@ object ArKernelIntrinsicsObservationAdapter {
                 gridRows = gridRows,
                 imageWidthPx = imageWidth,
                 imageHeightPx = imageHeight,
+                squareSizeMeters = squareSizeMeters,
             )
             if (!recomputed.accepted) {
                 return refused(ArKernelIntrinsicsObservationRejection.ESTIMATE_MISMATCH,
@@ -494,6 +585,33 @@ object ArKernelIntrinsicsObservationAdapter {
                     "Die angegebenen Werte folgen nicht aus den " +
                         "gespeicherten Ecken (fx " +
                         "${decimal(stated.fxPx)} gegen ${decimal(found.fxPx)})")
+            }
+            // And the distances, which are the part a tape measure can check.
+            // They follow from the same corners and the same square, so there
+            // is no reason to trust them less than the focal length - and
+            // every reason not to, since a distance is what someone will
+            // actually go and measure.
+            if (recomputed.boardPoses.size != bundle.boardPoses.size) {
+                return refused(ArKernelIntrinsicsObservationRejection.ESTIMATE_MISMATCH,
+                    "Die Nachrechnung liefert " +
+                        "${recomputed.boardPoses.size} Entfernungen, " +
+                        "die Datei nennt ${bundle.boardPoses.size}")
+            }
+            for (index in bundle.boardPoses.indices) {
+                val statedPose = bundle.boardPoses[index]
+                val foundPose = recomputed.boardPoses[index]
+                if (kotlin.math.abs(
+                        statedPose.distanceMeters - foundPose.distanceMeters) >
+                    DISTANCE_TOLERANCE_MM / 1000.0
+                ) {
+                    return refused(
+                        ArKernelIntrinsicsObservationRejection.ESTIMATE_MISMATCH,
+                        "Die angegebene Entfernung $index folgt nicht aus " +
+                            "den gespeicherten Ecken (" +
+                            "${decimal(statedPose.distanceMeters * 1000.0)} " +
+                            "mm gegen " +
+                            "${decimal(foundPose.distanceMeters * 1000.0)} mm)")
+                }
             }
         }
 
@@ -536,6 +654,26 @@ object ArKernelIntrinsicsObservationAdapter {
         return ArKernelIntrinsicsObservationView(index, corners)
     }
 
+    /** `index|tx_mm|ty_mm|tz_mm`. */
+    private fun parsePose(value: String, expectedIndex: Int):
+        ArKernelIntrinsicsBoardPose? {
+        val parts = value.split("|")
+        if (parts.size != 4) return null
+        val index = unsigned(parts[0]) ?: return null
+        if (index != expectedIndex) return null
+        val x = decimal(parts[1]) ?: return null
+        val y = decimal(parts[2]) ?: return null
+        val z = decimal(parts[3]) ?: return null
+        return ArKernelIntrinsicsBoardPose(
+            tXMeters = x / 1000.0,
+            tYMeters = y / 1000.0,
+            tZMeters = z / 1000.0,
+            distanceMeters = kotlin.math.sqrt(x * x + y * y + z * z) / 1000.0,
+            rotation = doubleArrayOf(
+                1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+        )
+    }
+
     private fun unsigned(value: String?): Int? {
         if (value == null || !INTR_UNSIGNED.matches(value)) return null
         return value.toIntOrNull()
@@ -547,6 +685,9 @@ object ArKernelIntrinsicsObservationAdapter {
         if (parsed.isNaN() || parsed.isInfinite()) return null
         return parsed
     }
+
+    private fun millimetres(metres: Double?): Double =
+        if (metres == null) 0.0 else metres * 1000.0
 
     private fun decimal(value: Double): String {
         if (value.isNaN() || value.isInfinite()) return "0"

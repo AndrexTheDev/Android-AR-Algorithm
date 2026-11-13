@@ -238,6 +238,10 @@ class WizardActivity : DiagnosticsActivity() {
         text.append(entry.accept).append('\n')
         text.append('\n').append("Was es kaputt macht\n")
         for (line in entry.mistakes) text.append("  - ").append(line).append('\n')
+        if (entry.optionalMeasurement.isNotBlank()) {
+            text.append('\n').append("Zusätzlich möglich, aber nicht nötig\n")
+            text.append(entry.optionalMeasurement).append('\n')
+        }
         text.append('\n').append("Warum an dieser Stelle\n")
         text.append(entry.whyHere).append('\n')
         return text.toString()

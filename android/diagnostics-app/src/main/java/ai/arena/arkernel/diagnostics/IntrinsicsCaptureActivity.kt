@@ -41,6 +41,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -89,6 +90,7 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
     }
 
     private lateinit var optInBox: CheckBox
+    private lateinit var squareInput: EditText
     private lateinit var statusText: TextView
     private lateinit var captureText: TextView
     private lateinit var cameraButton: Button
@@ -152,6 +154,20 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
                 "also 8 x 6 Kaestchen) flach aufgeklebt und will messen."
             isChecked = false
         }
+        val squareHint = TextView(this).apply {
+            text = "Die Kaestchengroesse brauchst du NUR, wenn du die " +
+                "Entfernung zum Brett in Metern haben willst - miss eine " +
+                "Kante mit dem Maßband. Laesst du das Feld leer, kommen " +
+                "trotzdem die Kamerawerte, aber keine Entfernung: aus " +
+                "Bildpunkten allein ist der Maßstab nicht bestimmbar."
+            textSize = 12f
+            setTextColor(Color.rgb(150, 160, 175))
+        }
+        squareInput = EditText(this).apply {
+            hint = "Kaestchengroesse in Millimetern (optional, z. B. 40)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
         cameraButton = Button(this).apply { text = "Kamera starten" }
         tapButton = Button(this).apply { text = "Die vier Ecken neu tippen" }
         captureButton = Button(this).apply { text = "Diese Ansicht aufnehmen" }
@@ -203,6 +219,8 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         root.addView(statusText, full)
         root.addView(guidance, full)
         root.addView(optInBox, full)
+        root.addView(squareHint, full)
+        root.addView(squareInput, full)
         root.addView(cameraButton, full)
         root.addView(
             frame,
@@ -376,12 +394,20 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
                 "aktuell ${views.size}."
             return
         }
+        val squareSizeMeters = readSquareSizeMeters()
+        // NaN never equals itself, so this has to be asked by name.
+        if (squareSizeMeters != null && squareSizeMeters.isNaN()) {
+            statusText.text = "Die Kaestchengroesse ist unplausibel. " +
+                "Bitte in Millimetern angeben, z. B. 40 - oder leer lassen."
+            return
+        }
         val estimate = ArKernelIntrinsicsEstimator.estimate(
             views = views.map { ArKernelIntrinsicsView(it.corners) },
             gridColumns = GRID_COLUMNS,
             gridRows = GRID_ROWS,
             imageWidthPx = lumaWidth,
             imageHeightPx = lumaHeight,
+            squareSizeMeters = squareSizeMeters,
         )
         if (!estimate.accepted) {
             val open = estimate.verdicts
@@ -407,6 +433,8 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             imageHeight = lumaHeight,
             sensorRotationDeg = sensorDegrees,
             views = views.toList(),
+            squareSizeMeters = squareSizeMeters,
+            boardPoses = estimate.boardPoses,
             intrinsics = intrinsics,
             rmsPx = estimate.rmsPx,
             maxPx = estimate.maxPx,
@@ -423,14 +451,30 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             return
         }
         lastWritten = text
+        if (estimate.metric) {
+            val distances = estimate.distancesMeters
+            val nearest = distances.min()
+            val farthest = distances.max()
+            statusText.text = statusText.text.toString() +
+                "\nEntfernungen zum Brett: " +
+                String.format(Locale.US, "%.0f bis %.0f cm",
+                    nearest * 100.0, farthest * 100.0) +
+                " - das sind " + distances.size +
+                " Zahlen, die du mit dem Maßband nachpruefen kannst."
+        }
         val fov = bundle.horizontalFovDeg()
         statusText.text = String.format(
             Locale.US,
             "Angenommen. Brennweite %.1f / %.1f px, Hauptpunkt " +
                 "%.1f / %.1f px, Verzeichnung k1 %.4f, k2 %.4f. " +
                 "Rueckstand %.2f px, Bildwinkel %.1f Grad.\n" +
-                "Das Raster wurde NICHT gemessen: daraus folgt kein Maß in " +
-                "Metern und keine Entfernung.",
+                if (estimate.metric) {
+                    "Die Kaestchengroesse wurde gemessen, daher sind die " +
+                        "Entfernungen in Metern angegeben."
+                } else {
+                    "Das Raster wurde NICHT gemessen: daraus folgt kein " +
+                        "Maß in Metern und keine Entfernung."
+                },
             intrinsics.fxPx,
             intrinsics.fyPx,
             intrinsics.cxPx,
@@ -461,6 +505,34 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             Toast.LENGTH_LONG,
         ).show()
         updateButtons()
+    }
+
+    /**
+     * What a square size that cannot be right reads as.
+     *
+     * A larger-than-a-hand or smaller-than-a-grain value is a typo, and a
+     * typo here would otherwise produce a board eight kilometres away with a
+     * residual that is perfectly happy about it.
+     */
+    private val INVALID_SQUARE = Double.NaN
+
+    /**
+     * The measured square edge in metres, null when the operator left the
+     * field empty, and NaN when what was typed cannot be right.
+     *
+     * Leaving it empty is not a lesser mode: the intrinsics are identical
+     * either way. It only decides whether distances are reported at all.
+     */
+    private fun readSquareSizeMeters(): Double? {
+        val raw = squareInput.text.toString().trim()
+        if (raw.isEmpty()) return null
+        val millimetres = raw.toDoubleOrNull() ?: return INVALID_SQUARE
+        if (!millimetres.isFinite() || millimetres <= 0.0 ||
+            millimetres > 10_000.0
+        ) {
+            return INVALID_SQUARE
+        }
+        return millimetres / 1000.0
     }
 
     private fun shareRecord() {

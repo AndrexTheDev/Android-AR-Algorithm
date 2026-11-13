@@ -88,6 +88,15 @@ data class ArKernelWizardEntry(
     val accept: String,
     val mistakes: List<String>,
     val whyHere: String,
+
+    /**
+     * Something the operator may additionally measure, and what it buys.
+     *
+     * Kept separate from [action] because it is a choice, not an
+     * instruction: the step works without it, and a layperson has to be able
+     * to tell the difference between what must be done and what may be done.
+     */
+    val optionalMeasurement: String = "",
 ) {
     init {
         require(title.isNotBlank()) { "Wizard step needs a title" }
@@ -283,6 +292,12 @@ object ArKernelWizard {
                     "dem Muster, kein Schatten quer darueber.",
                 "Nicht am Ladegeraet. Die Kamera sauber wischen.",
             ),
+            optionalMeasurement = "Wenn du eine Kantenlaenge mit dem " +
+                "Maßband misst und in Knopf 28 eintraegst, kommt zusaetzlich " +
+                "die Entfernung zum Brett in Metern heraus - die einzige " +
+                "Zahl in diesem Datensatz, die du mit einem Maßband " +
+                "nachpruefen kannst. Ohne diese Angabe fehlen die " +
+                "Entfernungen, nicht aber die Kamerawerte.",
             action = "Knopf 28 oeffnen. Dann nacheinander mindestens 6, " +
                 "besser 10 Aufnahmen machen - und zwar aus deutlich " +
                 "verschiedenen Richtungen: einmal von links, von rechts, " +

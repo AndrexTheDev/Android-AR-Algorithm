@@ -81,6 +81,56 @@ enum class ArKernelIntrinsicsRejection {
 }
 
 /** What one fit produced, whether or not it was accepted. */
+/**
+ * Where the board was, relative to the camera, for one view.
+ *
+ * Only exists when the squares were measured. The intrinsics do not need the
+ * square's size and are not improved by knowing it - scale cancels out of
+ * them - but the *translation* does not: a small board far away and a large
+ * board near to it put every corner in the same place, and no amount of
+ * arithmetic on the corners tells them apart. So this is recovered if and
+ * only if the operator measured one square edge, and it says so.
+ *
+ * The rotation is carried too, because it is free once the homography and the
+ * intrinsics are both known, and it makes the geometry checkable. It is the
+ * board's orientation in the camera's frame - not the camera's orientation in
+ * the world, which nothing here establishes.
+ */
+data class ArKernelIntrinsicsBoardPose(
+    /** Board origin along the camera's x axis, in metres. */
+    val tXMeters: Double,
+
+    /** Board origin along the camera's y axis, in metres. */
+    val tYMeters: Double,
+
+    /** Board origin along the camera's optical axis, in metres. */
+    val tZMeters: Double,
+
+    /**
+     * Straight-line distance from the camera to the board origin, in metres.
+     *
+     * This is the one number here the operator can check with a tape measure,
+     * which is the whole reason for carrying it: it turns the calibration
+     * from something to be believed into something to be verified.
+     */
+    val distanceMeters: Double,
+
+    /** Board rotation in the camera frame, row-major, three by three. */
+    val rotation: DoubleArray,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ArKernelIntrinsicsBoardPose) return false
+        return tXMeters == other.tXMeters && tYMeters == other.tYMeters &&
+            tZMeters == other.tZMeters && distanceMeters == other.distanceMeters &&
+            rotation.contentEquals(other.rotation)
+    }
+
+    override fun hashCode(): Int =
+        (tXMeters.hashCode() * 31 + tYMeters.hashCode()) * 31 +
+            tZMeters.hashCode()
+}
+
 data class ArKernelIntrinsicsEstimate(
     val intrinsics: ArKernelCameraIntrinsics?,
     val rejection: ArKernelIntrinsicsRejection,
@@ -96,8 +146,29 @@ data class ArKernelIntrinsicsEstimate(
     /** `|fx-fy|` over their mean, per thousand. */
     val focalSplitPermille: Int,
     val verdicts: Map<String, Boolean>,
+
+    /**
+     * Measured length of one square edge, in metres, or null when the
+     * operator did not measure it.
+     *
+     * Null is not a missing value to be filled in later. It is the statement
+     * that nothing in this estimate is expressed in metres.
+     */
+    val squareSizeMeters: Double? = null,
+
+    /**
+     * One entry per view, in the same order as the views, and empty unless
+     * [squareSizeMeters] was given.
+     */
+    val boardPoses: List<ArKernelIntrinsicsBoardPose> = emptyList(),
 ) {
     val accepted: Boolean get() = rejection.accepted
+
+    /** Whether anything here may be read in metres. */
+    val metric: Boolean get() = squareSizeMeters != null && boardPoses.isNotEmpty()
+
+    /** Distances to the board for every view, in metres; empty if not metric. */
+    val distancesMeters: List<Double> get() = boardPoses.map { it.distanceMeters }
 }
 
 object ArKernelIntrinsicsEstimator {
@@ -170,6 +241,15 @@ object ArKernelIntrinsicsEstimator {
         gridRows: Int,
         imageWidthPx: Int,
         imageHeightPx: Int,
+        /**
+         * Measured length of one square edge in metres, or null.
+         *
+         * Passing null is not a lesser mode of operation: the intrinsics are
+         * identical either way, because scale cancels out of them. What the
+         * measurement buys is the translation - and with it the one number
+         * the operator can check against a tape.
+         */
+        squareSizeMeters: Double? = null,
     ): ArKernelIntrinsicsEstimate {
         val expected = gridColumns * gridRows
         if (views.size < MIN_VIEWS) {
@@ -205,6 +285,18 @@ object ArKernelIntrinsicsEstimator {
                 }
             }
             pointCount += expected
+        }
+
+        if (squareSizeMeters != null &&
+            (!squareSizeMeters.isFinite() || squareSizeMeters <= 0.0 ||
+                squareSizeMeters > 10.0)
+        ) {
+            return refused(
+                ArKernelIntrinsicsRejection.GRID_MISMATCH,
+                "Die Kaestchengroesse ${format(squareSizeMeters)} m ist " +
+                    "unplausibel",
+                views.size, 0, 0, 0, 0,
+            )
         }
 
         val coverage = coveragePermille(views, imageWidthPx, imageHeightPx)
@@ -329,6 +421,15 @@ object ArKernelIntrinsicsEstimator {
                 ArKernelIntrinsicsRejection.DISTORTION_UNBOUNDED
             else -> ArKernelIntrinsicsRejection.OK
         }
+        // Pose recovery needs the intrinsics to be good, so it happens last
+        // and only for an accepted fit: a distance quoted from a rejected
+        // camera would be a number with nothing behind it.
+        val boardPoses: List<ArKernelIntrinsicsBoardPose> =
+            if (rejection.accepted && squareSizeMeters != null) {
+                boardPosesFrom(finalPoses, squareSizeMeters)
+            } else {
+                emptyList()
+            }
         return ArKernelIntrinsicsEstimate(
             intrinsics = if (rejection.accepted) fitted else null,
             rejection = rejection,
@@ -351,6 +452,37 @@ object ArKernelIntrinsicsEstimator {
             conditioningPermille = conditioning,
             focalSplitPermille = split,
             verdicts = verdicts,
+            squareSizeMeters = squareSizeMeters,
+            boardPoses = boardPoses,
+        )
+    }
+
+    /**
+     * Turns the fitted poses into metres.
+     *
+     * The fit works in squares, not metres, so the translations it recovers
+     * are in squares too. Multiplying by one measured edge converts them -
+     * and that single measured number is the only thing that stands between
+     * "the board was 26 squares away" (true, and useless) and "the board was
+     * 65 cm away" (checkable with a tape).
+     */
+    private fun boardPosesFrom(
+        poses: List<Pose>,
+        squareSizeMeters: Double,
+    ): List<ArKernelIntrinsicsBoardPose> = poses.map { pose ->
+        val x = pose.t[0] * squareSizeMeters
+        val y = pose.t[1] * squareSizeMeters
+        val z = pose.t[2] * squareSizeMeters
+        ArKernelIntrinsicsBoardPose(
+            tXMeters = x,
+            tYMeters = y,
+            tZMeters = z,
+            distanceMeters = kotlin.math.sqrt(x * x + y * y + z * z),
+            rotation = doubleArrayOf(
+                pose.r1[0], pose.r2[0], pose.r3[0],
+                pose.r1[1], pose.r2[1], pose.r3[1],
+                pose.r1[2], pose.r2[2], pose.r3[2],
+            ),
         )
     }
 

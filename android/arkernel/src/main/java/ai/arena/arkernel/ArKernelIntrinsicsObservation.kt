@@ -240,7 +240,10 @@ object ArKernelIntrinsicsObservationAdapter {
     fun parse(raw: String): ArKernelIntrinsicsObservationParse {
         // Tolerant of a byte-order mark and of Windows line endings: the file
         // crosses at least one chat application and both are real.
-        val text = raw.removePrefix("﻿").replace("\r\n", "\n").trim()
+        // The BOM is written as an escape on purpose: a literal one here is a
+        // byte-order-mark in the middle of a file, which lint rejects and
+        // some tools mishandle.
+        val text = raw.removePrefix("\uFEFF").replace("\r\n", "\n").trim()
         if (text.length > INTR_MAX_INPUT_CHARACTERS) {
             return refused(ArKernelIntrinsicsObservationRejection.BUDGET,
                 "Zu gross fuer die vorgegebene Grenze")

@@ -165,22 +165,16 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         textureView = TextureView(this)
         overlay = BoardOverlayView(this)
         val previewHeight = (220 * resources.displayMetrics.density).toInt()
+        val fill = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        )
         val frame = FrameLayout(this).apply {
-            addView(
-                textureView,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
-            addView(
-                overlay,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
+            addView(textureView)
+            addView(overlay)
         }
+        textureView.layoutParams = fill
+        overlay.layoutParams = fill
 
         val guidance = TextView(this).apply {
             text = "So geht es: Brett ganz ins Bild halten - nichts darf " +
@@ -299,7 +293,7 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             height = lumaHeight,
             columns = GRID_COLUMNS,
             rows = GRID_ROWS,
-            taps = taps,
+            quad = taps,
         )
         if (!result.accepted) {
             statusText.text = explanationFor(result.rejection) +
@@ -542,9 +536,8 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         cameraHandler = handler
         try {
             val surfaceTexture = textureView.surfaceTexture
-                ?: textureView.surfaceTexture
             if (surfaceTexture == null) {
-                statusText.text = "Vorschau nicht bereit."
+                statusText.text = "Vorschau nicht bereit - bitte kurz warten."
                 return
             }
             surfaceTexture.setDefaultBufferSize(
@@ -770,8 +763,8 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
 
     /** Maps an on-screen point into camera-buffer pixel coordinates. */
     private fun toBuffer(x: Float, y: Float, out: FloatArray) {
-        out[0] = x / width.toFloat().coerceAtLeast(1f) * lumaWidth
-        out[1] = y / height.toFloat().coerceAtLeast(1f) * lumaHeight
+        out[0] = x / textureView.width.toFloat().coerceAtLeast(1f) * lumaWidth
+        out[1] = y / textureView.height.toFloat().coerceAtLeast(1f) * lumaHeight
         if (!matrixReady) return
         val mapped = floatArrayOf(x, y)
         inverseMatrix.mapPoints(mapped)
@@ -902,11 +895,9 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         }
 
         /** The four taps in camera-buffer pixel coordinates, tap order. */
-        fun tapsInBuffer(): List<ArKernelCheckerboard
-        .ArKernelBoardCornerInput> {
+        fun tapsInBuffer(): List<ArKernelCheckerboard.ArKernelBoardCornerInput> {
             val out = FloatArray(2)
-            val result = ArrayList<ArKernelCheckerboard
-                .ArKernelBoardCornerInput>(4)
+            val result = ArrayList<ArKernelCheckerboard.ArKernelBoardCornerInput>(4)
             for (index in 0 until count) {
                 toBuffer(points[index * 2], points[index * 2 + 1], out)
                 result += ArKernelCheckerboard.ArKernelBoardCornerInput(

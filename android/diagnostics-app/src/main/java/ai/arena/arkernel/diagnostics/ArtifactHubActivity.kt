@@ -599,6 +599,8 @@ class ArtifactHubActivity : DiagnosticsActivity() {
                 "Kamera-IMU-Zeitversatz"
             ArKernelArtifactContract.CAMEXT ->
                 "Kamera-IMU-Drehung"
+            ArKernelArtifactContract.CAMINTR ->
+                "Kamera vermessen (Brennweite, Hauptpunkt, Verzeichnung)"
             ArKernelArtifactContract.DEVHW -> "Gerät & Laufzeit"
             ArKernelArtifactContract.MEAS -> "Geführte Messung"
             ArKernelArtifactContract.FEED -> "Kamerafeed-Marken"

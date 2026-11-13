@@ -1124,6 +1124,17 @@ verlässlich und der absolute Wert nicht.
 Jedes Bild wird im Arbeitsspeicher auf eine Helligkeitslinie reduziert und
 sofort verworfen. Es wird kein Bild geschrieben, exportiert oder geteilt.
 
+## Bedienung mit Knopf 7 — die Kampagne sagt jetzt, was zu tun ist
+
+Knopf 7 führt zehn kanonische Fragen an den Kern. Bisher verbuchte er nur, was
+du bestätigt hast. Er sagt dir jetzt zu jeder Frage, **welche Knöpfe** du dafür
+ausführen musst, und zeigt am Ende die ganze Reihenfolge als Kette von
+Knopfnummern.
+
+Alle Fragen setzen dieselbe Kette voraus: **23 → 20 → 22 → 24 → 26**. Die
+Reihenfolge ist nicht willkürlich — siehe den Abschnitt in
+`docs/DIAGNOSTIC_COVERAGE.md`.
+
 ## Bedienung mit Knopf 26 — Kamera-IMU-Drehung (`ARKCAMEXT1`)
 
 Dieser Knopf bestimmt, wie die Kamera gegenüber dem Gyroskop gedreht ist —

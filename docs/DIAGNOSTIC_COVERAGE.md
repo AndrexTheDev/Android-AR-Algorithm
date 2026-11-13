@@ -241,6 +241,35 @@ falsch integriert, bevor er irgendeinen Maßstab prüft.
 5. **Schicht 0** — Vertrauen. Am Ende: erst redigieren, dann signieren.
 6. **Schicht 5** — Systembehauptungen. Erst wenn 1–4 stehen.
 
+## Die Bruecke von der Frage zur Handlung
+
+Es gibt zehn kanonische Fragen an den Kern, und es gibt sechsundzwanzig Knöpfe.
+Dass beides zusammenfindet, war lange nirgends festgehalten: Der Kampagnenplan
+(Knopf 7) verbuchte, welche Szene durchgeführt und welche Frage bestätigt
+wurde — aber er sagte dem Bediener an keiner Stelle, **welche Messung** er dafür
+ausführen soll. Eine bestätigte Frage konnte auf nichts ruhen.
+
+Diese Zuordnung liegt jetzt im Kern (`ArKernelCampaignRoute`) und wird in
+Knopf 7 für die jeweils aktuelle Frage angezeigt. Sie nennt zu jeder Frage die
+Knöpfe, deren Datensätze die Evidenz sind, und sie nennt die Reihenfolge, in
+der die Messungen gemacht werden müssen.
+
+Die Reihenfolge ist Teil der Antwort und keine Fußnote, denn drei Abhängigkeiten
+sind physikalisch:
+
+1. **Gerät vor Sensor.** Eine 60-Sekunden-Statikmessung auf einem drosselnden
+   Telefon misst das Drosseln, nicht das Gyroskop.
+2. **Zeitversatz vor Drehung.** Die Drehung wird gegen ein Gyroskop-Fenster
+   gefittet, das um jeden Bild-Zeitstempel liegt. Steckt darin noch ein
+   Rest-Versatz, liegt das Fenster daneben und die gefundene Brennweite kommt
+   zu klein heraus.
+3. **Leiter vor Validierung.** Die Leiter sagt, ob ein Faktor über die
+   Entfernung reicht; die Validierung sagt, ob der Maßstab stimmt. Ohne die
+   erste hat die zweite keine Deutung.
+
+Eine Frage ist damit **beantwortbar**, wenn ihre Läufe vorliegen — nicht
+beantwortet. Die Tabelle enthält deshalb bewusst keine Spalte für ein Urteil.
+
 ## Was dieses Dokument nicht ist
 
 Es ist eine Bestandsaufnahme, kein Urteil. Eine Zeile mit **gemessen** sagt,

@@ -343,15 +343,31 @@ schickst.
 | 6 | 20 Drehung +90° / −90° um x, y, z | 3 min | " |
 | 7 | 20 Auswerten → speichern | — | `ARKIMUCAL1_*.txt` |
 | 8 | 22 Kameratakt | 1 min | `ARKCAMT1_*.txt` |
-| 9 | 18 Bedingungen je Szene | 10 min | `ARKCOND1_*.txt` |
-| 10 | 17 Unabhängige Targets (Maßband, mindestens eines zurückgehalten) | 20 min | `ARKTARGET1_*.txt` |
-| 11 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
-| 12 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
-| 13 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
-| 14 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
+| 9 | 24 Kamera-IMU-Zeitversatz `t_d` | 1 min | `ARKCAMIMU1_*.txt` |
+| 10 | 26 Kamera-IMU-Drehung `R` | 1 min | `ARKCAMEXT1_*.txt` |
+| 11 | 18 Bedingungen je Szene | 10 min | `ARKCOND1_*.txt` |
+| 12 | 17 Unabhängige Targets (Maßband, mindestens eines zurückgehalten) | 20 min | `ARKTARGET1_*.txt` |
+| 13 | 25 Maßstabsleiter über die Entfernung | 10 min | `ARKLADDER1_*.txt` |
+| 14 | 14 Metrische Validierung | 10 min | `ARKVALID1_*.txt` |
+| 15 | 19 Korpus-Eintrag | 2 min | `ARKCORPUS1_*.txt` |
+| 16 | 16 Redaktion, dann 15 Signatur | 3 min | `ARKREDRUN1_*.txt`, `ARKSIGN1_*.txt` |
+| 17 | 21 Manifest binden | 10 s | `ARKDSMAN1_*.txt` |
 
-Schritt 1–8 sind pro Gerät einmal fällig und danach nur noch nach
-Firmware-Wechsel oder Sturz. Schritt 9–14 pro Messsitzung. Schritt 0 und 14
+**Schritt 9 steht aus einem physikalischen Grund vor Schritt 10.** Die Drehung
+`R` wird bestimmt, indem das Gyroskop über das Intervall gemittelt wird, das um
+jeden Bild-Zeitstempel liegt. Steckt in diesen Zeitstempeln noch ein Rest-
+Versatz `t_d`, liegt dieses Fenster daneben: die Anpassung wird flacher, und
+die gefundene Brennweite — die *Länge* des Koeffizientenvektors — kommt zu
+klein heraus. Erst `t_d` messen, dann `R`.
+
+**Schritt 13 steht vor Schritt 14**, weil sie unterschiedliche Fragen beantworten.
+Die Leiter sagt, ob *ein* Skalierungsfaktor über die Entfernung überhaupt
+reicht. Die Validierung sagt, ob der Maßstab stimmt. Fragt man die zweite vor
+der ersten, steht da eine Zahl ohne Deutung: sie könnte auch von einem
+Skalierungsfehler kommen, der mit der Entfernung wächst.
+
+Schritt 1–10 sind pro Gerät einmal fällig und danach nur noch nach
+Firmware-Wechsel oder Sturz. Schritt 11–17 pro Messsitzung. Schritt 0 und 17
 gehören zusammen: der erste sagt, was fehlt, der letzte bindet, was da ist.
 
 **Schritt 1 steht aus einem Grund vor Schritt 2.** Eine 60-Sekunden-Statik-
@@ -364,6 +380,32 @@ sonst Zahlen über ein Gerät, das es während der Messung nicht mehr gab.
 **Reihenfolge 16 vor 15 ist zwingend.** Die Redaktion schreibt **neue**
 Dateien (`redacted_…`), und nur diese lädst du hoch. Signierst du zuerst,
 deckt die Signatur Bytes ab, die niemand hochlädt – sie wäre wertlos.
+
+### 5b. Welche Frage welcher Knopf beantwortet
+
+Der Kampagnenplan (Knopf 7) führt zehn kanonische Fragen. Lange stand nirgends,
+welche Messung welche Frage beantwortet — man konnte eine Frage als belegt
+bestätigen, ohne zu wissen, was man dafür ausführen soll. Diese Zuordnung steht
+jetzt im Kern (`ArKernelCampaignRoute`), wird in Knopf 7 für die jeweils
+aktuelle Frage angezeigt und ist hier noch einmal lesbar.
+
+Alle Fragen setzen dieselbe Reihenfolge voraus: **23 → 20 → 22 → 24 → 26**.
+
+| Frage | Knöpfe |
+|---|---|
+| `Q_SCALE_SHORT` / `Q_SCALE_LONG` | 13 → 25 → 14 |
+| `Q_ORTHOGONALITY` | 14 → 17 |
+| `Q_ORIENTATION_STILLNESS` | 20 |
+| `Q_THERMAL_DRIFT` | 18 → 23 → 20 → 14 |
+| `Q_LIGHTING_CHANGE` | 18 → 14 |
+| `Q_HELD_OUT_DIMENSION` | 17 → 14 |
+| `Q_REPEATABILITY` | 13 → 14 |
+| `Q_CROSS_SESSION` | 8 → 14 |
+| `Q_CROSS_DEVICE` | 9 |
+
+"Beantwortbar" heißt hier nur: die nötigen Läufe liegen vor. Es heißt nicht,
+dass die Antwort richtig ist, und diese Tabelle enthält aus demselben Grund
+keine Spalte für ein Urteil.
 
 ## 6. Was ich von dir brauche
 

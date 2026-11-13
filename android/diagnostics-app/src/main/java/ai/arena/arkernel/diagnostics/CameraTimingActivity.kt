@@ -284,6 +284,26 @@ class CameraTimingActivity : DiagnosticsActivity() {
         super.onDestroy()
     }
 
+    /**
+     * The camera is released when the screen goes away, not when the process
+     * does.
+     *
+     * A capture session holds the camera hardware, and onDestroy is not
+     * guaranteed to arrive - the system may drop the whole process to reclaim
+     * memory, and a backgrounded screen may sit alive for a long time. Until
+     * release happens, no other app can open the camera and this one keeps
+     * burning battery for a picture nobody is taking. So the release is bound
+     * to the moment the operator can no longer see the preview. Coming back
+     * starts a fresh session rather than resuming a stale one: the frames in
+     * flight are discarded, and anything that was mid-measurement has to be
+     * taken again, which is stated on the screen instead of being left to be
+     * discovered.
+     */
+    override fun onStop() {
+        stopCamera()
+        super.onStop()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,

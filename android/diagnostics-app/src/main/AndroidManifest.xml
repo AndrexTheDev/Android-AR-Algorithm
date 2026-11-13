@@ -114,6 +114,18 @@
             android:name=".WizardActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".CameraImuAlignmentActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".ScaleLadderActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".CameraExtrinsicsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

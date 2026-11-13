@@ -153,6 +153,8 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             text = "Ich habe ein Schachbrett (mindestens 9 x 7 Ecken, " +
                 "also 8 x 6 Kaestchen) flach aufgeklebt und will messen."
             isChecked = false
+            contentDescription =
+                "Bestätigung: Schachbrett liegt flach bereit"
         }
         val squareHint = TextView(this).apply {
             text = "Die Kaestchengroesse brauchst du NUR, wenn du die " +
@@ -167,12 +169,34 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             hint = "Kaestchengroesse in Millimetern (optional, z. B. 40)"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or
                 android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            contentDescription =
+                "Kantenlänge eines Kästchens in Millimetern, optional"
         }
-        cameraButton = Button(this).apply { text = "Kamera starten" }
-        tapButton = Button(this).apply { text = "Die vier Ecken neu tippen" }
-        captureButton = Button(this).apply { text = "Diese Ansicht aufnehmen" }
-        saveButton = Button(this).apply { text = "ARKINTR1 erzeugen" }
-        shareButton = Button(this).apply { text = "ARKINTR1 teilen" }
+        cameraButton = Button(this).apply {
+            text = "Kamera starten"
+            contentDescription = "Kamera starten und stoppen"
+        }
+        tapButton = Button(this).apply {
+            text = "Die vier Ecken neu tippen"
+            contentDescription =
+                "Die vier gesetzten Eckpunkte löschen und neu tippen"
+        }
+        captureButton = Button(this).apply {
+            text = "Diese Ansicht aufnehmen"
+            contentDescription =
+                "Die jetzige Ansicht des Brettes messen und speichern"
+        }
+        saveButton = Button(this).apply {
+            text = "ARKINTR1 erzeugen"
+            contentDescription =
+                "Aus allen Ansichten die Kamerawerte rechnen und als " +
+                    "Datei schreiben"
+        }
+        shareButton = Button(this).apply {
+            text = "ARKINTR1 teilen"
+            contentDescription =
+                "Die erzeugte Datei zum manuellen Teilen weitergeben"
+        }
         captureText = TextView(this).apply {
             text = "Noch keine Ansicht aufgenommen."
             textSize = 13f
@@ -210,7 +234,10 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             textSize = 12f
             setTextColor(Color.rgb(150, 160, 175))
         }
-        val backButton = Button(this).apply { text = "Zurueck" }
+        val backButton = Button(this).apply {
+            text = "Zurueck"
+            contentDescription = "Zurück zum Hauptbildschirm"
+        }
 
         val full = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -844,8 +871,31 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         out[1] = mapped[1] + bufferHeight / 2f
     }
 
+    /**
+     * The camera is released when the screen goes away, not when the process
+     * does.
+     *
+     * A live capture session holds a hardware resource that nothing else can
+     * use, and onDestroy is not guaranteed to arrive soon - or at all, if the
+     * system kills the process to reclaim memory. So the release is bound to
+     * the earliest point at which the operator can no longer be taking a
+     * shot. On the way back the screen says so rather than pretending
+     * nothing happened: the frames are gone, and any shot that was in
+     * progress has to be taken again.
+     */
+    override fun onStop() {
+        val wasRunning = cameraDevice != null
+        closeCamera()
+        super.onStop()
+        if (wasRunning) {
+            statusText.text = "Kamera beim Verlassen des Bildschirms " +
+                "freigegeben. Zum Weiterarbeiten bitte erneut starten."
+        }
+    }
+
     override fun onDestroy() {
         closeCamera()
+        latestLuma = null
         super.onDestroy()
     }
 

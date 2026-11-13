@@ -84,6 +84,13 @@ enum class ArKernelCampaignStep(
         cadence = ArKernelStepCadence.PER_DEVICE,
         establishes = "Bildtakt, Zeitbasis, Belichtung, Erfassungsstabilitaet"),
 
+    CAMERA_INTRINSICS(
+        button = 28,
+        record = "ARKINTR1",
+        cadence = ArKernelStepCadence.PER_DEVICE,
+        establishes =
+            "Brennweite, Hauptpunkt und Verzeichnung der Kamera, gemessen"),
+
     CAMERA_IMU_OFFSET(
         button = 24,
         record = "ARKCAMIMU1",
@@ -227,13 +234,19 @@ object ArKernelCampaignRoute {
      * The measurements every campaign stands on, in dependency order.
      *
      * Device runtime comes first because throttling corrupts everything after
-     * it. The time offset comes before the rotation because the rotation is
-     * fitted against a gyroscope window that the offset displaces.
+     * it. Intrinsics come before the offset and the rotation, and before any
+     * metric claim, for a reason that is not stylistic: an uncorrected radial
+     * distortion moves a point near the corner of the frame by tens of
+     * pixels, so a length measured there is wrong by an amount that no
+     * amount of care in the ruler step recovers. The time offset then comes
+     * before the rotation because the rotation is fitted against a gyroscope
+     * window that the offset displaces.
      */
     fun prerequisites(): List<ArKernelCampaignStep> = listOf(
         ArKernelCampaignStep.DEVICE_RUNTIME,
         ArKernelCampaignStep.IMU_SERIES,
         ArKernelCampaignStep.CAMERA_TIMING,
+        ArKernelCampaignStep.CAMERA_INTRINSICS,
         ArKernelCampaignStep.CAMERA_IMU_OFFSET,
         ArKernelCampaignStep.CAMERA_IMU_ROTATION)
 

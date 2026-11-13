@@ -57,6 +57,10 @@ enum class ArKernelArtifactContract(
     CAMEXT(
         "ARKCAMEXT1", 26,
         "Camera-IMU rotation and implied focal length"),
+    CAMINTR(
+        "ARKINTR1", 28,
+        "Measured camera intrinsics: focal length, principal point, "
+            + "radial distortion"),
     DEVHW("ARKDEVHW1", 23, "Device inventory, throttling and clocks"),
     MEAS("ARKMEAS1", 11, "Guided measurement execution"),
     FEED("ARKFEED1", 12, "Live camera feed markers"),
@@ -535,6 +539,11 @@ object ArKernelArtifactCatalogue {
         }
         ArKernelArtifactContract.CAMEXT -> {
             val result = ArKernelCameraImuExtrinsicsAdapter.parse(text)
+            ArKernelArtifactVerification(
+                result.accepted, result.rejection.name, result.detail)
+        }
+        ArKernelArtifactContract.CAMINTR -> {
+            val result = ArKernelIntrinsicsObservationAdapter.parse(text)
             ArKernelArtifactVerification(
                 result.accepted, result.rejection.name, result.detail)
         }

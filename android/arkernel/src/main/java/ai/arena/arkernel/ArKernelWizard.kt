@@ -34,6 +34,18 @@ enum class ArKernelWizardProp(val label: String, val optional: Boolean = false) 
     TAPE("Maßband, mindestens 3 m"),
     TARGET("Ein Gegenstand mit deutlichen Ecken"),
     TEXTURED_TARGET("Strukturiertes Ziel: Buchregal, Tapete, Pflaster"),
+
+    /**
+     * A printed checkerboard on something flat.
+     *
+     * Printed, and not shown on a screen: a screen is a grid of pixels with
+     * its own geometry, it refreshes, and it moires against the camera's own
+     * pixel grid. Flat, and not held in the hand, because the whole
+     * computation assumes the corners lie on one plane. Not measured: the
+     * squares have to be *square*, which a printer manages, and their size in
+     * millimetres is never used.
+     */
+    CHECKERBOARD("Schachbrett, ausgedruckt und auf etwas Festes geklebt"),
     SECOND_DEVICE("Ein zweites Gerät", optional = true),
     FIRM_SURFACE("Ein fester Tisch oder ein Stativ", optional = true),
 }
@@ -255,6 +267,60 @@ object ArKernelWizard {
             whyHere = "Zeitversatz und Drehung werden gegen die " +
                 "Bildzeitstempel gerechnet. Ist der Takt unregelmäßig, " +
                 "sitzt jedes Zeitfenster falsch.",
+        )
+
+        ArKernelCampaignStep.CAMERA_INTRINSICS -> ArKernelWizardEntry(
+            step = step,
+            title = "Die Kamera selbst vermessen",
+            props = listOf(ArKernelWizardProp.CHECKERBOARD),
+            minutes = 10,
+            prepare = listOf(
+                "Ein Schachbrett ausdrucken, mindestens 9 x 7 Ecken " +
+                    "(also 8 x 6 Kaestchen).",
+                "Das Blatt flach auf etwas Festes kleben: Pappe, ein Buch, " +
+                    "eine Tischplatte. Es darf sich nicht woelben.",
+                "Gutes, gleichmaessiges Licht. Keine hellen Flecken auf " +
+                    "dem Muster, kein Schatten quer darueber.",
+                "Nicht am Ladegeraet. Die Kamera sauber wischen.",
+            ),
+            action = "Knopf 28 oeffnen. Dann nacheinander mindestens 6, " +
+                "besser 10 Aufnahmen machen - und zwar aus deutlich " +
+                "verschiedenen Richtungen: einmal von links, von rechts, " +
+                "von oben, von unten, einmal nah, einmal weiter weg, " +
+                "einmal das Brett schraeg im Bild. Nach jeder Aufnahme " +
+                "sagt der Bildschirm, ob sie zaehlt. " +
+                "Bei jeder Aufnahme die vier aeusseren Ecken des Musters " +
+                "antippen: oben links, oben rechts, unten rechts, " +
+                "unten links.",
+            accept = "Eine Datei mit ARKINTR1 im Namen. Darin stehen " +
+                "Brennweite, Hauptpunkt und Verzeichnung - und die " +
+                "Eckpunkte, aus denen sie gerechnet wurden.",
+            mistakes = listOf(
+                "Das Brett nicht ganz im Bild: eine Ecke, die abgeschnitten " +
+                    "ist, wird nicht gemessen. Die App lehnt die Aufnahme " +
+                    "ab und sagt das auch.",
+                "Alle Aufnahmen aus derselben Richtung: das Muster ist dann " +
+                    "immer gleich im Bild, und Brennweite und Hauptpunkt " +
+                    "lassen sich nicht trennen. Die Rechnung merkt das und " +
+                    "lehnt ab.",
+                "Das Blatt in der Hand halten und es woelben: die Rechnung " +
+                    "nimmt eine ebene Flaeche an.",
+                "Das Muster klein in der Bildmitte lassen: das passt sich " +
+                    "schoen an und ist trotzdem falsch. Brett ruhig bis " +
+                    "an die Raender ins Bild nehmen.",
+                "Auf einen Bildschirm statt auf Papier halten.",
+                "Die Ecken in der falschen Reihenfolge antippen. Immer im " +
+                    "Uhrzeigersinn: oben links, oben rechts, unten rechts, " +
+                    "unten links.",
+            ),
+            whyHere = "Jede Messung in diesem Programm rechnet mit " +
+                "Bildpunkten. Eine unverzeichnete Linse verschiebt einen " +
+                "Punkt am Bildrand um Dutzende Bildpunkte gegenueber dem, " +
+                "was ein einfaches Kameramodell erwartet. Wer die Linse " +
+                "nicht kennt, misst am Rand etwas anderes als in der Mitte " +
+                "- und kann den Unterschied nachher nicht mehr erkennen. " +
+                "Die Brennweite hier ist gemessen, nicht vom Hersteller " +
+                "angegeben.",
         )
 
         ArKernelCampaignStep.CAMERA_IMU_OFFSET -> ArKernelWizardEntry(

@@ -176,17 +176,39 @@ class ArKernelWizardTest {
 
     @Test
     fun thePrerequisitesComeFirstAndInTheirPhysicalOrder() {
-        val first = planOf(inventoryWith()).items.take(5).map { it.step }
+        val first = planOf(inventoryWith()).items.take(6).map { it.step }
         assertEquals(
             listOf(
                 ArKernelCampaignStep.DEVICE_RUNTIME,
                 ArKernelCampaignStep.IMU_SERIES,
                 ArKernelCampaignStep.CAMERA_TIMING,
+                ArKernelCampaignStep.CAMERA_INTRINSICS,
                 ArKernelCampaignStep.CAMERA_IMU_OFFSET,
                 ArKernelCampaignStep.CAMERA_IMU_ROTATION,
             ),
             first,
         )
+    }
+
+    @Test
+    fun theLensIsMeasuredBeforeAnythingIsClaimedInMetres() {
+        // The ordering is physical, not stylistic. Radial distortion moves a
+        // point near the corner of the frame by tens of pixels, so a length
+        // measured there is wrong in a way that no care in the ruler step
+        // recovers. Every metric step therefore has to come after the
+        // intrinsics, and the wizard's run order has to say so.
+        val steps = planOf(inventoryWith()).items.map { it.step }
+        val intrinsics = steps.indexOf(ArKernelCampaignStep.CAMERA_INTRINSICS)
+        for (metric in listOf(
+            ArKernelCampaignStep.RULER_SCALE,
+            ArKernelCampaignStep.SCALE_LADDER,
+            ArKernelCampaignStep.METRIC_VALIDATION,
+        )) {
+            assertTrue(
+                "${metric.name} must not precede the intrinsics",
+                steps.indexOf(metric) > intrinsics,
+            )
+        }
     }
 
     // ---------------------------------------------------------------- state

@@ -25,7 +25,8 @@ darunterliegende nicht stimmt:
 | 5 | Kameratakt, Zeitbasis, Belichtung, Erfassungsstabilität | Telefon allein | **messbar** (`ARKCAMT1`) |
 | 6 | Kamera-Intrinsics (fx, fy, cx, cy, Verzeichnung) | braucht Bilder | **blockiert** – siehe §4 |
 | 7 | Kamera-IMU-Zeitversatz (`t_d`) und Achsenabbildung | Telefon + geführte Bewegung | **messbar** (`ARKCAMIMU1`) |
-| 7b | Kamera-IMU-Einbau (`R`, `t`) | braucht Bilder + Intrinsics | **fehlt** – hängt an Stück 6 |
+| 7b | Kamera-IMU-**Drehung** (`R`) | Telefon + geführte Drehung | **messbar** (`ARKCAMEXT1`) |
+| 7c | Kamera-IMU-**Versatz als Strecke** (`t`) | braucht Bilder + Intrinsics | **fehlt** – hängt an Stück 6 |
 | 8 | Maßstab über die Entfernung | Zollstock + Maßband | **messbar** (`ARKLADDER1`) |
 
 Stück 0 ist kein Sensorwert, sondern die Voraussetzung dafür, dass überhaupt
@@ -42,13 +43,24 @@ deren *Zeitpunkt*. Zwei Kurven werden gegeneinander verschoben, bis ihre Form
 heraus. Deshalb braucht `t_d` keine Brennweite und vertraut keinem
 Herstellerwert.
 
-Stück 7b bleibt davon unberührt. Eine Rotation und eine Translation zwischen
-Kamera und IMU sind ohne Intrinsics tatsächlich nicht von einer
-Fehlskalierung zu trennen, deshalb wartet 7b auf Stück 6. Für Stück 7 gilt
-diese Kopplung nicht.
+Dasselbe galt lange für Stück 7b, und auch dort war die Schlussfolgerung zu
+voreilig — aber nur zur Hälfte.
+
+Für die **Drehung `R`** hebt sich die unbekannte Brennweite ebenfalls auf,
+nur gegen eine Nebenbedingung statt gegen die Zeit: eine Zeile von `R` hat
+die Länge 1, und damit ist die Länge der aus der Regression gewonnenen
+Steigung genau die Brennweite. Stück 7b braucht für `R` also **keine**
+Intrinsics und wartet nicht auf Stück 6.
+
+Für die **Translation `t`** bleibt die Kopplung dagegen echt bestehen. Eine
+Strecke zwischen Kamera und IMU zeigt sich nur darin, wo der Bildinhalt bei
+*verschiedenen* Entfernungen sitzt; das braucht eine Position, eine Position
+braucht einen metrischen Maßstab, und den liefert hier nichts. Deshalb bleibt
+die Translation als eigenes Stück 7c offen und wartet weiter auf Stück 6.
+Für Stück 7 und für `R` in 7b gilt diese Kopplung nicht.
 
 Kein Stück behält ein Bild. Die App reduziert jedes Bild im Arbeitsspeicher
-auf ein Raster von 128 × 8 Helligkeitswerten und verwirft es sofort.
+auf ein Raster von Helligkeitswerten und verwirft es sofort.
 
 Die vollständige Zuordnung von Kern-Behauptung zu nötigem Test steht in
 `docs/DIAGNOSTIC_COVERAGE.md`.
@@ -262,6 +274,45 @@ Erkennung nur jede zweite Zentimeter-Marke, wäre der Maßstab stillschweigend
 um den Faktor zwei falsch — und die Gleichmäßigkeit der Abstände sähe genauso
 gut aus. Deshalb wird die erkannte Markenzahl gegen das angegebene Zollstock-
 stück geprüft und die Sprosse bei Widerspruch abgelehnt.
+
+### 4.3b Kamera-IMU-Drehung (Stück 7b) — gemessen ab `2.24-extrinsics`
+
+Knopf 26 bestimmt, wie die Kamera gegenüber dem Gyroskop gedreht ist. Das geht
+ohne Brennweite, obwohl ein Bildschub erst durch eine Brennweite zum Winkel
+wird — und der Grund ist derselbe wie beim Zeitversatz: die Unbekannte hebt
+sich auf.
+
+Nahe der optischen Achse gilt `x-punkt = -f · w_y` und `y-punkt = +f · w_x`.
+Trägt man die Bildrate gegen die drei Gyroskop-Achsen auf, kommt `-f` mal eine
+Zeile von `R` heraus, und bei der senkrechten Bewegung `+f` mal eine andere.
+Jede Zeile einer Drehmatrix hat die Länge 1, also **ist** die Länge des
+gefundenen Koeffizienten die Brennweite. Teilen liefert die Zeile. Der Maßstab
+ist keine freie Unbekannte — die Orthonormalität legt ihn fest.
+
+Daraus folgen zwei Prüfsteine, die man sonst bezahlen müsste. Die beiden
+Richtungen liefern **zwei unabhängige Schätzungen derselben Brennweite**; wie
+weit sie auseinanderliegen, entscheidet über die Annahme, denn sie teilen
+keinerlei Arithmetik. Und dieser Wert ist eine unabhängige Gegenprobe zur
+Maßstabsleiter aus 4.3, die denselben Betrag über den Zollstock ermittelt.
+
+Was **nicht** dabei herauskommt: der Versatz zwischen Kamera und IMU als
+Strecke. Er zeigt sich nur darin, wo der Bildinhalt bei *verschiedenen*
+Entfernungen sitzt — das braucht eine Position, und eine Position einen
+metrischen Maßstab.
+
+Die Durchführung ist anspruchsvoller als bei Knopf 24, und zwar aus einem
+Grund, der in der Regression liegt und nicht in der Szene: eine Bewegung, die
+nur eine Achse anregt, lässt die Komponenten der beiden anderen schlicht
+unsichtbar, ganz gleich wie sauber die Daten sind. Deshalb musst du **alle
+drei Achsen bewegen** — kippen, neigen, schwenken — und die Anzeige nennt
+ausdrücklich die *schwächste* Achse, nicht die stärkste. Nicht dabei gehen:
+Gehen ist eine Verschiebung, und eine Verschiebung wird hier nicht
+modelliert.
+
+Die so gewonnene Brennweite ist **keine gemessene Intrinsic**, sondern die
+Länge, die eine Einheitsbedingung erzwingt — mit allen Verzerrungen des
+Verfahrens. Sie ist eine plausible Größenordnung und eine Kreuzprobe, sonst
+nichts.
 
 ### 4.4 Thermikreihe mit echter Korrelation
 

@@ -944,11 +944,12 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.23-ladder`
+## Bedienung mit `2.24-extrinsics`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.23-ladder`. Fehlt dieser
-Text, ist noch eine alte APK installiert. Neu ist **Knopf 25** in
-`SCHRITT 4 · Geometrie und Maßstab`: Maßstabsleiter (`ARKLADDER1`).
+Auf dem Hauptbildschirm steht sichtbar `Version 2.24-extrinsics`. Fehlt
+dieser Text, ist noch eine alte APK installiert. Neu ist **Knopf 26** in der
+Gruppe `SCHRITT 2 · Kalibrierung & Sitzungen`, unmittelbar unter Knopf 25:
+Kamera-IMU-Drehung (`ARKCAMEXT1`).
 
 ### Warum dieser Knopf vor den anderen kommt
 
@@ -1122,6 +1123,63 @@ verlässlich und der absolute Wert nicht.
 
 Jedes Bild wird im Arbeitsspeicher auf eine Helligkeitslinie reduziert und
 sofort verworfen. Es wird kein Bild geschrieben, exportiert oder geteilt.
+
+## Bedienung mit Knopf 26 — Kamera-IMU-Drehung (`ARKCAMEXT1`)
+
+Dieser Knopf bestimmt, wie die Kamera gegenüber dem Gyroskop gedreht ist —
+und liefert daraus eine Brennweite, obwohl er keine kennt.
+
+### So wird gemessen
+
+Nahe der optischen Achse verschiebt eine Drehung den Bildinhalt mit
+`x-punkt = -f · w_y` und `y-punkt = +f · w_x`. Das Bild liefert die
+Verschiebung, das Gyroskop die Drehraten `w`. Beides wird über **dieselben**
+Bildintervalle gemittelt und gegeneinander aufgetragen.
+
+Der Punkt, der das ohne Brennweite möglich macht: jede Zeile einer Drehmatrix
+hat die Länge 1. Die waagerechte Regression liefert `-f` mal eine Zeile von
+`R`, und die **Länge** dieses Vektors ist damit genau die Brennweite. Durch
+sie zu teilen ergibt die Zeile selbst. Der Maßstab ist keine freie
+Unbekannte — die Orthonormalität legt ihn fest.
+
+### Was dabei herausfällt
+
+Die beiden Richtungen liefern **zwei unabhängige Schätzungen derselben
+Brennweite**. Wie weit sie auseinanderliegen, ist das Hauptgatter: teilen sie
+sich nicht, war die Bewegung keine reine Drehung — etwa weil du dabei
+gegangen bist — und der Lauf wird verworfen. Der Wert ist außerdem eine
+Gegenprobe zur Maßstabsleiter aus Knopf 25, die denselben Betrag über den
+Zollstock bestimmt.
+
+### Was nicht dabei herauskommt
+
+Der Versatz zwischen Kamera und IMU als **Strecke** wird nicht bestimmt. Er
+zeigt sich nur darin, wo der Bildinhalt bei verschiedenen Entfernungen sitzt;
+das braucht eine Position, und eine Position einen metrischen Maßstab. Die
+Datei trägt `translation_fitted=false` als verbindliche Angabe und wird
+abgelehnt, wenn sie etwas anderes behauptet.
+
+Die Brennweite ist **keine gemessene Intrinsic**, sondern die Länge, die eine
+Einheitsbedingung erzwingt — mit allen Verzerrungen des Verfahrens.
+
+### Durchführung
+
+1. Auf ein strukturreiches Ziel richten (Bücherregal, Straße, gemustertes
+   Tuch). Nicht auf eine leere Wand und nicht in den Himmel.
+2. Im Handgelenk drehen — abwechselnd kippen, neigen und schwenken, in
+   kleinen Kreisen.
+3. **Alle drei Achsen bewegen.** Regt die Bewegung nur eine Achse an, bleiben
+   die Komponenten der beiden anderen unsichtbar, ganz gleich wie sauber die
+   Daten sind. Die Anzeige nennt deshalb die Bewegung der *schwächsten*
+   Achse, nicht der stärksten.
+4. **Nicht dabei gehen.** Gehen ist eine Verschiebung, und eine Verschiebung
+   wird hier nicht modelliert.
+
+### Kein Bild wird behalten
+
+Jedes Bild wird im Arbeitsspeicher auf ein Raster von 128 × 72
+Helligkeitswerten reduziert und sofort verworfen. Es wird kein Bild
+geschrieben, exportiert oder geteilt.
 
 ## Grenzen
 

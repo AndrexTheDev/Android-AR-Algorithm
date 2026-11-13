@@ -5,7 +5,7 @@ sicher". Es führt jede Behauptung des AR-Kerns, jeden physikalischen Test, der
 sie stützen müsste, und den Knopf, der ihn durchführt — oder den Grund, warum
 es ihn nicht gibt.
 
-Stand: Version `2.21-devhw` (Knopf 1–23). Bewertung über alles:
+Stand: Version `2.22-camimu` (Knopf 1–24). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## Wie die Matrix zu lesen ist
@@ -79,13 +79,25 @@ bereits enthielt — sie hatten nur keinen Bildschirm.
 | Der Rolling-Shutter-Versatz ist bekannt | `SENSOR_ROLLING_SHUTTER_SKEW` | 22 | `ARKCAMT1` | **gemessen**, wenn gemeldet (ab Android 13) |
 | **Brennweite, Hauptpunkt, Verzeichnung stimmen** | Schachbrett-Aufnahmen | — | — | **blockiert** |
 | **Einbau zwischen Kamera und IMU ist bekannt** | geführte Bewegung mit Bildern | — | — | **fehlt** |
-| **Zeitversatz zwischen Kamera und IMU ist bekannt** | Korrelation Bildrotation/Gyro | — | — | **fehlt** |
+| **Zeitversatz zwischen Kamera und IMU ist bekannt** | Korrelation Bildschub/Gyro | 24 | `ARKCAMIMU1` | **gemessen** |
 | Das Bild ist scharf und nicht überbelichtet | `CameraFrameQuality` (Bibliothek) | — | — | **fehlt** |
 
-Die drei fett gedruckten Zeilen sind die eigentliche Grenze dieser App, und
-sie hängen zusammen: ohne Intrinsics hat eine geführte Bewegung keinen
-Maßstab, und ohne Maßstab lässt sich der Zeitversatz nicht von einer
-Fehlskalierung unterscheiden.
+Die beiden fett gedruckten Zeilen sind die eigentliche Grenze dieser App —
+aber sie hängen **nicht** so zusammen, wie hier früher stand.
+
+Früher stand an dieser Stelle, ohne Intrinsics habe eine geführte Bewegung
+keinen Maßstab, und ohne Maßstab lasse sich der Zeitversatz nicht von einer
+Fehlskalierung unterscheiden. **Das ist für den Zeitversatz falsch.** Der
+Versatz wird nicht aus der Größe der Bewegung bestimmt, sondern aus deren
+*Zeitpunkt*: zwei Kurven werden gegeneinander verschoben, bis ihre Form
+übereinander liegt. Ein falscher Maßstab staucht beide Kurven gleich und
+hebt sich beim Verschieben heraus. Deshalb ist `t_d` ohne Intrinsics
+messbar, und Knopf 24 misst ihn.
+
+Für den **Einbau** `R`/`t` bleibt die Kopplung bestehen: eine Rotation und
+eine Translation zwischen Kamera und IMU sind ohne Brennweite tatsächlich
+nicht von einer Fehlskalierung zu trennen. Diese Zeile bleibt **fehlt**, bis
+Intrinsics vorliegen.
 
 ## Schicht 3 — Gerät und Laufzeit
 
@@ -178,8 +190,10 @@ falsch integriert, bevor er irgendeinen Maßstab prüft.
 
 1. **Schicht 1** — Trägheitssensorik (Knopf 20). Pro Gerät einmal, danach
    nur nach Firmware-Wechsel oder Sturz.
-2. **Schicht 2** — Kameratakt (Knopf 22). Pro Gerät einmal.
-   **Intrinsics blockiert.**
+2. **Schicht 2** — Kameratakt (Knopf 22) und Kamera-IMU-Versatz
+   (Knopf 24). Pro Gerät einmal. **Intrinsics blockiert**, und damit auch
+   der Einbau `R`/`t`. Der Zeitversatz `t_d` braucht keine Intrinsics und
+   kann sofort gemessen werden.
 3. **Schicht 3** — Gerät und Laufzeit (Knopf 23). Pro Gerät **vor**
    Schicht 1 und 2, und erneut nach jedem Firmware-Wechsel: erst wenn das
    Gerät nicht drosselt und die Uhren halten, bedeuten die IMU- und

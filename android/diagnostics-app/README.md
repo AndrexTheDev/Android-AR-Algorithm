@@ -944,12 +944,12 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.21-devhw`
+## Bedienung mit `2.22-camimu`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.21-devhw`. Fehlt dieser
-Text, ist noch eine alte APK installiert. Neu ist **Knopf 23** in
-`SCHRITT 3 · Messung mit Kamera & Zollstock`: Gerät & Laufzeit
-(`ARKDEVHW1`).
+Auf dem Hauptbildschirm steht sichtbar `Version 2.22-camimu`. Fehlt dieser
+Text, ist noch eine alte APK installiert. Neu ist **Knopf 24** in
+`SCHRITT 2 · Kalibrierung & Sitzungen`: Kamera-IMU-Zeitversatz
+(`ARKCAMIMU1`).
 
 ### Warum dieser Knopf vor den anderen kommt
 
@@ -1014,6 +1014,58 @@ Kein Sensorwert, kein Bild und kein Pixel. Die einzige Ausgabe ist eine
 begrenzte `ARKDEVHW1`-Textdatei, die du selbst speicherst und selbst
 hochlädst.
 
+
+## Bedienung mit Knopf 24 — Kamera-IMU-Zeitversatz (`ARKCAMIMU1`)
+
+Dieser Knopf beantwortet zwei Fragen: um wie viele Millisekunden die
+Zeitstempel der Kamera gegenüber dem Gyroskop verschoben sind, und welche
+Gyroskop-Achse zum horizontalen Schwenken gehört.
+
+### Warum das ohne Brennweite geht
+
+Der Versatz wird nicht aus der **Größe** der Bildbewegung bestimmt, sondern
+aus deren **Zeitpunkt**. Zwei Kurven über die Zeit — eine aus dem Bild, eine
+aus dem Gyroskop — werden gegeneinander verschoben, bis ihre Form
+übereinander liegt. Ein falscher Maßstab staucht beide Kurven gleich und hebt
+sich beim Verschieben heraus. Deshalb braucht diese Messung keine Intrinsics
+und vertraut keinem Herstellerwert.
+
+Das gilt **nur** für den Zeitversatz. Der Einbau `R`/`t` zwischen Kamera und
+IMU ist ohne Brennweite nicht von einer Fehlskalierung zu trennen und bleibt
+daher offen.
+
+### So wird gemessen
+
+1. Handy auf ein **strukturreiches Ziel** richten — Bücherregal, Straße,
+   gemustertes Tuch. Nicht auf eine leere Wand und nicht in den Himmel; ohne
+   Struktur gibt es keine Verschiebung, die man finden könnte.
+2. Dauer wählen (4, 6 oder 10 Sekunden), Opt-in anhaken, „Messung starten".
+3. Das Handy ruhig halten und dann **langsam und gleichmäßig von links nach
+   rechts schwenken**, wie beim Kopfschütteln.
+4. **Während der Aufnahme** die Anzeige beobachten. Sie zeigt laufend, ob
+   genug Bilder kommen, ob das Gyroskop schnell genug abtastet und ob die
+   Bewegung groß genug ist. So siehst du einen vergeblichen Lauf, während er
+   passiert — nicht erst hinterher.
+
+### Was danach herauskommt
+
+Der Zeitversatz in Millisekunden, mit Vorzeichen und Klartext: sind die
+Bild-Zeitstempel zu spät, sollte der Kern `t_d` abziehen. Dazu die Achse und
+ob sie invertiert ist, die Korrelation in Prozent, und eine Kurve, die zeigt,
+wie deutlich der Berg ist. Ein schmaler, deutlicher Berg ist ein klares
+Ergebnis; ein flacher Verlauf heißt, dass die Bewegung nicht ausgewertet
+werden konnte.
+
+Fällt der Lauf durch, nennt der Bericht, was fehlt — zu wenig Bilder,
+Gyroskop-Rate zu niedrig, zu wenig Bewegung, Ziel zu strukturlos, oder das
+Maximum liegt am Fensterrand.
+
+### Kein Bild wird behalten
+
+Jedes Bild wird im Arbeitsspeicher auf ein Raster von 128 × 8
+Helligkeitswerten reduziert und sofort verworfen. Nur diese kleinen Raster
+überleben bis zur Korrelation und werden mit dem Ergebnis verworfen. Es wird
+kein Bild geschrieben, exportiert oder geteilt.
 
 ## Grenzen
 

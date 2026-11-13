@@ -85,6 +85,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var conditionsButton: Button
     private lateinit var corpusButton: Button
     private lateinit var imuCalButton: Button
+    private lateinit var camImuButton: Button
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
     private lateinit var cameraTimingButton: Button
@@ -370,6 +371,13 @@ class MainActivity : DiagnosticsActivity() {
             setAllCaps(false)
         }
 
+        camImuButton = Button(this).apply {
+            text = "24. Kamera-IMU-Zeitversatz t_d & " +
+                "Achsenabbildung (ARKCAMIMU1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+
         hubButton = Button(this).apply {
             text = "21. Zentrale: Bestand & Manifest (ARKDSMAN1)"
             textSize = 15f
@@ -450,6 +458,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(crossButton, fullWidthParams())
         root.addView(corpusButton, fullWidthParams())
         root.addView(imuCalButton, fullWidthParams())
+        root.addView(camImuButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
@@ -598,6 +607,11 @@ class MainActivity : DiagnosticsActivity() {
         imuCalButton.setOnClickListener {
             startActivity(
                 Intent(this, ImuCalibrationActivity::class.java),
+            )
+        }
+        camImuButton.setOnClickListener {
+            startActivity(
+                Intent(this, CameraImuAlignmentActivity::class.java),
             )
         }
 

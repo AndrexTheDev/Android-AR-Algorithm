@@ -5,7 +5,7 @@ physikalischen Messungen** fertigzubekommen. Es sagt, was die Test-App heute
 messend kann, was sie nur bucht, was noch fehlt, in welcher Reihenfolge es
 zusammenhängt, und was du mir jeweils schicken musst.
 
-Stand: Version `2.21-devhw` (Knopf 1–23). Bewertung über alles:
+Stand: Version `2.22-camimu` (Knopf 1–24). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## 1. Was ein AR-Kern physikalisch braucht
@@ -24,7 +24,8 @@ darunterliegende nicht stimmt:
 | 4 | Rauschen und Bias-Stabilität | Telefon + Tisch | **messbar** (`ARKIMUCAL1`) |
 | 5 | Kameratakt, Zeitbasis, Belichtung, Erfassungsstabilität | Telefon allein | **messbar** (`ARKCAMT1`) |
 | 6 | Kamera-Intrinsics (fx, fy, cx, cy, Verzeichnung) | braucht Bilder | **blockiert** – siehe §4 |
-| 7 | Kamera-IMU-Einbau und Zeitversatz (`R`, `t`, `t_d`) | braucht Bilder + geführte Bewegung | **fehlt** |
+| 7 | Kamera-IMU-Zeitversatz (`t_d`) und Achsenabbildung | Telefon + geführte Bewegung | **messbar** (`ARKCAMIMU1`) |
+| 7b | Kamera-IMU-Einbau (`R`, `t`) | braucht Bilder + Intrinsics | **fehlt** – hängt an Stück 6 |
 | 8 | Maßstab über die Entfernung | Zollstock + bekannte Abstände | **teilweise** (`ARKVALID1`, `ARKSCALE1`) |
 
 Stück 0 ist kein Sensorwert, sondern die Voraussetzung dafür, dass überhaupt
@@ -33,8 +34,21 @@ das war die gefährlichste Lücke dieser Liste: sie verfälscht nicht das
 Ergebnis einer Reihe, sie verfälscht jede Reihe, die auf diesem Gerät läuft.
 
 Die Stücke 0–5 sind reine Sensorik. Sie brauchen kein Bild, keine Erlaubnis
-und keine Kalibrierhilfe — deshalb sind sie jetzt messbar. Stück 6–7 brauchen
-Bilder, und die App nimmt bewusst keine auf.
+und keine Kalibrierhilfe — deshalb sind sie jetzt messbar. Stück 7 ist
+ebenfalls messbar, und zwar aus einem Grund, der erklärungsbedürftig ist: der
+Zeitversatz wird nicht aus der *Größe* der Bildbewegung bestimmt, sondern aus
+deren *Zeitpunkt*. Zwei Kurven werden gegeneinander verschoben, bis ihre Form
+übereinander liegt; ein falscher Maßstab staucht beide gleich und hebt sich
+heraus. Deshalb braucht `t_d` keine Brennweite und vertraut keinem
+Herstellerwert.
+
+Stück 7b bleibt davon unberührt. Eine Rotation und eine Translation zwischen
+Kamera und IMU sind ohne Intrinsics tatsächlich nicht von einer
+Fehlskalierung zu trennen, deshalb wartet 7b auf Stück 6. Für Stück 7 gilt
+diese Kopplung nicht.
+
+Kein Stück behält ein Bild. Die App reduziert jedes Bild im Arbeitsspeicher
+auf ein Raster von 128 × 8 Helligkeitswerten und verwirft es sofort.
 
 Die vollständige Zuordnung von Kern-Behauptung zu nötigem Test steht in
 `docs/DIAGNOSTIC_COVERAGE.md`.

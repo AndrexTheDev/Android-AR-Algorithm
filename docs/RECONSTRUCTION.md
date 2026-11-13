@@ -718,3 +718,52 @@ No sensor sample, no frame and no pixel is retained. The only output is a
 bounded `ARKDEVHW1` text record written to `Downloads` on demand.
 `device_sufficient` is a precondition gate over six independent verdicts, not a
 judgement of the device, and the grade stays `unverified`.
+
+## Camera-IMU time offset and axis mapping (`ARKCAMIMU1`)
+
+Diagnostics app version `2.22-camimu` adds button 24. It measures the one
+quantity in the camera-IMU layer that turns out not to be blocked by the
+missing intrinsics: the time offset `t_d` between image timestamps and
+gyroscope samples, and which gyroscope axis a horizontal pan maps onto.
+
+**Why this is measurable without a focal length.** The offset is not derived
+from the *magnitude* of image motion but from its *timing*. Two curves over
+time - one from the image, one from the gyroscope - are slid against each other
+until their shapes align. A wrong scale stretches both curves identically and
+cancels in the shift, so the estimate needs no intrinsics and trusts no
+manufacturer value. The extrinsics `R` and `t` do not share this property: a
+rotation and a translation between camera and IMU cannot be separated from a
+mis-scale without a focal length, so they remain unmeasured.
+
+**Frames are reduced, not stored.** The user pans the phone across a textured
+scene for four to ten seconds. Each frame is reduced in memory to a 128x8 grid
+of luminance samples and dropped; only those grids survive until the
+correlation finishes, and they are discarded with the result. No image is
+written, exported or shared.
+
+**The half-interval bias.** A shift measured between two consecutive frames is
+an *average* rate over that interval, not an instantaneous one. Correlating it
+directly against instantaneous gyroscope samples biases the peak by half a
+frame interval - around sixteen milliseconds at thirty frames per second,
+which is larger than the offset being measured. The gyroscope is therefore
+averaged over exactly the same intervals as the image shift, so both sides
+carry identical filtering and the peak lands where it belongs.
+
+**Verification.** Because the correlator is the only part of the app that
+estimates a physical quantity nobody told it, it is tested against synthetic
+runs with a known answer: an analytic pan is integrated exactly, an offset is
+injected on purpose, and the test asserts the estimator returns that offset,
+on the correct axis and with the correct sign. The half-interval correction is
+covered by the same runs - without it the recovered offset is wrong by the
+predicted amount.
+
+**Gates.** A run is only accepted when it has enough frames, a fast enough
+gyroscope, enough motion, a strong enough peak, and a peak that is not pinned
+to an edge of the search window. The first three are shown live during capture
+so a wasted run is visible while it happens rather than after. Failing gates
+name themselves in the record as the steps still outstanding.
+
+No frame, no image and no pixel is retained. The only output is a bounded
+`ARKCAMIMU1` text record written to `Downloads` on demand.
+`alignment_ok` is a precondition gate, not a judgement of calibration quality,
+and the grade stays `unverified`.

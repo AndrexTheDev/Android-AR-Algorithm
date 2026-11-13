@@ -27,7 +27,9 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon --stacktrace :android:arkernel:assembleDebug \
+          gradle --no-daemon --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs=-Xmx3g \
+            :android:arkernel:assembleDebug \
             :android:arkernel:testDebugUnitTest :android:arkernel:lintDebug \
             2>&1 | tee android-library-gradle.log
           status=${PIPESTATUS[0]}
@@ -38,8 +40,8 @@ jobs:
               tail -n 160 android-library-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|^e: |FAILED' \
-              android-library-gradle.log | tail -n 120)
+            detail=$(awk '/FAILURE: Build failed/{f=1} f' \
+              android-library-gradle.log | head -n 40)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}
@@ -146,8 +148,11 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
             detail=$(grep -E \
-              '^e: |^w: .*error|FAILURE:|What went wrong|Execution failed for task|Caused by:|daemon|Could not|[Ee]rror:' \
-              diagnostics-apk-gradle.log | tail -n 60)
+              '^e: |FAILURE:|What went wrong|Execution failed for task|daemon|error:' \
+              diagnostics-apk-gradle.log | tail -n 40)
+            block=$(awk '/FAILURE: Build failed/{f=1} f' \
+              diagnostics-apk-gradle.log | head -n 20)
+            if [ -n "$block" ]; then detail="$block"; fi
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}

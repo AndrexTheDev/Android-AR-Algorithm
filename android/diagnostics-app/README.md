@@ -813,7 +813,7 @@ stehen die zwei Zahlen, die sagen, was der Kern ohne jede Korrektur überhaupt
 versuchen darf: **Lagedrift in °/min** und **Positionsdrift in m/min**.
 
 „Datei speichern“ schreibt
-`arkernel-imucal-<gerät>-<sitzung>.txt` nach
+`ARKIMUCAL1_<gerät>-<sitzung>.txt` nach
 `Downloads/ARKernelDiagnostics`. „Datei teilen“ und „In die
 Zwischenablage“ geben denselben Text weiter. Hochladen tust du ihn selbst; die
 App lädt nichts hoch.
@@ -944,17 +944,46 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.25-route`
+## Bedienung mit `2.26-catalogue`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.25-route`. Fehlt dieser
+Auf dem Hauptbildschirm steht sichtbar `Version 2.26-catalogue`. Fehlt dieser
 Text, ist noch eine alte APK installiert — und dann sagt Knopf 7 dir nicht,
 welchen Knopf du für welche Frage ausführen sollst; daran erkennst du, dass
 du die falsche Version hast.
 
-Neu in `2.25-route` ist **Knopf 7**: er nennt jetzt zu jeder kanonischen
-Frage die Knöpfe, die ihre Evidenz liefern. Aus `2.24-extrinsics` stammt
-**Knopf 26** in der Gruppe `SCHRITT 2 · Kalibrierung & Sitzungen`, unmittelbar
-unter Knopf 25: Kamera-IMU-Drehung (`ARKCAMEXT1`).
+### Was `2.26-catalogue` gegenüber `2.25-route` korrigiert
+
+Das Artefakt-Inventar war unvollständig, und zwar so, dass nichts davon etwas
+sagte. Drei Verträge — **Knopf 24** (`ARKCAMIMU1`), **Knopf 25**
+(`ARKLADDER1`) und **Knopf 26** (`ARKCAMEXT1`) — waren nirgends registriert.
+Die Manifest-Erzeugung, also der Schritt, der eine Kampagne zu einer
+prüfbaren Einheit zusammenhält, hat ihre Dateien deshalb als *unbekannt*
+einsortiert und still verworfen: kein Fehler, kein Hinweis, kein Eintrag —
+die Messung wäre gelaufen und beim Binden verschwunden.
+
+Zweitens sucht das Inventar ein Vertragskennzeichen **im Dateinamen**. Vier
+Bildschirme schrieben ihre Dateien ohne dieses Kennzeichen
+(`camimu-…txt`, `ladder-…txt`, `camext-…txt`, `arkernel-imucal-…txt`), also
+wären sie auch nach der Registrierung unsichtbar geblieben. Sie schreiben
+jetzt `ARKCAMIMU1_…`, `ARKLADDER1_…`, `ARKCAMEXT1_…` und `ARKIMUCAL1_…`.
+
+**Das hat eine Folge für dich.** Dateien, die eine ältere APK geschrieben hat,
+erkennt das Inventar nicht — auch nicht die von `2.25-route`. Benenne sie um
+(aus `camimu-x-1.txt` wird `ARKCAMIMU1_x-1.txt`, aus `arkernel-imucal-d-s.txt`
+wird `ARKIMUCAL1_d-s.txt`), oder miss sie mit diesem Build neu. Am saubersten
+ist neu messen: diese Version ist die erste, in der überhaupt alle Verträge
+bekannt sind.
+
+Damit das nicht ein viertes Mal passiert, prüft die Testsuite jetzt von
+außen gegen das Inventar: die Weiterleitungstabelle (Knopf 7) nennt zu jedem
+Schritt den Datensatz, den er erzeugt, und jeder dieser Datensätze muss im
+Inventar stehen — mit derselben Knopfnummer. Ein Vertrag, der nur in der
+eigenen Aufzählung vorkommt, fällt dadurch auf.
+
+Aus `2.25-route` stammt **Knopf 7**: er nennt zu jeder kanonischen Frage die
+Knöpfe, die ihre Evidenz liefern. Aus `2.24-extrinsics` stammt **Knopf 26** in
+der Gruppe `SCHRITT 2 · Kalibrierung & Sitzungen`, unmittelbar unter Knopf 25:
+Kamera-IMU-Drehung (`ARKCAMEXT1`).
 
 ### Warum dieser Knopf vor den anderen kommt
 

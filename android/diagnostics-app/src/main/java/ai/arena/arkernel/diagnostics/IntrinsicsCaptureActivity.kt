@@ -97,7 +97,7 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
     private lateinit var saveButton: Button
     private lateinit var shareButton: Button
     private lateinit var textureView: TextureView
-    private lateinit var overlay: BoardOverlayView
+    private lateinit var boardOverlay: BoardOverlayView
 
     private val runId = "intrinsics." + System.currentTimeMillis()
     private val deviceToken = opaqueDeviceToken()
@@ -163,7 +163,7 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         }
 
         textureView = TextureView(this)
-        overlay = BoardOverlayView(this)
+        boardOverlay = BoardOverlayView(this)
         val previewHeight = (220 * resources.displayMetrics.density).toInt()
         val fill = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -171,10 +171,10 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
         )
         val frame = FrameLayout(this).apply {
             addView(textureView)
-            addView(overlay)
+            addView(boardOverlay)
         }
         textureView.layoutParams = fill
-        overlay.layoutParams = fill
+        boardOverlay.layoutParams = fill
 
         val guidance = TextView(this).apply {
             text = "So geht es: Brett ganz ins Bild halten - nichts darf " +
@@ -223,7 +223,7 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
 
         cameraButton.setOnClickListener { toggleCamera() }
         tapButton.setOnClickListener {
-            overlay.reset()
+            boardOverlay.reset()
             statusText.text = "Bitte die vier aeusseren Ecken antippen: " +
                 "oben links, oben rechts, unten rechts, unten links."
         }
@@ -281,12 +281,12 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
             statusText.text = "Noch kein Bild. Bitte die Kamera starten."
             return
         }
-        if (overlay.count() != 4) {
+        if (boardOverlay.count() != 4) {
             statusText.text = "Bitte vier Ecken antippen. Aktuell: " +
-                "${overlay.count()}/4."
+                "${boardOverlay.count()}/4."
             return
         }
-        val taps = overlay.tapsInBuffer()
+        val taps = boardOverlay.tapsInBuffer()
         val result = ArKernelCheckerboard.refineBoard(
             gray = luma,
             width = lumaWidth,
@@ -309,7 +309,7 @@ class IntrinsicsCaptureActivity : android.app.Activity() {
                 corners = points,
             ),
         )
-        overlay.markFound(result.corners.filter { it.valid }.map {
+        boardOverlay.markFound(result.corners.filter { it.valid }.map {
             Pair(it.xPx.toFloat(), it.yPx.toFloat())
         })
         captureText.text = buildString {

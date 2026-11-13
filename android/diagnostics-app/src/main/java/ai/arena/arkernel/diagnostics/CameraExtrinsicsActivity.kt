@@ -248,6 +248,7 @@ class CameraExtrinsicsActivity : DiagnosticsActivity() {
         root.addView(optInBox)
 
         durationSpinner = Spinner(this).apply {
+            contentDescription = "Dauer der Extrinsik-Messung auswhlen"
             adapter = ArrayAdapter(
                 this@CameraExtrinsicsActivity,
                 android.R.layout.simple_spinner_dropdown_item,

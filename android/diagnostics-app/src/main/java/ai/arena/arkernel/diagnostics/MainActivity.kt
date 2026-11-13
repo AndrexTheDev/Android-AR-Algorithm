@@ -87,6 +87,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var imuCalButton: Button
     private lateinit var camImuButton: Button
     private lateinit var ladderButton: Button
+    private lateinit var extrinsicsButton: Button
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
     private lateinit var cameraTimingButton: Button
@@ -379,6 +380,13 @@ class MainActivity : DiagnosticsActivity() {
             setAllCaps(false)
         }
 
+        extrinsicsButton = Button(this).apply {
+            text = "26. Kamera-IMU-Drehung und Brennweite " +
+                "(ARKCAMEXT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+
         camImuButton = Button(this).apply {
             text = "24. Kamera-IMU-Zeitversatz t_d & " +
                 "Achsenabbildung (ARKCAMIMU1)"
@@ -468,6 +476,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(imuCalButton, fullWidthParams())
         root.addView(camImuButton, fullWidthParams())
         root.addView(ladderButton, fullWidthParams())
+        root.addView(extrinsicsButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
@@ -626,6 +635,11 @@ class MainActivity : DiagnosticsActivity() {
         ladderButton.setOnClickListener {
             startActivity(
                 Intent(this, ScaleLadderActivity::class.java),
+            )
+        }
+        extrinsicsButton.setOnClickListener {
+            startActivity(
+                Intent(this, CameraExtrinsicsActivity::class.java),
             )
         }
 

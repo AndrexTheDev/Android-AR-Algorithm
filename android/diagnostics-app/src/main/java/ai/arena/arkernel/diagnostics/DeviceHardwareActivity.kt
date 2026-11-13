@@ -174,7 +174,7 @@ class DeviceHardwareActivity : DiagnosticsActivity() {
         })
 
         durationSpinner = Spinner(this).apply {
-            contentDescription = "Hardware-Klasse auswhlen"""
+            contentDescription = "Hardware-Klasse auswählen"
             adapter = ArrayAdapter(
                 this@DeviceHardwareActivity,
                 android.R.layout.simple_spinner_dropdown_item,

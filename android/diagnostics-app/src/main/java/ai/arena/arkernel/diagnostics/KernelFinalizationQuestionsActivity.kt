@@ -141,8 +141,9 @@ class KernelFinalizationQuestionsActivity : DiagnosticsActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setMargins(0, 24, 0, 0)
+            ).apply {
+                setMargins(0, 24, 0, 0)
+            }
         }
 
         val exportButton = Button(this).apply {
@@ -189,8 +190,9 @@ class KernelFinalizationQuestionsActivity : DiagnosticsActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setMargins(0, 0, 0, 16)
+            ).apply {
+                setMargins(0, 0, 0, 16)
+            }
         }
 
         val label = TextView(this).apply {

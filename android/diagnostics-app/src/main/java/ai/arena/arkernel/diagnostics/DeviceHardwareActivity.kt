@@ -562,18 +562,15 @@ class DeviceHardwareActivity : DiagnosticsActivity() {
         Sensor.TYPE_SIGNIFICANT_MOTION -> "significant_motion"
         Sensor.TYPE_STATIONARY_DETECT -> "stationary_detect"
         Sensor.TYPE_MOTION_DETECT -> "motion_detect"
-        Sensor.TYPE_TILT_DETECTOR -> "tilt_detector"
-        Sensor.TYPE_WAKE_GESTURE -> "wake_gesture"
-        Sensor.TYPE_GLANCE_GESTURE -> "glance_gesture"
-        Sensor.TYPE_PICK_UP_GESTURE -> "pick_up_gesture"
-        Sensor.TYPE_WRIST_TILT_GESTURE -> "wrist_tilt_gesture"
-        Sensor.TYPE_DEVICE_ORIENTATION -> "device_orientation"
         Sensor.TYPE_POSE_6DOF -> "pose_6dof"
         Sensor.TYPE_HEART_RATE -> "heart_rate"
         Sensor.TYPE_HEART_BEAT -> "heart_beat"
         Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT ->
             "low_latency_offbody_detect"
-        Sensor.TYPE_DYNAMIC_SENSOR_META -> "dynamic_sensor_meta"
+        // Everything the public SDK hides - tilt and wake gestures, wrist
+        // tilt, device orientation, dynamic-sensor metadata - falls through
+        // to `type_<n>` below. That is honest and sufficient: the kernel
+        // needs an accelerometer and a gyroscope, and both are public.
         else -> "type_$type"
     }
 

@@ -967,7 +967,9 @@ Verzögerungsgrenzen, Leistung und Meldeweise. Der Kern integriert
 Beschleuniger und Gyroskop; fehlt eines, kann er auf diesem Gerät nicht
 laufen. Das steht ausdrücklich als **gemeldeter** Wert in der Datei — ein
 Gerät kann ein Gyroskop ankündigen und nichts liefern, und dieses Inventar
-behauptet nicht, das geprüft zu haben.
+behauptet nicht, das geprüft zu haben. Sensoren, die das öffentliche Android-
+SDK nicht zeigt (etwa Neigungs- und Aufwachgesten), erscheinen als
+`type_<Nummer>`; sie sind für den Kern ohne Belang.
 
 **Reserven.** Arbeitsspeicher und freier Massenspeicher werden vor der Last
 gelesen. Unter 192 MB freiem Arbeitsspeicher oder 256 MB freiem Platz fällt

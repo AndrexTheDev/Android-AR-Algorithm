@@ -184,9 +184,12 @@ class CameraTimingActivity : DiagnosticsActivity() {
             contentDescription = "Hinweis, dass keine Bilder behalten werden"
         })
 
-        cameraSpinner = Spinner(this)
+        cameraSpinner = Spinner(this).apply {
+            contentDescription = "Kamera fr die Timing-Messung auswhlen"
+        }
         root.addView(labelled("Kamera", cameraSpinner))
         durationSpinner = Spinner(this).apply {
+            contentDescription = "Dauer der Timing-Messung auswhlen"
             adapter = ArrayAdapter(
                 this@CameraTimingActivity,
                 android.R.layout.simple_spinner_dropdown_item,

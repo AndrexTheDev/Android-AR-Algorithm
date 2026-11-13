@@ -238,6 +238,7 @@ class MainActivity : DiagnosticsActivity() {
         }
 
         planInput = EditText(this).apply {
+            contentDescription = "Feld-Diagnose-Plan eingeben oder einfgen"
             inputType = InputType.TYPE_CLASS_TEXT or
                 InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS

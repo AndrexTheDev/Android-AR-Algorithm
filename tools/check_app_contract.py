@@ -46,6 +46,14 @@ def read(path: str) -> str:
         return handle.read()
 
 
+def find_files(directory: str, suffix: str) -> list[str]:
+    out = []
+    for name in sorted(os.listdir(directory)):
+        if name.endswith(suffix):
+            out.append(os.path.join(directory, name))
+    return out
+
+
 def launched_activities(application_dir: str) -> set[str]:
     """Activities that are actually started somewhere via an explicit Intent.
 
@@ -67,14 +75,6 @@ def launched_activities(application_dir: str) -> set[str]:
         os.path.basename(path)[:-3] for path in find_files(application_dir, "Activity.kt")
     }
     return {name for name in launched if name in activity_names}
-
-
-def find_files(directory: str, suffix: str) -> list[str]:
-    out = []
-    for name in sorted(os.listdir(directory)):
-        if name.endswith(suffix):
-            out.append(os.path.join(directory, name))
-    return out
 
 
 def problems() -> list[str]:
@@ -122,15 +122,50 @@ def problems() -> list[str]:
     # ------------------------------------------------------ 3. accessibility
     # A control a blind operator cannot hear is a control they cannot use,
     # and this app is meant to be run by one person following instructions.
+    def extract_apply_body(text: str, start: int) -> str | None:
+        """Extract the body of an ``.apply { ... }`` block starting at ``start``.
+
+        Handles nested braces by counting them, so a nested ``.apply { }``
+        inside the outer block does not prematurely terminate the match.
+        Returns the body between the outer braces, or None if unbalanced.
+        """
+        brace = 0
+        in_string = False
+        string_char = ""
+        i = start
+        while i < len(text):
+            ch = text[i]
+            if in_string:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == string_char:
+                    in_string = False
+            else:
+                if ch in ('"', "'"):
+                    in_string = True
+                    string_char = ch
+                elif ch == "{":
+                    brace += 1
+                elif ch == "}":
+                    brace -= 1
+                    if brace == 0:
+                        return text[start + 1:i]
+            i += 1
+        return None
+
     for path in find_files(APP, "Activity.kt"):
         name = os.path.basename(path)[:-3]
         text = read(path)
         for widget in INTERACTIVE:
-            for match in re.finditer(
-                    rf"(?:val|var)?\s*\w*\s*=?\s*{widget}\(this\)"
-                    rf"\.apply\s*\{{(.*?)\n        \}}",
-                    text, re.DOTALL):
-                body = match.group(1)
+            pattern = (
+                rf"(?:val|var)?\s*\w*\s*=?\s*{widget}\(this\)\.apply\s*"
+                + re.escape("{")
+            )
+            for match in re.finditer(pattern, text):
+                body = extract_apply_body(text, match.end() - 1)
+                if body is None:
+                    continue
                 if "contentDescription" in body:
                     continue
                 # A visible label or a hint is read out instead, which is
@@ -138,7 +173,7 @@ def problems() -> list[str]:
                 if widget == "EditText" and "hint" in body:
                     continue
                 if widget in ("Button", "CheckBox") and re.search(
-                        r"\btext\s*=", body):
+                        r"\btext\s*=|setText\(", body):
                     continue
                 found.append(
                     f"{name}: a {widget} has neither a contentDescription "
@@ -175,10 +210,13 @@ def problems() -> list[str]:
     if os.path.exists(route) and os.path.exists(wizard):
         route_text = read(route)
         wizard_text = read(wizard)
-        steps = re.findall(r"^\s{4}(\w+)\(\s*$|^    (\w+)\(\s*$|"
-                           r"^\s{4}([A-Z][A-Z_]+)\(", route_text, re.M)
-        names = {a or b or c for a, b, c in steps}
-        names = {n for n in names if n.isupper() and "_" in n}
+        # Only steps explicitly declared as ArKernelCampaignStep.NAME(...) in
+        # the route count as wizard steps. Cadence values
+        # (ArKernelStepCadence.PER_DEVICE / PER_SESSION / PER_CAMPAIGN) are
+        # categories, not executable steps, and must not be flagged.
+        steps = re.findall(
+            r"ArKernelCampaignStep\.([A-Z][A-Z0-9_]*)\(", route_text)
+        names = set(steps)
         for step in sorted(names):
             if f"ArKernelCampaignStep.{step} ->" not in wizard_text:
                 found.append(

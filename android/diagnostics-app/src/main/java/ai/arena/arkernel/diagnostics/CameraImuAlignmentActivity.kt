@@ -199,6 +199,7 @@ class CameraImuAlignmentActivity : DiagnosticsActivity() {
         root.addView(optInBox)
 
         durationSpinner = Spinner(this).apply {
+            contentDescription = "Dauer der IMU-Kalibrierung auswhlen"
             adapter = ArrayAdapter(
                 this@CameraImuAlignmentActivity,
                 android.R.layout.simple_spinner_dropdown_item,

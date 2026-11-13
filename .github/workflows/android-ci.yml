@@ -143,12 +143,14 @@ jobs:
               tail -n 160 diagnostics-apk-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|^e: |^w: |FAILED' \
-              diagnostics-apk-gradle.log | tail -n 120)
+            detail=$(tail -n 120 diagnostics-apk-gradle.log)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}
-            echo "::error title=Diagnostics APK build failure::$detail"
+            echo "::error title=Diagnostics APK build tail::$detail"
+            lines=$(wc -l < diagnostics-apk-gradle.log)
+            counts=${lines//'%'/'%25'}
+            echo "::error title=Diagnostics APK log lines::$counts"
           fi
           exit "$status"
       - name: Prepare named diagnostics APK

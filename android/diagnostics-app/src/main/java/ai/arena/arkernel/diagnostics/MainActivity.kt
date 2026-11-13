@@ -92,6 +92,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var hubButton: Button
     private lateinit var wizardButton: Button
     private lateinit var intrinsicsButton: Button
+    private lateinit var finalizationQuestionsButton: Button
     private lateinit var cameraTimingButton: Button
     private lateinit var deviceHardwareButton: Button
     private lateinit var guideText: TextView
@@ -421,6 +422,13 @@ class MainActivity : DiagnosticsActivity() {
             contentDescription =
                 "Misst Brennweite, Hauptpunkt und Verzeichnung der Kamera"
         }
+        finalizationQuestionsButton = Button(this).apply {
+            text = "29. AR-Kernel Finalisierung – Fragen beantworten"
+            textSize = 16f
+            setAllCaps(false)
+            contentDescription =
+                "Stellt alle Fragen, die für die Finalisierung des AR-Kerns benötigt werden"
+        }
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
             textSize = 14f
@@ -462,6 +470,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(intro, fullWidthParams())
         root.addView(wizardButton, fullWidthParams())
         root.addView(intrinsicsButton, fullWidthParams())
+        root.addView(finalizationQuestionsButton, fullWidthParams())
         root.addView(
             TextView(this).apply {
                 text = "Noch nie gemessen? Nimm den Assistenten. Er sagt dir " +
@@ -551,6 +560,10 @@ class MainActivity : DiagnosticsActivity() {
                 Intent(this, WizardActivity::class.java),
             )
         }
+        finalizationQuestionsButton.setOnClickListener {
+            KernelFinalizationQuestionsActivity.start(this@MainActivity)
+        }
+
         intrinsicsButton.setOnClickListener {
             startActivity(
                 Intent(this, IntrinsicsCaptureActivity::class.java),

@@ -115,6 +115,10 @@
             android:exported="false"
             android:screenOrientation="portrait" />
         <activity
+            android:name=".KernelFinalizationQuestionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".CameraImuAlignmentActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

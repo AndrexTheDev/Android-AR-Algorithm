@@ -90,6 +90,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var extrinsicsButton: Button
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
+    private lateinit var wizardButton: Button
     private lateinit var cameraTimingButton: Button
     private lateinit var deviceHardwareButton: Button
     private lateinit var guideText: TextView
@@ -399,6 +400,12 @@ class MainActivity : DiagnosticsActivity() {
             textSize = 15f
             setAllCaps(false)
         }
+        wizardButton = Button(this).apply {
+            text = "27. Assistent: Schritt für Schritt führen"
+            textSize = 16f
+            setAllCaps(false)
+            contentDescription = "Führt Schritt für Schritt durch die Messkampagne"
+        }
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
             textSize = 14f
@@ -438,6 +445,17 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(title, fullWidthParams())
         root.addView(versionText, fullWidthParams())
         root.addView(intro, fullWidthParams())
+        root.addView(wizardButton, fullWidthParams())
+        root.addView(
+            TextView(this).apply {
+                text = "Noch nie gemessen? Nimm den Assistenten. Er sagt dir " +
+                    "jeden Schritt einzeln: was du brauchst, was du tust, " +
+                    "und woran du siehst, dass es gezählt hat."
+                textSize = 12f
+                setPadding(0, 0, 0, 8)
+            },
+            fullWidthParams(),
+        )
         root.addView(safetyText, fullWidthParams())
         root.addView(optIn, fullWidthParams())
         root.addView(statusText, fullWidthParams())
@@ -510,6 +528,11 @@ class MainActivity : DiagnosticsActivity() {
         hubButton.setOnClickListener {
             startActivity(
                 Intent(this, ArtifactHubActivity::class.java),
+            )
+        }
+        wizardButton.setOnClickListener {
+            startActivity(
+                Intent(this, WizardActivity::class.java),
             )
         }
         guideButton.setOnClickListener {

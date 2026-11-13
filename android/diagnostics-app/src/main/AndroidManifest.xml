@@ -106,6 +106,10 @@
             android:name=".DeviceHardwareActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".WizardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

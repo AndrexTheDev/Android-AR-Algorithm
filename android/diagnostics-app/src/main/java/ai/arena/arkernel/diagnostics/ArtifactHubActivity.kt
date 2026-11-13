@@ -832,10 +832,16 @@ class ArtifactHubActivity : DiagnosticsActivity() {
             ArKernelArtifactContract.CALIB -> "Physische Kalibrierung"
             ArKernelArtifactContract.IMUCAL -> "Trägheitskalibrierung"
             ArKernelArtifactContract.CAMTIM -> "Kameratakt & Fähigkeiten"
+            ArKernelArtifactContract.CAMIMU ->
+                "Kamera-IMU-Zeitversatz"
+            ArKernelArtifactContract.CAMEXT ->
+                "Kamera-IMU-Drehung"
             ArKernelArtifactContract.DEVHW -> "Gerät & Laufzeit"
             ArKernelArtifactContract.MEAS -> "Geführte Messung"
             ArKernelArtifactContract.FEED -> "Kamerafeed-Marken"
             ArKernelArtifactContract.SCALE -> "Zollstock-Erkennung"
+            ArKernelArtifactContract.LADDER ->
+                "Maßstabsleiter"
             ArKernelArtifactContract.COND -> "Bedingungen"
             ArKernelArtifactContract.TARGET -> "Unabhängige Targets"
             ArKernelArtifactContract.VALID -> "Metrische Validierung"

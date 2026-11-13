@@ -518,7 +518,8 @@ class CameraExtrinsicsActivity : DiagnosticsActivity() {
                 copyButton.isEnabled = true
                 startButton.isEnabled = true
                 val written = writeTextToDownloads(
-                    "camext-$runId-${captureIndex + 1}.txt", currentRecord)
+                    "ARKCAMEXT1_$runId-${captureIndex + 1}.txt",
+                    currentRecord)
                 statusText.setText(statusText.text.toString() +
                     "\nDatei: $written")
                 captureIndex++

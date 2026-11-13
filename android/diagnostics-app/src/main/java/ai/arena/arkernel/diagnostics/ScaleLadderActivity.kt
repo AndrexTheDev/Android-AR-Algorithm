@@ -565,7 +565,7 @@ class ScaleLadderActivity : DiagnosticsActivity() {
         copyButton.isEnabled = true
         Thread {
             val written = writeTextToDownloads(
-                "ladder-$runId.txt", text)
+                "ARKLADDER1_$runId.txt", text)
             runOnUiThread {
                 statusText.setText("Datei: $written")
                 Toast.makeText(this@ScaleLadderActivity,

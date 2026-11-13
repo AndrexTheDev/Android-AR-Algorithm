@@ -435,7 +435,8 @@ class CameraImuAlignmentActivity : DiagnosticsActivity() {
                 copyButton.isEnabled = true
                 startButton.isEnabled = true
                 val written = writeTextToDownloads(
-                    "camimu-$runId-${captureIndex + 1}.txt", currentRecord)
+                    "ARKCAMIMU1_$runId-${captureIndex + 1}.txt",
+                    currentRecord)
                 statusText.text = statusText.text.toString() +
                     "\nDatei: $written"
                 captureIndex++

@@ -1242,7 +1242,11 @@ class ImuCalibrationActivity : DiagnosticsActivity() {
             .ifEmpty { "device" }
         val session = sessionInput.text.toString().trim()
             .ifEmpty { "session" }
-        return "arkernel-imucal-$device-$session.txt"
+        // The token has to be in the name: the central inventory
+        // classifies files by looking for their contract token in the
+        // file name, so a file that omits it is inventoried as unknown
+        // and never verified.
+        return "ARKIMUCAL1_$device-$session.txt"
     }
 
     private fun saveFile() {

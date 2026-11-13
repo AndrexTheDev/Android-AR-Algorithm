@@ -151,6 +151,11 @@ jobs:
             lines=$(wc -l < diagnostics-apk-gradle.log)
             counts=${lines//'%'/'%25'}
             echo "::error title=Diagnostics APK log lines::$counts"
+            head=$(head -n 302 diagnostics-apk-gradle.log)
+            head=${head//'%'/'%25'}
+            head=${head//$'\r'/'%0D'}
+            head=${head//$'\n'/'%0A'}
+            echo "::error title=Diagnostics APK log head::$head"
           fi
           exit "$status"
       - name: Prepare named diagnostics APK

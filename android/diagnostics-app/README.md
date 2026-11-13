@@ -944,12 +944,17 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.24-extrinsics`
+## Bedienung mit `2.25-route`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.24-extrinsics`. Fehlt
-dieser Text, ist noch eine alte APK installiert. Neu ist **Knopf 26** in der
-Gruppe `SCHRITT 2 · Kalibrierung & Sitzungen`, unmittelbar unter Knopf 25:
-Kamera-IMU-Drehung (`ARKCAMEXT1`).
+Auf dem Hauptbildschirm steht sichtbar `Version 2.25-route`. Fehlt dieser
+Text, ist noch eine alte APK installiert — und dann sagt Knopf 7 dir nicht,
+welchen Knopf du für welche Frage ausführen sollst; daran erkennst du, dass
+du die falsche Version hast.
+
+Neu in `2.25-route` ist **Knopf 7**: er nennt jetzt zu jeder kanonischen
+Frage die Knöpfe, die ihre Evidenz liefern. Aus `2.24-extrinsics` stammt
+**Knopf 26** in der Gruppe `SCHRITT 2 · Kalibrierung & Sitzungen`, unmittelbar
+unter Knopf 25: Kamera-IMU-Drehung (`ARKCAMEXT1`).
 
 ### Warum dieser Knopf vor den anderen kommt
 

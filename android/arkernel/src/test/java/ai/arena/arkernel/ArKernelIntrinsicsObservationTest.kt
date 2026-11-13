@@ -147,6 +147,7 @@ class ArKernelIntrinsicsObservationTest {
             gridRows = ROWS,
             imageWidth = WIDTH,
             imageHeight = HEIGHT,
+            sensorRotationDeg = 90,
             views = views,
             intrinsics = estimate.intrinsics!!,
             rmsPx = estimate.rmsPx,
@@ -170,6 +171,7 @@ class ArKernelIntrinsicsObservationTest {
         assertEquals(written.gridRows, read.gridRows)
         assertEquals(written.imageWidth, read.imageWidth)
         assertEquals(written.imageHeight, read.imageHeight)
+        assertEquals(written.sensorRotationDeg, read.sensorRotationDeg)
         assertEquals(written.views.size, read.views.size)
         assertEquals(EXPECTED, read.views.first().corners.size)
         assertEquals(written.intrinsics.fxPx, read.intrinsics.fxPx, 0.01)
@@ -209,6 +211,21 @@ class ArKernelIntrinsicsObservationTest {
         assertTrue(text.contains("translation_recovered=false"))
         assertTrue(text.contains("images_disabled=true"))
         assertTrue(text.contains("automatic_upload_disabled=true"))
+    }
+
+    @Test
+    fun theSensorOrientationIsCarriedOrTheNumbersHaveNoUpDirection() {
+        // Corners are read in sensor coordinates. Without the rotation, a
+        // portrait and a landscape calibration are indistinguishable - both
+        // plausible, one wrong by a quarter turn.
+        val text = ArKernelIntrinsicsObservationAdapter.encode(bundle())
+        assertTrue(text.contains("sensor_rotation_deg=90"))
+        assertEquals(
+            ArKernelIntrinsicsObservationRejection.IMAGE_SIZE,
+            ArKernelIntrinsicsObservationAdapter.parse(
+                text.replace("sensor_rotation_deg=90", "sensor_rotation_deg=45")
+            ).rejection,
+        )
     }
 
     @Test

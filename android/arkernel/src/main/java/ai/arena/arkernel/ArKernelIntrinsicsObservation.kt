@@ -30,6 +30,10 @@ package ai.arena.arkernel
  *   are not recovered, because with an unmeasured square size they are not
  *   recoverable. The poses the fit solves for are internal to the
  *   computation and are not written down.
+ * - Image sizes and corner coordinates are in the **sensor's** frame, not in
+ *   what was on the screen, and `sensor_rotation_deg` says which way up that
+ *   frame is. A portrait calibration and a landscape one differ by a quarter
+ *   turn that no arithmetic downstream could notice.
  */
 
 private const val INTR_HEADER = "ARKINTR1"
@@ -66,6 +70,7 @@ private val INTR_KEYS = listOf(
     "grid_rows",
     "image_width_px",
     "image_height_px",
+    "sensor_rotation_deg",
     "view_count",
     "square_size_known",
     "translation_recovered",
@@ -133,6 +138,18 @@ data class ArKernelIntrinsicsObservationBundle(
     val gridRows: Int,
     val imageWidth: Int,
     val imageHeight: Int,
+
+    /**
+     * How far the sensor image is turned relative to the device held upright.
+     *
+     * The corners are read in the sensor's own coordinates, not in what was
+     * on the screen, so this is the only thing that says which way up the
+     * numbers are. Without it a portrait calibration and a landscape one
+     * differ by a quarter turn that no arithmetic downstream can detect: the
+     * intrinsics are plausible either way, and the principal point is simply
+     * in the wrong corner.
+     */
+    val sensorRotationDeg: Int,
     val views: List<ArKernelIntrinsicsObservationView>,
     val intrinsics: ArKernelCameraIntrinsics,
     val rmsPx: Double,
@@ -140,6 +157,12 @@ data class ArKernelIntrinsicsObservationBundle(
     val detail: String,
 ) {
     val cornerCount: Int get() = gridColumns * gridRows
+
+    init {
+        require(sensorRotationDeg in setOf(0, 90, 180, 270)) {
+            "Sensor rotation must be a quarter turn"
+        }
+    }
 
     /** Horizontal field of view, which is the one number a person can check. */
     fun horizontalFovDeg(): Double = intrinsics.horizontalFovDeg(imageWidth)
@@ -174,6 +197,7 @@ object ArKernelIntrinsicsObservationAdapter {
         lines.add("grid_rows=${bundle.gridRows}")
         lines.add("image_width_px=${bundle.imageWidth}")
         lines.add("image_height_px=${bundle.imageHeight}")
+        lines.add("sensor_rotation_deg=${bundle.sensorRotationDeg}")
         lines.add("view_count=${bundle.views.size}")
         // Stated, not assumed: the grid is square but unmeasured, and no
         // translation is recovered. Both are written so that a reader cannot
@@ -337,6 +361,13 @@ object ArKernelIntrinsicsObservationAdapter {
             return refused(ArKernelIntrinsicsObservationRejection.IMAGE_SIZE,
                 "Die Bildgroesse liegt ausserhalb des zulaessigen Bereichs")
         }
+        val rotation = unsigned(values["sensor_rotation_deg"])
+            ?: return refused(ArKernelIntrinsicsObservationRejection.IMAGE_SIZE,
+                "sensor_rotation_deg ist keine Zahl")
+        if (rotation !in setOf(0, 90, 180, 270)) {
+            return refused(ArKernelIntrinsicsObservationRejection.IMAGE_SIZE,
+                "sensor_rotation_deg muss 0, 90, 180 oder 270 sein")
+        }
         val viewCount = unsigned(values["view_count"])
             ?: return refused(ArKernelIntrinsicsObservationRejection.VIEW_COUNT,
                 "view_count ist keine Zahl")
@@ -422,6 +453,7 @@ object ArKernelIntrinsicsObservationAdapter {
             gridRows = gridRows,
             imageWidth = imageWidth,
             imageHeight = imageHeight,
+            sensorRotationDeg = rotation,
             views = views,
             intrinsics = ArKernelCameraIntrinsics(fx, fy, cx, cy, k1, k2),
             rmsPx = rms,

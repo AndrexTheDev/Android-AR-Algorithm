@@ -51,6 +51,8 @@ class WizardActivity : DiagnosticsActivity() {
             ArKernelCampaignStep.DEVICE_RUNTIME -> DeviceHardwareActivity::class.java
             ArKernelCampaignStep.IMU_SERIES -> ImuCalibrationActivity::class.java
             ArKernelCampaignStep.CAMERA_TIMING -> CameraTimingActivity::class.java
+            ArKernelCampaignStep.CAMERA_INTRINSICS ->
+                IntrinsicsCaptureActivity::class.java
             ArKernelCampaignStep.CAMERA_IMU_OFFSET ->
                 CameraImuAlignmentActivity::class.java
             ArKernelCampaignStep.CAMERA_IMU_ROTATION ->

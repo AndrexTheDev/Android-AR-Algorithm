@@ -91,6 +91,7 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
     private lateinit var wizardButton: Button
+    private lateinit var intrinsicsButton: Button
     private lateinit var cameraTimingButton: Button
     private lateinit var deviceHardwareButton: Button
     private lateinit var guideText: TextView
@@ -167,6 +168,12 @@ class MainActivity : DiagnosticsActivity() {
                 "erlaubt vier Messmarken; Bilder werden nicht gespeichert. " +
                 "Knopf 13 erkennt die Zentimeter-Marken eines " +
                 "ausgeklappten Zollstocks selbst im Bild. " +
+                "Knopf 28 vermisst die Kamera selbst an einem " +
+                "Schachbrett: Brennweite, Hauptpunkt und Verzeichnung " +
+                "werden aus angetippten Ecken gerechnet, nicht vom " +
+                "Hersteller uebernommen. Das Raster muss nur quadratisch " +
+                "sein, nicht gemessen; daraus folgt kein Maß in Metern " +
+                "und keine Entfernung. Bilder werden nicht gespeichert. " +
                 "Knopf 14 rechnet pro Szene die Abweichung gegen " +
                 "dein Maßband aus – als gemessene Abweichung in " +
                 "Millimetern, nicht als Genauigkeitsversprechen. " +
@@ -406,6 +413,13 @@ class MainActivity : DiagnosticsActivity() {
             setAllCaps(false)
             contentDescription = "Führt Schritt für Schritt durch die Messkampagne"
         }
+        intrinsicsButton = Button(this).apply {
+            text = "28. Kamera vermessen (ARKINTR1)"
+            textSize = 16f
+            setAllCaps(false)
+            contentDescription =
+                "Misst Brennweite, Hauptpunkt und Verzeichnung der Kamera"
+        }
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
             textSize = 14f
@@ -446,6 +460,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(versionText, fullWidthParams())
         root.addView(intro, fullWidthParams())
         root.addView(wizardButton, fullWidthParams())
+        root.addView(intrinsicsButton, fullWidthParams())
         root.addView(
             TextView(this).apply {
                 text = "Noch nie gemessen? Nimm den Assistenten. Er sagt dir " +
@@ -533,6 +548,11 @@ class MainActivity : DiagnosticsActivity() {
         wizardButton.setOnClickListener {
             startActivity(
                 Intent(this, WizardActivity::class.java),
+            )
+        }
+        intrinsicsButton.setOnClickListener {
+            startActivity(
+                Intent(this, IntrinsicsCaptureActivity::class.java),
             )
         }
         guideButton.setOnClickListener {
@@ -1244,6 +1264,15 @@ class MainActivity : DiagnosticsActivity() {
             "   Belegt die Bedingungen hinter der Messung.",
             "6b. Knopf 22 -> ARKCAMT1 (Kameratakt, Zeitbasis)",
             "   Pro Gerät einmal, direkt nach der IMU-Messung.",
+            "6d. Knopf 28 -> ARKINTR1 (Kamera vermessen)",
+            "   Pro Gerät einmal, VOR allen Maß-Aussagen: erst wenn",
+            "   Brennweite, Hauptpunkt und Verzeichnung gemessen sind,",
+            "   bedeutet eine Länge am Bildrand dasselbe wie in der Mitte.",
+            "   Schachbrett 9x7 Ecken, flach aufgeklebt, mindestens",
+            "   6 Ansichten aus deutlich verschiedenen Richtungen.",
+            "   Es wird KEIN Maß in Metern und keine Entfernung",
+            "   daraus abgeleitet - das Raster ist quadratisch, nicht",
+            "   gemessen.",
             "6c. Knopf 23 -> ARKDEVHW1 (Gerät & Laufzeit)",
             "   Pro Gerät VOR 18 und 22: erst wenn das Gerät "
             + "nicht drosselt und die Uhren halten, "

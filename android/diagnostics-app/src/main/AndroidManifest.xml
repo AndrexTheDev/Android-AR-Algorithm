@@ -107,6 +107,10 @@
             android:exported="false"
             android:screenOrientation="portrait" />
         <activity
+            android:name=".IntrinsicsCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".WizardActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

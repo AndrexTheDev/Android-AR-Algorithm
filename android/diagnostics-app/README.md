@@ -944,11 +944,53 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.27-wizard`
+## Bedienung mit `2.28-intrinsics`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.27-wizard`. Fehlt dieser
-Text, ist noch eine alte APK installiert — und dann fehlt dir Knopf 27, der
-Assistent; daran erkennst du, dass du die falsche Version hast.
+Auf dem Hauptbildschirm steht sichtbar `Version 2.28-intrinsics`. Fehlt dieser
+Text, ist noch eine alte APK installiert — und dann fehlen dir Knopf 27, der
+Assistent, und Knopf 28, die Kameravermessung; daran erkennst du, dass du die
+falsche Version hast.
+
+### Die Kamera selbst vermessen: Knopf 28
+
+**Knopf 28** misst die Kamera, statt dem Hersteller zu glauben. Heraus kommen
+Brennweite, Hauptpunkt und radiale Verzeichnung — also genau die Zahlen, die
+bestimmen, wo ein Punkt im Bild *wirklich* liegt.
+
+Was du brauchst: ein **Schachbrett mit mindestens 9 x 7 Ecken** (also 8 x 6
+Kästchen), ausgedruckt und **flach aufgeklebt** auf Pappe, ein Buch oder eine
+Tischplatte. Es darf sich nicht wölben. Ein zweiter Bildschirm statt Papier
+geht **nicht**: der hat seine eigene Geometrie und flimmert.
+
+So läuft es ab:
+
+1. Kamera starten.
+2. Das Brett **ganz ins Bild** halten. Nichts darf abgeschnitten sein — eine
+   Ecke, die nur zur Hälfte im Bild ist, wird nicht gemessen, und die App sagt
+   dir das auch.
+3. Die vier **äußeren** Ecken des Musters antippen, im Uhrzeigersinn:
+   **oben links, oben rechts, unten rechts, unten links.**
+4. „Diese Ansicht aufnehmen“ drücken. Der Bildschirm sagt, ob die Aufnahme
+   zählt und warum nicht, falls nicht.
+5. Das Brett **deutlich anders** hinhalten — kippen, drehen, näher heran,
+   weiter weg — und von vorn. **Mindestens 6 Ansichten**, besser 10.
+
+Danach „ARKINTR1 erzeugen“. Wenn die Messung angenommen wird, liegt unter
+`Downloads/ARKernelDiagnostics/` eine Datei `ARKINTR1_<Zeitstempel>.txt`.
+
+**Zwei Dinge, die du über diese Datei wissen musst:**
+
+* Das Raster muss nur **quadratisch** sein, nicht gemessen. Die Kästchengröße
+  in Millimetern geht in keine Rechnung ein, ein Ausdruck genügt. Daraus folgt
+  deshalb **kein Maß in Metern und keine Entfernung** — beides steht als `false`
+  in der Datei, damit es niemand später hineinliest.
+* In der Datei stehen **die Eckpunkte, aus denen gerechnet wurde**. Wer sie
+  liest, rechnet die Kamerawerte nach; stimmen sie nicht mit den gespeicherten
+  überein, wird die Datei abgelehnt. Du kannst also die Zahlen nicht
+  versehentlich aus einem anderen Gerät übernehmen.
+
+Bilder werden **nicht gespeichert**. Die Kamera läuft nur, damit die Ecken
+gefunden werden können; in der Datei stehen am Ende Zahlen, kein Foto.
 
 ### Der Assistent: Knopf 27
 

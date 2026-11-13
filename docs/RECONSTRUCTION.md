@@ -767,3 +767,57 @@ No frame, no image and no pixel is retained. The only output is a bounded
 `ARKCAMIMU1` text record written to `Downloads` on demand.
 `alignment_ok` is a precondition gate, not a judgement of calibration quality,
 and the grade stays `unverified`.
+
+## Metric scale ladder (`ARKLADDER1`)
+
+Diagnostics app version `2.23-ladder` adds button 25. It answers whether a
+single scale factor is a meaningful correction at all - the question that
+decides whether the kernel's metric scale can be handled by one number.
+
+**The ruler's ticks are the ground truth.** A folding ruler is held at a series
+of distances. At each rung the app detects the centimetre ticks along a
+hand-marked line and derives how many image pixels one metre spans there. No
+stated length, no separate reference object and no focal length is involved.
+Only the distance comes from the operator's tape measure, because that is a
+thing the app genuinely cannot see.
+
+**Why this works without intrinsics.** A pinhole camera maps one metre at
+distance d onto f/d pixels, so pixels-per-metre times distance *is* the focal
+length in pixels, and that product should come out the same at every rung. The
+test is whether the implied focal length holds still - a self-consistency check
+that needs no prior knowledge of what the value should be. If it holds, the
+scale obeys the model and one factor suffices. If it drifts with distance, the
+scale error grows with distance and no single factor can correct it.
+
+**The absolute value is not an intrinsic.** The ruler foreshortens when it is
+not fronto-parallel, distortion grows off-axis, and the tape measures to
+wherever the operator thinks the ruler plane is. Those biases act alike at
+every distance, so the trend across rungs is meaningful even where the absolute
+number is not. The record reports the number and the contract refuses to call
+it a measured intrinsic.
+
+**The silent factor of two.** If the detector locked onto every other centimetre
+mark, the spacing would double and the whole measurement would come out half as
+large - and the spacing would look just as regular either way, so the
+regularity check could not catch it. The detected tick count is therefore
+cross-checked against the stated length of ruler in view, which turns that
+silent error into a visible rejection.
+
+**Fitting and gates.** The implied focal length is regressed against distance
+and reported as a drift in per mille per metre, with the trend correlation and
+the largest residual. Statistics are integer arithmetic in thousandths
+throughout, so the parser recomputes every one of them and rejects any file
+whose numbers do not match. Three gates decide acceptance: at least three
+rungs, a drift within limit, and a spread within limit. Too few rungs
+short-circuits the other two, because with two rungs the trend and the spread
+are not failing but unmeasurable, and naming them would send the operator to
+fix a drift that cannot yet be computed.
+
+The implied focal length is shown per rung as the run proceeds, so a ladder
+that is drifting is visible while it happens rather than after the fit.
+
+No frame is retained: each frame is reduced in memory to a one-dimensional
+luminance profile along the marked line and dropped immediately. The only
+output is a bounded `ARKLADDER1` text record written to `Downloads` on demand.
+`scale_sufficient` is a precondition gate, not a quality grade, and the grade
+stays `unverified`.

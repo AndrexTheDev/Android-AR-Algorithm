@@ -813,7 +813,7 @@ stehen die zwei Zahlen, die sagen, was der Kern ohne jede Korrektur überhaupt
 versuchen darf: **Lagedrift in °/min** und **Positionsdrift in m/min**.
 
 „Datei speichern“ schreibt
-`arkernel-imucal-<gerät>-<sitzung>.txt` nach
+`ARKIMUCAL1_<gerät>-<sitzung>.txt` nach
 `Downloads/ARKernelDiagnostics`. „Datei teilen“ und „In die
 Zwischenablage“ geben denselben Text weiter. Hochladen tust du ihn selbst; die
 App lädt nichts hoch.
@@ -944,11 +944,140 @@ Test, der sie stützen müsste, dem Knopf und dem Stand — gemessen, gebucht,
 fehlt oder blockiert.
 
 
-## Bedienung mit `2.23-ladder`
+## Bedienung mit `2.28-intrinsics`
 
-Auf dem Hauptbildschirm steht sichtbar `Version 2.23-ladder`. Fehlt dieser
-Text, ist noch eine alte APK installiert. Neu ist **Knopf 25** in
-`SCHRITT 4 · Geometrie und Maßstab`: Maßstabsleiter (`ARKLADDER1`).
+Auf dem Hauptbildschirm steht sichtbar `Version 2.28-intrinsics`. Fehlt dieser
+Text, ist noch eine alte APK installiert — und dann fehlen dir Knopf 27, der
+Assistent, und Knopf 28, die Kameravermessung; daran erkennst du, dass du die
+falsche Version hast.
+
+### Die Kamera selbst vermessen: Knopf 28
+
+**Knopf 28** misst die Kamera, statt dem Hersteller zu glauben. Heraus kommen
+Brennweite, Hauptpunkt und radiale Verzeichnung — also genau die Zahlen, die
+bestimmen, wo ein Punkt im Bild *wirklich* liegt.
+
+Was du brauchst: ein **Schachbrett mit mindestens 9 x 7 Ecken** (also 8 x 6
+Kästchen), ausgedruckt und **flach aufgeklebt** auf Pappe, ein Buch oder eine
+Tischplatte. Es darf sich nicht wölben. Ein zweiter Bildschirm statt Papier
+geht **nicht**: der hat seine eigene Geometrie und flimmert.
+
+So läuft es ab:
+
+1. Kamera starten.
+2. Das Brett **ganz ins Bild** halten. Nichts darf abgeschnitten sein — eine
+   Ecke, die nur zur Hälfte im Bild ist, wird nicht gemessen, und die App sagt
+   dir das auch.
+3. Die vier **äußeren** Ecken des Musters antippen, im Uhrzeigersinn:
+   **oben links, oben rechts, unten rechts, unten links.**
+4. „Diese Ansicht aufnehmen“ drücken. Der Bildschirm sagt, ob die Aufnahme
+   zählt und warum nicht, falls nicht.
+5. Das Brett **deutlich anders** hinhalten — kippen, drehen, näher heran,
+   weiter weg — und von vorn. **Mindestens 6 Ansichten**, besser 10.
+
+Danach „ARKINTR1 erzeugen“. Wenn die Messung angenommen wird, liegt unter
+`Downloads/ARKernelDiagnostics/` eine Datei `ARKINTR1_<Zeitstempel>.txt`.
+
+**Was du über diese Datei wissen musst:**
+
+* Das Raster muss nur **quadratisch** sein, nicht gemessen. Die Kästchengröße
+  in Millimetern geht in die Kamerawerte nicht ein, ein Ausdruck genügt.
+* Die **Kästchengröße** kannst du trotzdem eintragen — dafür miss eine Kante
+  mit dem Maßband, z. B. `40` für vier Zentimeter. Dann stehen in der Datei
+  zusätzlich die **Entfernungen zum Brett in Metern**. Das Feld leer zu
+  lassen ist kein Notbehelf: die Kamerawerte kommen so oder so. Der
+  Unterschied ist nur, ob der Maßstab bekannt ist — und aus Bildpunkten
+  allein ist er das nicht. Ein kleines Brett nah und ein großes Brett fern
+  werfen genau dasselbe Bild, und keine Rechnung an diesen Ecken kann die
+  beiden unterscheiden.
+* Die Entfernung ist die einzige Zahl in dieser Datei, die du **mit dem
+  Maßband nachprüfen** kannst. Wenn du sie nachmisst und sie nicht stimmt,
+  stimmt etwas an der Kalibrierung nicht — das ist der Sinn davon.
+* In der Datei stehen **die Eckpunkte, aus denen gerechnet wurde**. Wer sie
+  liest, rechnet die Kamerawerte nach; stimmen sie nicht mit den gespeicherten
+  überein, wird die Datei abgelehnt. Du kannst also die Zahlen nicht
+  versehentlich aus einem anderen Gerät übernehmen.
+
+Bilder werden **nicht gespeichert**. Die Kamera läuft nur, damit die Ecken
+gefunden werden können; in der Datei stehen am Ende Zahlen, kein Foto.
+
+### Der Assistent: Knopf 27
+
+Ganz oben auf dem Hauptbildschirm steht **Knopf 27**. Er ist der Einstieg,
+wenn du nicht weißt, wo du anfangen sollst — und er ist keine zusätzliche
+Messung: er schreibt selbst **keinen** Datensatz und lädt nichts hoch.
+
+Er zeigt dir immer **genau einen Schritt**:
+
+- was du dafür brauchst (Zollstock, Maßband, ein strukturiertes Ziel — oder
+  nichts),
+- was du vorher vorbereitest,
+- was du tust,
+- **woran du siehst, dass es gezählt hat** — immer daran, dass eine Datei mit
+  dem richtigen Kürzel im Namen in `Downloads/ARKernelDiagnostics` liegt,
+- was den Durchlauf kaputt macht,
+- und warum dieser Schritt genau an dieser Stelle steht.
+
+Darunter steht der ganze Weg als Liste, mit einem Zeichen vor jedem Schritt:
+`[x]` fertig, `[>]` jetzt dran, `[!]` wiederholen, `[ ]` wartet noch.
+
+**Zwei Dinge sind daran absichtlich so, wie sie sind.**
+
+*Es gibt keinen Haken zum Abhaken.* Ob ein Schritt fertig ist, liest der
+Assistent aus deinen Dateien — nicht aus deinem Gedächtnis und nicht aus
+einem Knopf, den du gedrückt hast. Ein Assistent, der sich merkt, was du
+gedrückt hast, meldet einen Schritt als erledigt, weil du ihn einmal
+angetippt hast. Das ist genau der Irrtum, der eine ganze Messrunde kostet.
+
+*Es ist immer nur ein Schritt machbar.* Alles, was hinter einem unfertigen
+Schritt liegt, wird zurückgehalten. Du kannst also nicht versehentlich eine
+Messung machen, deren Voraussetzungen noch gar nicht existieren — etwa Knopf
+26 vor Knopf 24. Falsch wählen kannst du nicht.
+
+Wenn eine Datei zwar da ist, aber nicht zählt — weil sie unlesbar ist oder
+ein Prüfgatter offen lässt —, dann steht das dort (`[!]`) und der Assistent
+nennt das offene Gatter beim Namen. Er sagt dir nicht, dass deine Messung
+richtig ist. Er sagt dir nur, dass sie **vollständig** ist. Das ist etwas
+anderes.
+
+**Der Assistent beschreibt nicht, wie du den jeweiligen Knopf bedienst.** Das
+sagt dir der Bildschirm, den er öffnet. Eine Kopie dieser Anleitung würde
+beim ersten Mal veralten, wo sich der Bildschirm ändert — und wäre dann mit
+der Selbstverständlichkeit einer schriftlichen Anleitung falsch.
+
+### Was `2.26-catalogue` gegenüber `2.25-route` korrigiert
+
+Das Artefakt-Inventar war unvollständig, und zwar so, dass nichts davon etwas
+sagte. Drei Verträge — **Knopf 24** (`ARKCAMIMU1`), **Knopf 25**
+(`ARKLADDER1`) und **Knopf 26** (`ARKCAMEXT1`) — waren nirgends registriert.
+Die Manifest-Erzeugung, also der Schritt, der eine Kampagne zu einer
+prüfbaren Einheit zusammenhält, hat ihre Dateien deshalb als *unbekannt*
+einsortiert und still verworfen: kein Fehler, kein Hinweis, kein Eintrag —
+die Messung wäre gelaufen und beim Binden verschwunden.
+
+Zweitens sucht das Inventar ein Vertragskennzeichen **im Dateinamen**. Vier
+Bildschirme schrieben ihre Dateien ohne dieses Kennzeichen
+(`camimu-…txt`, `ladder-…txt`, `camext-…txt`, `arkernel-imucal-…txt`), also
+wären sie auch nach der Registrierung unsichtbar geblieben. Sie schreiben
+jetzt `ARKCAMIMU1_…`, `ARKLADDER1_…`, `ARKCAMEXT1_…` und `ARKIMUCAL1_…`.
+
+**Das hat eine Folge für dich.** Dateien, die eine ältere APK geschrieben hat,
+erkennt das Inventar nicht — auch nicht die von `2.25-route`. Benenne sie um
+(aus `camimu-x-1.txt` wird `ARKCAMIMU1_x-1.txt`, aus `arkernel-imucal-d-s.txt`
+wird `ARKIMUCAL1_d-s.txt`), oder miss sie mit diesem Build neu. Am saubersten
+ist neu messen: diese Version ist die erste, in der überhaupt alle Verträge
+bekannt sind.
+
+Damit das nicht ein viertes Mal passiert, prüft die Testsuite jetzt von
+außen gegen das Inventar: die Weiterleitungstabelle (Knopf 7) nennt zu jedem
+Schritt den Datensatz, den er erzeugt, und jeder dieser Datensätze muss im
+Inventar stehen — mit derselben Knopfnummer. Ein Vertrag, der nur in der
+eigenen Aufzählung vorkommt, fällt dadurch auf.
+
+Aus `2.25-route` stammt **Knopf 7**: er nennt zu jeder kanonischen Frage die
+Knöpfe, die ihre Evidenz liefern. Aus `2.24-extrinsics` stammt **Knopf 26** in
+der Gruppe `SCHRITT 2 · Kalibrierung & Sitzungen`, unmittelbar unter Knopf 25:
+Kamera-IMU-Drehung (`ARKCAMEXT1`).
 
 ### Warum dieser Knopf vor den anderen kommt
 
@@ -1122,6 +1251,74 @@ verlässlich und der absolute Wert nicht.
 
 Jedes Bild wird im Arbeitsspeicher auf eine Helligkeitslinie reduziert und
 sofort verworfen. Es wird kein Bild geschrieben, exportiert oder geteilt.
+
+## Bedienung mit Knopf 7 — die Kampagne sagt jetzt, was zu tun ist
+
+Knopf 7 führt zehn kanonische Fragen an den Kern. Bisher verbuchte er nur, was
+du bestätigt hast. Er sagt dir jetzt zu jeder Frage, **welche Knöpfe** du dafür
+ausführen musst, und zeigt am Ende die ganze Reihenfolge als Kette von
+Knopfnummern.
+
+Alle Fragen setzen dieselbe Kette voraus: **23 → 20 → 22 → 24 → 26**. Die
+Reihenfolge ist nicht willkürlich — siehe den Abschnitt in
+`docs/DIAGNOSTIC_COVERAGE.md`.
+
+## Bedienung mit Knopf 26 — Kamera-IMU-Drehung (`ARKCAMEXT1`)
+
+Dieser Knopf bestimmt, wie die Kamera gegenüber dem Gyroskop gedreht ist —
+und liefert daraus eine Brennweite, obwohl er keine kennt.
+
+### So wird gemessen
+
+Nahe der optischen Achse verschiebt eine Drehung den Bildinhalt mit
+`x-punkt = -f · w_y` und `y-punkt = +f · w_x`. Das Bild liefert die
+Verschiebung, das Gyroskop die Drehraten `w`. Beides wird über **dieselben**
+Bildintervalle gemittelt und gegeneinander aufgetragen.
+
+Der Punkt, der das ohne Brennweite möglich macht: jede Zeile einer Drehmatrix
+hat die Länge 1. Die waagerechte Regression liefert `-f` mal eine Zeile von
+`R`, und die **Länge** dieses Vektors ist damit genau die Brennweite. Durch
+sie zu teilen ergibt die Zeile selbst. Der Maßstab ist keine freie
+Unbekannte — die Orthonormalität legt ihn fest.
+
+### Was dabei herausfällt
+
+Die beiden Richtungen liefern **zwei unabhängige Schätzungen derselben
+Brennweite**. Wie weit sie auseinanderliegen, ist das Hauptgatter: teilen sie
+sich nicht, war die Bewegung keine reine Drehung — etwa weil du dabei
+gegangen bist — und der Lauf wird verworfen. Der Wert ist außerdem eine
+Gegenprobe zur Maßstabsleiter aus Knopf 25, die denselben Betrag über den
+Zollstock bestimmt.
+
+### Was nicht dabei herauskommt
+
+Der Versatz zwischen Kamera und IMU als **Strecke** wird nicht bestimmt. Er
+zeigt sich nur darin, wo der Bildinhalt bei verschiedenen Entfernungen sitzt;
+das braucht eine Position, und eine Position einen metrischen Maßstab. Die
+Datei trägt `translation_fitted=false` als verbindliche Angabe und wird
+abgelehnt, wenn sie etwas anderes behauptet.
+
+Die Brennweite ist **keine gemessene Intrinsic**, sondern die Länge, die eine
+Einheitsbedingung erzwingt — mit allen Verzerrungen des Verfahrens.
+
+### Durchführung
+
+1. Auf ein strukturreiches Ziel richten (Bücherregal, Straße, gemustertes
+   Tuch). Nicht auf eine leere Wand und nicht in den Himmel.
+2. Im Handgelenk drehen — abwechselnd kippen, neigen und schwenken, in
+   kleinen Kreisen.
+3. **Alle drei Achsen bewegen.** Regt die Bewegung nur eine Achse an, bleiben
+   die Komponenten der beiden anderen unsichtbar, ganz gleich wie sauber die
+   Daten sind. Die Anzeige nennt deshalb die Bewegung der *schwächsten*
+   Achse, nicht der stärksten.
+4. **Nicht dabei gehen.** Gehen ist eine Verschiebung, und eine Verschiebung
+   wird hier nicht modelliert.
+
+### Kein Bild wird behalten
+
+Jedes Bild wird im Arbeitsspeicher auf ein Raster von 128 × 72
+Helligkeitswerten reduziert und sofort verworfen. Es wird kein Bild
+geschrieben, exportiert oder geteilt.
 
 ## Grenzen
 

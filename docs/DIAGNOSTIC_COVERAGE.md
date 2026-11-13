@@ -5,7 +5,7 @@ sicher". Es führt jede Behauptung des AR-Kerns, jeden physikalischen Test, der
 sie stützen müsste, und den Knopf, der ihn durchführt — oder den Grund, warum
 es ihn nicht gibt.
 
-Stand: Version `2.23-ladder` (Knopf 1–25). Bewertung über alles:
+Stand: Version `2.24-extrinsics` (Knopf 1–26). Bewertung über alles:
 **`unverified`**. Es wurde nichts hochgestuft und nichts behauptet.
 
 ## Wie die Matrix zu lesen ist
@@ -78,11 +78,12 @@ bereits enthielt — sie hatten nur keinen Bildschirm.
 | Zuschnitt und Stabilisierungs-Modus halten während des Laufs | Erfassungs-Stabilität | 22 | `ARKCAMT1` | **gemessen**, teils nicht prüfbar |
 | Der Rolling-Shutter-Versatz ist bekannt | `SENSOR_ROLLING_SHUTTER_SKEW` | 22 | `ARKCAMT1` | **gemessen**, wenn gemeldet (ab Android 13) |
 | **Brennweite, Hauptpunkt, Verzeichnung stimmen** | Schachbrett-Aufnahmen | — | — | **blockiert** |
-| **Einbau zwischen Kamera und IMU ist bekannt** | geführte Bewegung mit Bildern | — | — | **fehlt** |
+| **Drehung zwischen Kamera und IMU ist bekannt** | geführte Drehung mit Bildern | 26 | `ARKCAMEXT1` | **gemessen** |
+| **Versatz zwischen Kamera und IMU als Strecke ist bekannt** | geführte Bewegung mit Bildern | — | — | **fehlt** |
 | **Zeitversatz zwischen Kamera und IMU ist bekannt** | Korrelation Bildschub/Gyro | 24 | `ARKCAMIMU1` | **gemessen** |
 | Das Bild ist scharf und nicht überbelichtet | `CameraFrameQuality` (Bibliothek) | — | — | **fehlt** |
 
-Die beiden fett gedruckten Zeilen sind die eigentliche Grenze dieser App —
+Die fett gedruckten Zeilen sind die eigentliche Grenze dieser App —
 aber sie hängen **nicht** so zusammen, wie hier früher stand.
 
 Früher stand an dieser Stelle, ohne Intrinsics habe eine geführte Bewegung
@@ -94,10 +95,42 @@ Versatz wird nicht aus der Größe der Bewegung bestimmt, sondern aus deren
 hebt sich beim Verschieben heraus. Deshalb ist `t_d` ohne Intrinsics
 messbar, und Knopf 24 misst ihn.
 
-Für den **Einbau** `R`/`t` bleibt die Kopplung bestehen: eine Rotation und
-eine Translation zwischen Kamera und IMU sind ohne Brennweite tatsächlich
-nicht von einer Fehlskalierung zu trennen. Diese Zeile bleibt **fehlt**, bis
-Intrinsics vorliegen.
+Für den **Einbau** `R`/`t` stand an dieser Stelle derselbe Satz, und er ist
+für die **Drehung `R` ebenso falsch** — nur aus einem anderen Grund.
+
+Auch eine Drehung braucht scheinbar eine Brennweite: aus einem Bildschub wird
+ein Winkel erst durch `f`. Aber die Unbekannte hebt sich hier gegen eine
+*Nebenbedingung* auf, nicht gegen die Zeit. Nahe der optischen Achse gilt
+`x-punkt = -f · w_y` und `y-punkt = +f · w_x`. Trägt man die Bildrate also
+gegen die drei Gyroskop-Achsen auf, liefert die waagerechte Regression `-f`
+mal eine Zeile von `R` und die senkrechte `+f` mal eine andere. Jede Zeile
+einer Drehmatrix hat aber die Länge 1 — und damit **ist** die Länge des
+gefundenen Koeffizientenvektors die Brennweite. Durch sie zu teilen liefert
+die Zeile selbst. Der Maßstab ist keine freie Unbekannte, die
+Orthonormalität legt ihn fest. Deshalb ist `R` ohne Intrinsics messbar, und
+Knopf 26 misst es.
+
+Zwei Folgen daraus sind im Datensatz selbst vermerkt und nicht nur hier. Die
+beiden Regressionen liefern **zwei unabhängige Schätzungen derselben
+Brennweite**, und wie weit sie auseinanderliegen, ist das Hauptgatter:
+stimmen sie nicht überein, war die Bewegung keine reine Drehung, und das
+Ergebnis wird verworfen. Und die dritte Zeile wird als Kreuzprodukt
+**erschlossen**, nicht gemessen; sie trägt den Fehler der beiden anderen mit.
+
+Für die **Translation `t` bleibt die Kopplung dagegen bestehen**, und zwar
+echt. Eine Strecke zwischen Kamera und IMU zeigt sich nur, wo das Bild bei
+*verschiedenen* Entfernungen sitzt; das braucht eine Position, und eine
+Position braucht einen metrischen Maßstab. Den liefert nichts in dieser App.
+Diese Zeile bleibt daher **fehlt**.
+
+Ebenfalls nicht behauptet wird, dass die so gewonnene Brennweite eine
+gemessene Intrinsic sei. Sie ist die Länge, die eine Einheitsbedingung
+erzwingt, und sie trägt alle Verzerrungen des Verfahrens: die Bewegung ist
+selten eine reine Drehung um das optische Zentrum, eine Verschiebung wird
+nicht modelliert, und das Raster ist gröber als die Bildpunkte, für die es
+steht. Der Wert ist eine **Kreuzprobe** gegen die Maßstabsleiter, die
+denselben Betrag auf einem völlig anderen Weg ermittelt — und eine
+plausible Größenordnung, mehr nicht.
 
 ## Schicht 3 — Gerät und Laufzeit
 
@@ -195,10 +228,11 @@ falsch integriert, bevor er irgendeinen Maßstab prüft.
 
 1. **Schicht 1** — Trägheitssensorik (Knopf 20). Pro Gerät einmal, danach
    nur nach Firmware-Wechsel oder Sturz.
-2. **Schicht 2** — Kameratakt (Knopf 22) und Kamera-IMU-Versatz
-   (Knopf 24). Pro Gerät einmal. **Intrinsics blockiert**, und damit auch
-   der Einbau `R`/`t`. Der Zeitversatz `t_d` braucht keine Intrinsics und
-   kann sofort gemessen werden.
+2. **Schicht 2** — Kameratakt (Knopf 22), Kamera-IMU-Versatz (Knopf 24)
+   und Kamera-IMU-Drehung (Knopf 26). Pro Gerät einmal. **Intrinsics
+   blockiert**, und damit auch die Translation `t`. Der Zeitversatz `t_d`
+   und die Drehung `R` brauchen keine Intrinsics und können sofort gemessen
+   werden.
 3. **Schicht 3** — Gerät und Laufzeit (Knopf 23). Pro Gerät **vor**
    Schicht 1 und 2, und erneut nach jedem Firmware-Wechsel: erst wenn das
    Gerät nicht drosselt und die Uhren halten, bedeuten die IMU- und
@@ -206,6 +240,35 @@ falsch integriert, bevor er irgendeinen Maßstab prüft.
 4. **Schicht 4** — Geometrie und Maßstab. Pro Messsitzung.
 5. **Schicht 0** — Vertrauen. Am Ende: erst redigieren, dann signieren.
 6. **Schicht 5** — Systembehauptungen. Erst wenn 1–4 stehen.
+
+## Die Bruecke von der Frage zur Handlung
+
+Es gibt zehn kanonische Fragen an den Kern, und es gibt sechsundzwanzig Knöpfe.
+Dass beides zusammenfindet, war lange nirgends festgehalten: Der Kampagnenplan
+(Knopf 7) verbuchte, welche Szene durchgeführt und welche Frage bestätigt
+wurde — aber er sagte dem Bediener an keiner Stelle, **welche Messung** er dafür
+ausführen soll. Eine bestätigte Frage konnte auf nichts ruhen.
+
+Diese Zuordnung liegt jetzt im Kern (`ArKernelCampaignRoute`) und wird in
+Knopf 7 für die jeweils aktuelle Frage angezeigt. Sie nennt zu jeder Frage die
+Knöpfe, deren Datensätze die Evidenz sind, und sie nennt die Reihenfolge, in
+der die Messungen gemacht werden müssen.
+
+Die Reihenfolge ist Teil der Antwort und keine Fußnote, denn drei Abhängigkeiten
+sind physikalisch:
+
+1. **Gerät vor Sensor.** Eine 60-Sekunden-Statikmessung auf einem drosselnden
+   Telefon misst das Drosseln, nicht das Gyroskop.
+2. **Zeitversatz vor Drehung.** Die Drehung wird gegen ein Gyroskop-Fenster
+   gefittet, das um jeden Bild-Zeitstempel liegt. Steckt darin noch ein
+   Rest-Versatz, liegt das Fenster daneben und die gefundene Brennweite kommt
+   zu klein heraus.
+3. **Leiter vor Validierung.** Die Leiter sagt, ob ein Faktor über die
+   Entfernung reicht; die Validierung sagt, ob der Maßstab stimmt. Ohne die
+   erste hat die zweite keine Deutung.
+
+Eine Frage ist damit **beantwortbar**, wenn ihre Läufe vorliegen — nicht
+beantwortet. Die Tabelle enthält deshalb bewusst keine Spalte für ein Urteil.
 
 ## Was dieses Dokument nicht ist
 

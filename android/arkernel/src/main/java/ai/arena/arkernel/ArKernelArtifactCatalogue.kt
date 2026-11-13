@@ -51,10 +51,23 @@ enum class ArKernelArtifactContract(
     CALIB("ARKCALIB1", 5, "Physical calibration observations"),
     IMUCAL("ARKIMUCAL1", 20, "Inertial intrinsic calibration"),
     CAMTIM("ARKCAMT1", 22, "Camera cadence, clock domain and exposure"),
+    CAMIMU(
+        "ARKCAMIMU1", 24,
+        "Camera-IMU time offset and axis mapping"),
+    CAMEXT(
+        "ARKCAMEXT1", 26,
+        "Camera-IMU rotation and implied focal length"),
+    CAMINTR(
+        "ARKINTR1", 28,
+        "Measured camera intrinsics: focal length, principal point, "
+            + "radial distortion"),
     DEVHW("ARKDEVHW1", 23, "Device inventory, throttling and clocks"),
     MEAS("ARKMEAS1", 11, "Guided measurement execution"),
     FEED("ARKFEED1", 12, "Live camera feed markers"),
     SCALE("ARKSCALE1", 13, "Ruler mark detection"),
+    LADDER(
+        "ARKLADDER1", 25,
+        "Metric scale ladder across distance"),
     COND("ARKCOND1", 18, "Rig, thermal and day/night conditions"),
     TARGET("ARKTARGET1", 17, "Independent scale targets"),
     VALID("ARKVALID1", 14, "Metric deviation against a tape"),
@@ -516,6 +529,26 @@ object ArKernelArtifactCatalogue {
         }
         ArKernelArtifactContract.SCALE -> {
             val result = ArKernelRulerScaleAdapter.parse(text)
+            ArKernelArtifactVerification(
+                result.accepted, result.rejection.name, result.detail)
+        }
+        ArKernelArtifactContract.CAMIMU -> {
+            val result = ArKernelCameraImuAdapter.parse(text)
+            ArKernelArtifactVerification(
+                result.accepted, result.rejection.name, result.detail)
+        }
+        ArKernelArtifactContract.CAMEXT -> {
+            val result = ArKernelCameraImuExtrinsicsAdapter.parse(text)
+            ArKernelArtifactVerification(
+                result.accepted, result.rejection.name, result.detail)
+        }
+        ArKernelArtifactContract.CAMINTR -> {
+            val result = ArKernelIntrinsicsObservationAdapter.parse(text)
+            ArKernelArtifactVerification(
+                result.accepted, result.rejection.name, result.detail)
+        }
+        ArKernelArtifactContract.LADDER -> {
+            val result = ArKernelScaleLadderAdapter.parse(text)
             ArKernelArtifactVerification(
                 result.accepted, result.rejection.name, result.detail)
         }

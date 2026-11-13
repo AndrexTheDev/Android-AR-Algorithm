@@ -28,6 +28,15 @@ package ai.arena.arkernel
  * The result does not depend on the scale of either signal, only on their
  * shape, so it needs no focal length and trusts no manufacturer number.
  */
+/** Image rates in px/s and the gyroscope averaged over the same intervals. */
+data class ArKernelCameraImuRotationSeries(
+    val rateX: DoubleArray,
+    val rateY: DoubleArray,
+    val gyroX: DoubleArray,
+    val gyroY: DoubleArray,
+    val gyroZ: DoubleArray,
+)
+
 object ArKernelCameraImuCorrelator {
 
     /** Samples per row of the sparse profile. */
@@ -208,6 +217,181 @@ object ArKernelCameraImuCorrelator {
     }
 
     /** Pearson correlation; zero when either series is flat. */
+    /**
+     * Shift in both directions, in profile samples, as `[x, y]`.
+     *
+     * Each axis is measured on a one-dimensional profile - the mean over the
+     * orthogonal axis - and not by sliding the whole two-dimensional frame.
+     * That distinction is the whole point: sliding the frame along one axis
+     * while it has also moved along the other compares pixels that never
+     * corresponded, the difference curve comes back flat, and the argmin is
+     * noise. Projecting first makes each axis measure the projection of the
+     * motion onto that axis, which is the quantity the rotation model is
+     * written in.
+     *
+     * Both axes are refined parabolically. Quantising to whole samples would
+     * discard most of the signal: a gentle rotation moves the content a
+     * fraction of a sample between frames.
+     */
+    fun shift2d(
+        previous: ByteArray,
+        current: ByteArray,
+        columns: Int,
+        rows: Int,
+        maxShift: Int = MAX_SHIFT,
+    ): DoubleArray {
+        val size = columns * rows
+        if (size == 0 || previous.size < size || current.size < size) {
+            return doubleArrayOf(0.0, 0.0)
+        }
+        return doubleArrayOf(
+            shiftAlong(previous, current, columns, rows, maxShift, true),
+            shiftAlong(previous, current, columns, rows, maxShift, false))
+    }
+
+    private fun shiftAlong(
+        previous: ByteArray,
+        current: ByteArray,
+        columns: Int,
+        rows: Int,
+        maxShift: Int,
+        horizontal: Boolean,
+    ): Double {
+        // along = samples on the axis being measured, across = samples the
+        // profile is averaged over.
+        val along = if (horizontal) columns else rows
+        val across = if (horizontal) rows else columns
+        if (along < 4 || across < 1) return 0.0
+        // A quarter of the axis, not a half. Searching half of it leaves too
+        // little overlap to be trustworthy, and on the shorter axis it reaches
+        // far enough to find an aliased minimum in a repeating scene.
+        val limit = maxShift.coerceIn(0, along / 4)
+        val profilePrevious = profile(previous, columns, rows, horizontal)
+        val profileCurrent = profile(current, columns, rows, horizontal)
+        val width = 2 * limit + 1
+        val sad = DoubleArray(width)
+        for (shift in -limit..limit) {
+            var total = 0.0
+            var count = 0
+            for (inner in 0 until along) {
+                val source = inner - shift
+                if (source < 0 || source >= along) continue
+                total += kotlin.math.abs(
+                    profileCurrent[inner] - profilePrevious[source])
+                count++
+            }
+            sad[shift + limit] =
+                if (count > 0) total / count.toDouble() else Double.MAX_VALUE
+        }
+        return refine(sad, limit)
+    }
+
+    /** Mean over the orthogonal axis; one sample per position on `horizontal`. */
+    private fun profile(
+        image: ByteArray,
+        columns: Int,
+        rows: Int,
+        horizontal: Boolean,
+    ): DoubleArray {
+        val along = if (horizontal) columns else rows
+        val across = if (horizontal) rows else columns
+        val out = DoubleArray(along)
+        for (inner in 0 until along) {
+            var total = 0.0
+            for (outer in 0 until across) {
+                val index = if (horizontal) {
+                    outer * columns + inner
+                } else {
+                    inner * columns + outer
+                }
+                total += (image[index].toInt() and 0xFF).toDouble()
+            }
+            out[inner] = total / across.toDouble()
+        }
+        return out
+    }
+
+    /**
+     * Sub-sample peak of the difference curve, by parabolic interpolation on
+     * the three points around the minimum.
+     *
+     * A whole-sample estimate would be a poor fit for what is being measured:
+     * a slow rotation moves the content a fraction of a sample per frame, so
+     * rounding to integers throws away most of the motion and biases the
+     * recovered focal length downwards.
+     */
+    private fun refine(sad: DoubleArray, limit: Int): Double {
+        var best = 0
+        for (index in 1 until sad.size) {
+            if (sad[index] < sad[best]) best = index
+        }
+        // At either edge the parabola has no support; return the bound.
+        if (best <= 0 || best >= sad.size - 1) return (best - limit).toDouble()
+        val left = sad[best - 1]
+        val middle = sad[best]
+        val right = sad[best + 1]
+        if (left == Double.MAX_VALUE || right == Double.MAX_VALUE) {
+            return (best - limit).toDouble()
+        }
+        val denominator = left - 2.0 * middle + right
+        val refined = if (kotlin.math.abs(denominator) > 1e-9) {
+            best + 0.5 * (left - right) / denominator
+        } else {
+            best.toDouble()
+        }
+        return refined - limit
+    }
+
+    /**
+     * Everything `ArKernelCameraImuRotation.recover` needs, on one clock.
+     *
+     * The gyroscope is averaged over exactly the frame intervals, because an
+     * image shift is a mean rate over an interval and not an instantaneous
+     * one; averaging the gyroscope over the same intervals puts both sides
+     * through the same filter.
+     */
+    fun seriesForRotation(
+        frameMidNs: LongArray,
+        frameIntervalNs: LongArray,
+        shiftX: DoubleArray,
+        shiftY: DoubleArray,
+        gyroTimeNs: LongArray,
+        gyroX: DoubleArray,
+        gyroY: DoubleArray,
+        gyroZ: DoubleArray,
+    ): ArKernelCameraImuRotationSeries {
+        val count = minOf(
+            frameMidNs.size, frameIntervalNs.size,
+            shiftX.size, shiftY.size)
+        val rateX = DoubleArray(count)
+        val rateY = DoubleArray(count)
+        val meanX = DoubleArray(count)
+        val meanY = DoubleArray(count)
+        val meanZ = DoubleArray(count)
+        val prefixX = prefixOf(gyroX)
+        val prefixY = prefixOf(gyroY)
+        val prefixZ = prefixOf(gyroZ)
+        for (index in 0 until count) {
+            val intervalNs = frameIntervalNs[index]
+            if (intervalNs > 0L) {
+                rateX[index] = shiftX[index] * 1_000_000_000.0 /
+                    intervalNs.toDouble()
+                rateY[index] = shiftY[index] * 1_000_000_000.0 /
+                    intervalNs.toDouble()
+            }
+            val half = intervalNs / 2L
+            val centre = frameMidNs[index]
+            meanX[index] = meanBetween(
+                gyroTimeNs, prefixX, centre - half, centre + half, gyroX)
+            meanY[index] = meanBetween(
+                gyroTimeNs, prefixY, centre - half, centre + half, gyroY)
+            meanZ[index] = meanBetween(
+                gyroTimeNs, prefixZ, centre - half, centre + half, gyroZ)
+        }
+        return ArKernelCameraImuRotationSeries(
+            rateX, rateY, meanX, meanY, meanZ)
+    }
+
     fun pearson(left: DoubleArray, right: DoubleArray): Double {
         val count = minOf(left.size, right.size)
         if (count < 2) return 0.0

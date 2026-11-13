@@ -87,8 +87,11 @@ class MainActivity : DiagnosticsActivity() {
     private lateinit var imuCalButton: Button
     private lateinit var camImuButton: Button
     private lateinit var ladderButton: Button
+    private lateinit var extrinsicsButton: Button
     private lateinit var guideButton: Button
     private lateinit var hubButton: Button
+    private lateinit var wizardButton: Button
+    private lateinit var intrinsicsButton: Button
     private lateinit var cameraTimingButton: Button
     private lateinit var deviceHardwareButton: Button
     private lateinit var guideText: TextView
@@ -165,6 +168,12 @@ class MainActivity : DiagnosticsActivity() {
                 "erlaubt vier Messmarken; Bilder werden nicht gespeichert. " +
                 "Knopf 13 erkennt die Zentimeter-Marken eines " +
                 "ausgeklappten Zollstocks selbst im Bild. " +
+                "Knopf 28 vermisst die Kamera selbst an einem " +
+                "Schachbrett: Brennweite, Hauptpunkt und Verzeichnung " +
+                "werden aus angetippten Ecken gerechnet, nicht vom " +
+                "Hersteller uebernommen. Das Raster muss nur quadratisch " +
+                "sein, nicht gemessen; daraus folgt kein Maß in Metern " +
+                "und keine Entfernung. Bilder werden nicht gespeichert. " +
                 "Knopf 14 rechnet pro Szene die Abweichung gegen " +
                 "dein Maßband aus – als gemessene Abweichung in " +
                 "Millimetern, nicht als Genauigkeitsversprechen. " +
@@ -379,6 +388,13 @@ class MainActivity : DiagnosticsActivity() {
             setAllCaps(false)
         }
 
+        extrinsicsButton = Button(this).apply {
+            text = "26. Kamera-IMU-Drehung und Brennweite " +
+                "(ARKCAMEXT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+
         camImuButton = Button(this).apply {
             text = "24. Kamera-IMU-Zeitversatz t_d & " +
                 "Achsenabbildung (ARKCAMIMU1)"
@@ -390,6 +406,19 @@ class MainActivity : DiagnosticsActivity() {
             text = "21. Zentrale: Bestand & Manifest (ARKDSMAN1)"
             textSize = 15f
             setAllCaps(false)
+        }
+        wizardButton = Button(this).apply {
+            text = "27. Assistent: Schritt für Schritt führen"
+            textSize = 16f
+            setAllCaps(false)
+            contentDescription = "Führt Schritt für Schritt durch die Messkampagne"
+        }
+        intrinsicsButton = Button(this).apply {
+            text = "28. Kamera vermessen (ARKINTR1)"
+            textSize = 16f
+            setAllCaps(false)
+            contentDescription =
+                "Misst Brennweite, Hauptpunkt und Verzeichnung der Kamera"
         }
         guideButton = Button(this).apply {
             text = "Checkliste: alles testen (anklopfen)"
@@ -430,6 +459,18 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(title, fullWidthParams())
         root.addView(versionText, fullWidthParams())
         root.addView(intro, fullWidthParams())
+        root.addView(wizardButton, fullWidthParams())
+        root.addView(intrinsicsButton, fullWidthParams())
+        root.addView(
+            TextView(this).apply {
+                text = "Noch nie gemessen? Nimm den Assistenten. Er sagt dir " +
+                    "jeden Schritt einzeln: was du brauchst, was du tust, " +
+                    "und woran du siehst, dass es gezählt hat."
+                textSize = 12f
+                setPadding(0, 0, 0, 8)
+            },
+            fullWidthParams(),
+        )
         root.addView(safetyText, fullWidthParams())
         root.addView(optIn, fullWidthParams())
         root.addView(statusText, fullWidthParams())
@@ -468,6 +509,7 @@ class MainActivity : DiagnosticsActivity() {
         root.addView(imuCalButton, fullWidthParams())
         root.addView(camImuButton, fullWidthParams())
         root.addView(ladderButton, fullWidthParams())
+        root.addView(extrinsicsButton, fullWidthParams())
         root.addView(retentionButton, fullWidthParams())
         root.addView(
             sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
@@ -501,6 +543,16 @@ class MainActivity : DiagnosticsActivity() {
         hubButton.setOnClickListener {
             startActivity(
                 Intent(this, ArtifactHubActivity::class.java),
+            )
+        }
+        wizardButton.setOnClickListener {
+            startActivity(
+                Intent(this, WizardActivity::class.java),
+            )
+        }
+        intrinsicsButton.setOnClickListener {
+            startActivity(
+                Intent(this, IntrinsicsCaptureActivity::class.java),
             )
         }
         guideButton.setOnClickListener {
@@ -626,6 +678,11 @@ class MainActivity : DiagnosticsActivity() {
         ladderButton.setOnClickListener {
             startActivity(
                 Intent(this, ScaleLadderActivity::class.java),
+            )
+        }
+        extrinsicsButton.setOnClickListener {
+            startActivity(
+                Intent(this, CameraExtrinsicsActivity::class.java),
             )
         }
 
@@ -1207,6 +1264,15 @@ class MainActivity : DiagnosticsActivity() {
             "   Belegt die Bedingungen hinter der Messung.",
             "6b. Knopf 22 -> ARKCAMT1 (Kameratakt, Zeitbasis)",
             "   Pro Gerät einmal, direkt nach der IMU-Messung.",
+            "6d. Knopf 28 -> ARKINTR1 (Kamera vermessen)",
+            "   Pro Gerät einmal, VOR allen Maß-Aussagen: erst wenn",
+            "   Brennweite, Hauptpunkt und Verzeichnung gemessen sind,",
+            "   bedeutet eine Länge am Bildrand dasselbe wie in der Mitte.",
+            "   Schachbrett 9x7 Ecken, flach aufgeklebt, mindestens",
+            "   6 Ansichten aus deutlich verschiedenen Richtungen.",
+            "   Es wird KEIN Maß in Metern und keine Entfernung",
+            "   daraus abgeleitet - das Raster ist quadratisch, nicht",
+            "   gemessen.",
             "6c. Knopf 23 -> ARKDEVHW1 (Gerät & Laufzeit)",
             "   Pro Gerät VOR 18 und 22: erst wenn das Gerät "
             + "nicht drosselt und die Uhren halten, "

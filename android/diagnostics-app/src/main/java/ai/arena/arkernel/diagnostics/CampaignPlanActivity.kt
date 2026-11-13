@@ -5,6 +5,7 @@ import ai.arena.arkernel.ArKernelAdaptiveDeviceFacts
 import ai.arena.arkernel.ArKernelCampaignBundle
 import ai.arena.arkernel.ArKernelCampaignPlanAdapter
 import ai.arena.arkernel.ArKernelCampaignQuestionRow
+import ai.arena.arkernel.ArKernelCampaignRoute
 import ai.arena.arkernel.ArKernelCampaignQuestionStatus
 import ai.arena.arkernel.ArKernelCampaignScene
 import ai.arena.arkernel.ArKernelCampaignSceneStatus
@@ -331,7 +332,22 @@ class CampaignPlanActivity : DiagnosticsActivity() {
         } else {
             ""
         }
-        statusText.text = "$header\n$sceneLine\n$questionLine$next"
+        // Without this the operator is asked to confirm evidence without ever
+        // being told which measurement produces it. Once every question has
+        // been addressed the whole run order is shown instead, because that
+        // is what is left to do.
+        val routeLine = if (questionDone) {
+            val order = ArKernelCampaignRoute.runOrder(
+                questions.map { it.question })
+            "\nMessweg: " + order.joinToString(" -> ") {
+                it.button.toString()
+            }
+        } else {
+            "\n" + ArKernelCampaignRoute.instructionFor(
+                questions[questionIndex].question)
+        }
+        statusText.setText(
+            "$header\n$sceneLine\n$questionLine$routeLine$next")
         if (currentPlan.isEmpty()) {
             previewText.text = buildString {
                 append("Kanonische Fragen:\n")
@@ -343,6 +359,9 @@ class CampaignPlanActivity : DiagnosticsActivity() {
                     append(row.question.requiredRepeats)
                     append(" | ")
                     append(row.status.wireName())
+                    append('\n')
+                    append("   ")
+                    append(ArKernelCampaignRoute.instructionFor(row.question))
                     append('\n')
                 }
                 append("\nSzenen:\n")

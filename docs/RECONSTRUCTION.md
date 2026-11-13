@@ -821,3 +821,71 @@ luminance profile along the marked line and dropped immediately. The only
 output is a bounded `ARKLADDER1` text record written to `Downloads` on demand.
 `scale_sufficient` is a precondition gate, not a quality grade, and the grade
 stays `unverified`.
+
+## Camera-IMU rotation (`ARKCAMEXT1`)
+
+Diagnostics app version `2.24-extrinsics` adds button 26. It recovers the
+rotation between the camera and the gyroscope, and gets a focal length out of
+the same motion without ever being told one.
+
+**The objection, and why it is wrong.** Turning an image shift into an angle
+appears to need a focal length, which is an intrinsic this app does not have.
+It does not, for the same structural reason the time offset did not: the
+unknown cancels. Near the optical axis a rotating camera moves content at
+`x-dot = -f * w_y` and `y-dot = +f * w_x`. Regressing the horizontal image rate
+onto the three gyroscope axes therefore returns minus f times one row of the
+rotation matrix, and the vertical regression returns plus f times another.
+Every row of a rotation matrix is a unit vector, so the *norm* of either
+coefficient vector is the focal length, and dividing by it recovers the row
+exactly. The scale is not a free parameter - orthonormality fixes it. This is
+the unit-norm constraint doing the same job that timing did for `t_d`.
+
+**Two things fall out for free.** The norm is an implied focal length in
+pixels, so the run yields one as a by-product. And the two regressions give
+two independent estimates of the same quantity, so they cross-check each other
+by a route that shares no arithmetic - which is the main gate. They also
+cross-check the scale ladder, which arrives at the same number from a folding
+ruler at known distances.
+
+**What is inferred, and what is not recovered at all.** The third row is a
+cross product of the two measured rows, because a rotation is right-handed.
+Roll is therefore inferred rather than measured, and carries whatever error
+the other two have. The translation between the camera and the IMU is not
+recovered at all: it shows up only through where content sits at *different*
+depths, which needs position, and position needs metric scale. The record
+carries `translation_fitted=false` as an enforced invariant so that no file
+can claim otherwise.
+
+**The gate is conditioning, not correlation.** A motion that excites only one
+gyroscope axis leaves the components along the other two invisible, however
+clean the data is: a three-component row cannot be recovered from a
+one-dimensional excitation. No amount of internal consistency notices this, so
+the run is gated on the conditioning of the normal equations, and the live
+display shows the motion range of the *weakest* axis rather than the largest.
+
+**A sign error is invisible to every internal check.** Flipping the sign of
+both recovered rows leaves a matrix that is still orthonormal with determinant
++1, so nothing internal can catch it. The signs come from the projection
+physics and from nothing else, and the test suite pins them with synthetic
+runs built from known rotations - including an explicit test that the flipped
+matrix is a valid rotation, so nobody "fixes" the sign by symmetry later.
+
+**Errors that look like noise but are not.** Image motion is measured on
+one-dimensional profiles - the mean over the orthogonal axis - and not by
+sliding the whole frame. Sliding the frame along one axis while it has also
+moved along the other compares pixels that never corresponded: the difference
+curve comes back flat and the argmin is noise. Sub-sample refinement is not a
+refinement of convenience either; a slow rotation moves content a fraction of
+a sample between frames, so rounding to integers discards most of the motion
+and biases the focal length downwards.
+
+The focal length is reported in pixels of the image grid the profile was taken
+from, and that grid is recorded alongside it, because the same lens has a
+different focal length in pixels at 1280x720 than at 4032x3024.
+
+No frame is retained: each frame is reduced in memory to a grid of luminance
+samples and dropped immediately. The only output is a bounded `ARKCAMEXT1`
+text record written to `Downloads` on demand. `extrinsics_sufficient` is a
+precondition gate, not a quality grade - it says the motion was rich enough
+for a rotation to be identifiable, not that the rotation is right - and the
+grade stays `unverified`.

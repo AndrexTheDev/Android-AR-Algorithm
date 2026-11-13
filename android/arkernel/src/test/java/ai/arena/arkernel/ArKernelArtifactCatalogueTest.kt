@@ -385,4 +385,98 @@ class ArKernelArtifactCatalogueTest {
         }
         assertTrue(threw)
     }
+
+    // ------------------------------------------------- registration coverage
+    //
+    // Everything above asks whether the catalogue behaves correctly for the
+    // contracts it knows about. It cannot catch the contract it never learned:
+    // `everyContractIsRecognisedFromItsOwnFileName` walks the enum, so a
+    // missing entry simply never comes up. Three contracts were missing that
+    // way - camera-IMU offset, scale ladder, camera-IMU rotation - and the
+    // manifest step, the one that binds a campaign together, dropped their
+    // files silently.
+    //
+    // The tests below therefore check the enum against a source of truth from
+    // outside it.
+
+    @Test
+    fun everyMeasurementTheCampaignRoutesToIsRegistered() {
+        // The routing table names the record each button produces. Every one
+        // of those has to exist here, or the operator runs the button and the
+        // manifest discards what it wrote.
+        for (step in ArKernelCampaignStep.values()) {
+            val contract = ArKernelArtifactContract.ofToken(step.record)
+            assertNotNull(
+                "${step.record} (button ${step.button}) is not in the " +
+                    "artefact catalogue, so the manifest will silently drop it",
+                contract,
+            )
+        }
+    }
+
+    @Test
+    fun theButtonNumbersAgreeBetweenRouteAndCatalogue() {
+        // Two tables say which button writes which record. If they drift, the
+        // operator is sent to the wrong screen.
+        for (step in ArKernelCampaignStep.values()) {
+            val contract = ArKernelArtifactContract.ofToken(step.record)
+            assertNotNull(step.record, contract)
+            assertEquals("button for ${step.record}", step.button, contract!!.button)
+        }
+    }
+
+    @Test
+    fun theThreeNewestContractsAreRegistered() {
+        // Explicit, so a future refactor of the enum says plainly what it
+        // removed instead of failing somewhere indirect.
+        for (token in listOf("ARKCAMIMU1", "ARKLADDER1", "ARKCAMEXT1")) {
+            assertNotNull("$token missing", ArKernelArtifactContract.ofToken(token))
+        }
+    }
+
+    @Test
+    fun aTokenBearingFileNameIsNeverClassifiedAsUnrecognised() {
+        // Registration has to be wired to a parser. The text is deliberately
+        // wrong, so the only acceptable outcomes are "parsed" or "rejected by
+        // its own contract" - never "no contract matches".
+        for (contract in ArKernelArtifactContract.values()) {
+            val reading = ArKernelArtifactCatalogue.read(
+                file("${contract.token}_run-1.txt"), "not a record at all")
+            assertFalse(
+                "${contract.token} was not dispatched to its parser",
+                reading.rejection == "UNRECOGNISED",
+            )
+            assertEquals(contract, reading.contract)
+        }
+    }
+
+    @Test
+    fun aFileNameWithoutItsTokenStaysUnrecognised() {
+        // Why the screens have to name their files after the token: a perfect
+        // record under the wrong name is invisible to the inventory.
+        val reading = ArKernelArtifactCatalogue.read(
+            file("camimu-run-1.txt"), "ARKCAMIMU1\nversion=1\nEND")
+        assertEquals("UNRECOGNISED", reading.rejection)
+        assertFalse(reading.accepted)
+    }
+
+    @Test
+    fun everyContractCarriesAPurposeAndAButton() {
+        for (contract in ArKernelArtifactContract.values()) {
+            assertTrue("${contract.token} has no purpose", contract.purpose.isNotBlank())
+            assertTrue("${contract.token} has no button", contract.button > 0)
+        }
+    }
+
+    @Test
+    fun contractTokensAreUniqueAndWellFormed() {
+        val tokens = ArKernelArtifactContract.values().map { it.token }
+        assertEquals("tokens must be unique", tokens.size, tokens.toSet().size)
+        for (token in tokens) {
+            assertTrue(
+                "$token must look like an ARK token",
+                token.startsWith("ARK") && token.last().isDigit(),
+            )
+        }
+    }
 }

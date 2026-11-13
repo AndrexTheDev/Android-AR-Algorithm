@@ -72,7 +72,7 @@ Initial decisions are now wired into runtime ownership and bounded session setti
 
 `CapabilityCoveragePlanner` turns up to 256 opaque lab/device-farm candidates into a deterministic weighted set-cover plan of at most 64 devices. It covers observed single and pairwise partitions across API, ABI, RAM, camera presence/hardware/timestamp/frame-rate/logical-camera/metadata and IMU classes, with extra weight for high-risk partitions. Build fingerprints, camera IDs and model names are not coverage dimensions. This optimizes test selection only; it cannot replace Camera ITS, controlled physical rigs or accuracy targets.
 
-`SyntheticCompatibilityFaultSource` feeds the real bounded admission probe with deterministic healthy timing plus single or pairwise timestamp regression, gap, result-dropout, IMU-dropout, latency, ambiguous-clock and disjoint-window faults. It is scalar replay infrastructure—not Camera2 emulation or physical-device evidence—and its bounded catalog is suitable for JVM/CI covering tests. `Camera2LifecycleStateMachine` separately guards asynchronous open/configure/stream/failure/stop ordering with monotonically increasing generations: stale callbacks are closed, terminal disconnect/error/configuration failures are reported once, and `Camera2FrameSource` now tears down the complete pipeline before another start. `Camera2ServiceDeathInstrumentation` classifies recognized framework service/permission/busy/disconnect codes as a distinct `SERVICE_DEATH` failure, while `Camera2ServiceDeathFuzzHarness` and `SyntheticCompatibilityFuzzCatalog` add bounded seed-deterministic replay over service-death callbacks, restarts, stale generations and fault subsets. These are synthetic instrumentation only: real Binder death, framework injection and unbounded fuzzing are not claimed.
+`SyntheticCompatibilityFaultSource` feeds the real bounded admission probe with deterministic healthy timing plus single or pairwise timestamp regression, gap, result-dropout, IMU-dropout, latency, ambiguous-clock and disjoint-window faults. It is scalar replay infrastructure—not Camera2 emulation or physical-device evidence—and its bounded catalog is suitable for JVM/CI covering tests. `Camera2LifecycleStateMachine` separately guards asynchronous open/configure/stream/failure/stop ordering with monotonically increasing generations: stale callbacks are closed, terminal disconnect/error/configuration failures are reported once, and `Camera2FrameSource` now tears down the complete pipeline before another start. `Camera2ServiceDeathInstrumentation` classifies recognized framework service/permission/busy/disconnect codes as a distinct `SERVICE_DEATH` failure, while `Camera2ServiceDeathFuzzHarness` and `SyntheticCompatibilityFuzzCatalog` add bounded seed-deterministic replay over service-death callbacks, restarts, stale generations and fault subsets. These are synthetic instrumentation only: real Binder death, framework injection and unbounded fuzzing are not claimed. `ArKernelSyntheticFaultCatalogBundle` adds a bounded canonical `ARKFAULT1` text contract for 1–45 host-declared synthetic two-fault scenarios: exact nine-key metadata order, canonical enum-ordinal fault pairs and IDs, contiguous indices, bounded camera/IMU sample budgets, non-negative `Long` seeds, exact dry-run flags and four mandatory disabled safety invariants. `fromPairwiseCatalog()` deterministically reproduces the exact 45 pairwise scenarios; `summarize()` reports only structural counts, minima/maxima, dry-run totals, seed maximum and pairwise completeness. It executes no replay, injects no framework/HAL/Binder fault, performs no coverage-guided or unbounded fuzzing, loads no corpora, does no I/O and stays `unverified`.
 
 `CompatibilitySafetyPolicy` provides canonical bounded disable-only rules over observable API, Camera2 hardware/timestamp, RAM and active-failure classes. P-256 root signatures, validity and monotonic revision floors are checked before a remote policy can replace the permanently valid built-in offline fallback. `CompatibilitySafetyPolicyStore` keeps the optional signed envelope in app-private no-backup storage, atomically installs only a strictly newer valid revision, fails closed on corrupt existing state, and always resolves absent, invalid or expired remote bytes to that built-in fallback. The action type can only disable dense depth, semantics or live mapping, force capture-only, or mark execution unsupported; it cannot grant admission, change calibration or increase a budget. Matching changes pass through the same terminal execution-plan restart guard.
 
@@ -108,6 +108,8 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 
 `ArKernelSurveyMeasurementTsv` adds a bounded canonical `ARKSURVEYTSV1` tab-separated transport adapter beside the existing CSV and JSON Lines adapters. It has one exact marker line, one exact header, 1–64 rows, unique opaque evidence IDs, exact reference kinds, finite numeric fields, explicit held-out flags, strict input/line/row budgets and fail-closed deterministic encode/parse. It measures no survey, runs no dimensional evaluator, performs no I/O, grants no quality grade and stays `unverified`; real survey evidence and binary USDZ/survey formats remain host work.
 
+`ArKernelSurveyMeasurementBinary` adds a bounded canonical `ARKSURVEYBIN1` binary transport adapter beside the CSV, JSON Lines and TSV adapters. A fixed 24-byte header, 1–64 fixed 200-byte records and a 4-byte CRC-32 trailer carry exact magic/version, row count, payload length, zero-padded ASCII evidence IDs, exact reference-kind and held-out bytes, six reserved zero bytes and eight little-endian IEEE-754 doubles. Strict input/byte/row budgets, finite numbers, unique IDs, canonical padding, fail-closed deterministic encode/parse and stable rejection reasons are enforced. It performs no I/O, measures no survey, runs no dimensional evaluator, grants no quality grade and stays `unverified`; CRC-32 is not authentication. Real survey evidence, USDZ, other external binary formats and the Filament viewer remain host work.
+
 ## Field diagnostics redaction rules
 
 `ArKernelFieldDiagnosticsRedactionBundle` adds a bounded canonical `ARKREDACT1` text plan for host-declared redaction rules: fixed metadata order, 1–32 rules, unique opaque field IDs, `drop`/`hash` actions, opaque tokens/reasons, strict budgets, deterministic encode/parse and fail-closed rejection. It collects, redacts, uploads and verifies nothing, performs no I/O, grants no quality grade and stays `unverified`; real field workflows and physical target evidence remain host work.
@@ -116,6 +118,175 @@ Cross-session restore can use `restoreSpatialMapRelocalized` with caller-supplie
 
 `ArKernelLoopClosureCandidateBundle` adds a bounded canonical `ARKLOOP1` text ledger for host-proposed loop candidates: fixed metadata order, 1–48 unique opaque candidates, distinct opaque keyframe pairs, finite non-negative residual/uncertainty decimals, bounded inlier counts, strict budgets, deterministic encode/parse and fail-closed rejection. It verifies no loop, optimizes no pose graph, runs no global bundle adjustment, mutates no map, performs no I/O, grants no quality grade and stays `unverified`; verified loop closure and full optimization remain host work.
 
+## Loop-closure geometric consistency gate
+
+`ArKernelLoopClosureGeometricGate` adds a bounded host-owned canonical `ARKLOOPGC1` consistency envelope beside the `ARKLOOP1` ledger. A fixed nineteen-key metadata order, 1–64 opaque eight-field 3D–3D correspondences, unique IDs, contiguous indices, finite decimals, strict input/line budgets, BOM/CRLF tolerance and a fail-closed `END` are enforced. The evaluator normalizes one host-supplied unit quaternion, transforms point B with the finite translation, measures residuals against point A and reports deterministic correspondence/inlier counts, maximum residual, RMSE, inlier ratio, prior disagreement and spatial spread under an explicit bounded policy. `evaluateAgainstLedger` additionally requires one exact `ARKLOOP1` candidate ID/keyframe pair and checks the candidate's inlier budget plus its conservative residual/uncertainty bound. All four safety flags stay disabled and the grade stays `unverified`; the adapter verifies no loop, matches no descriptors, runs no RANSAC, optimizes no graph, mutates no map, performs no I/O and grants no quality grade. Verified loop closure and full optimization remain host work.
+
+## Asset-viewer plan transport
+
+`ArKernelAssetViewerPlanBundle` adds a bounded host-owned canonical `ARKVIEW1` inspection-plan envelope beside the existing `arkglb://` asset archive. A fixed nine-key metadata order, 1–16 opaque twelve-field views, unique view IDs, contiguous indices, exact `orbit`/`front`/`top` and `base_color`/`normals`/`wireframe` modes, bounded camera/frame values, strict input/line budgets, BOM/CRLF tolerance and a fail-closed `END` are enforced. Asset references are opaque tokens matching the archive's session/generation/GLB naming pattern and are never resolved. Four safety flags keep asset loading, renderer initialization, automatic upload and external-format import disabled; the grade stays `unverified`. The adapter performs no I/O, GLB/GLTF decoding, Filament initialization, rendering, upload, USDZ or other external-format import, quality inference, physical validation or quality upgrade. The separate optional Android Filament viewer module and USDZ adapters remain host work.
+
 ## Bounded edge-collapse QEM delivery simplification
 
 `simplifyMeshEdgeCollapseQem` adds a real bounded native topology simplifier for the delivery mesh. After each accepted collapse it rebuilds plane quadrics, adjacency, feature locks and candidate priorities from the current triangles. Only manifold interior edges with the exact two-vertex link condition may collapse, under measured quadric, cumulative displacement/UV, normal, area and topology bounds. Boundary, sharp, non-manifold, UV-seam and topologically ambiguous vertices stay locked; input, edge, evaluation and collapse budgets are fail-closed. `ReconstructionFusionPipeline` exposes the stage as an opt-in config with separate telemetry including maximum cumulative UV error, and `ReconstructionFusionOptions` exposes the same budgets and preservation flags to Kotlin. Native tests cover round-trip simplification, determinism, feature locks, cumulative position/UV drift, invalid configuration, budget truncation, source-mesh preservation and pipeline integration; JVM tests cover option defaults and invalid budgets. This changes topology but performs no physical validation, benchmark, quality upgrade or unconstrained topology optimization; the grade stays `unverified`.
+
+## Bounded host-supplied golden-suite plans
+
+`ArKernelGoldenSuitePlanBundle` adds a bounded canonical `ARKGOLDEN1` text
+contract for a host-declared CPU/delegate golden suite: fixed sixteen-key
+metadata order, 1–16 unique nine-field cases with contiguous indices, opaque
+lowercase SHA-256 frame digests, exactly one declared startup sentinel, exact
+`SEMANTIC_DETECTION`/`METRIC_DEPTH` tasks, bounded frame/output budgets and six
+canonical finite decimal tolerances. `ArKernelGoldenSuiteTolerances.options()`
+builds only the existing inert `InferenceSemanticConformanceOptions` object;
+the summarizer reports structural counts, budgets and frame maxima only. Five
+safety flags keep model loading, delegate execution, evidence-cache writes,
+automatic upload and device-farm corpora disabled. It verifies no artifact or
+signature, builds no factory or backend, runs no inference, sentinel or CPU
+fallback, performs no I/O and stays `unverified`; real golden frames, concrete
+adapter artifacts, factory implementations and device-farm corpus results
+remain host work.
+
+## Bounded host-supplied set-cover plan ledger
+
+`ArKernelCoveragePlanBundle` adds a bounded canonical `ARKCOV1` text ledger for one host-supplied weighted set-cover plan: fixed fourteen-key metadata order, 0–64 unique four-field selection rows, 0–64 seven-field uncovered requirement rows, contiguous indices, exact `CapabilityCoverageDimension` names in ascending order for pairwise requirements, bounded value tokens and weights, strict input/line budgets, BOM/CRLF tolerance and a fail-closed `END`. Aggregate counts, selection sums, covered-plus-uncovered totals and weight bounds are checked exactly. `fromPlan()` serializes an existing `CapabilityCoveragePlan` and `toPlan()` rebuilds it; `summarize()` reports only structural counts, sums and distinctness. Five safety flags keep provider binding, Mobly rig control, thermal-run execution, physical scene capture and automatic upload disabled. The ledger contacts no provider, controls no rig, runs no thermal or day/night/weather scene, performs no I/O and stays `unverified`; concrete inventories, rig automation and device-farm evidence remain host work.
+
+## Bounded host-supplied field diagnostics package
+
+`ArKernelFieldDiagnosticsPackageAdapter` adds a bounded canonical
+`ARKFDPACK1` text manifest for one host-declared field diagnostics package:
+fixed eleven-key metadata order, 1–16 opaque `ARKFDIAG1` report references
+with lowercase SHA-256 labels and positive bounded byte sizes, 0–16 unique
+`drop`/`hash` rule references, 0–8 opaque independent target references,
+contiguous indices, strict input/line budgets, BOM/CRLF tolerance and a
+fail-closed `END`. `summarize()` reports structural counts, sums and
+distinctness only; `reportRefs()` and `referencedDigests()` return opaque
+host labels. Five safety flags keep images, poses, trajectories, automatic
+capture and automatic upload disabled. The adapter captures no pixels or
+poses, redacts nothing, verifies no digest or signature, measures no target,
+performs no I/O and stays `unverified`; real field collection, independent
+target evidence and centimetre validation remain host work.
+
+## Bounded physical calibration evidence
+
+`ArKernelCalibrationEvidenceAdapter` adds a bounded canonical `ARKCALIB1`
+text contract for host-performed physical calibration: twelve exact metadata
+keys, six fail-closed invariants (capture/pose opt-in, no images, no automatic
+calibration, no automatic upload, permanent `unverified`), 1–16 unique
+held-out independent scale observations with exact provenance and canonical
+decimals, 0–32 bounded pose or orientation-only samples with strictly
+increasing timestamps and unit quaternions, strict input/line budgets and a
+fail-closed `END`. `summarize()` computes only arithmetic on host-supplied
+numbers plus a readiness pre-check; `evaluationReady` is not a quality grade.
+The adapter captures no pixels or frames, infers no intrinsics, extrinsics or
+metric scale, performs no automatic calibration, verifies no signature,
+performs no I/O and grants no upgrade. Orientation-only samples must assert
+zero translation and cannot establish scale; there is no universal
+calibration for every device. The authoritative grade remains
+`assessReconstructionQuality` with `evaluateHeldOutDimensions`; real field
+evidence, independent targets and centimetre validation remain host work.
+
+## Bounded device-adaptive onboarding profiles
+
+`ArKernelDeviceAdaptiveProfileAdapter` adds a bounded canonical `ARKADAPT1`
+text contract that adapts a systematic calibration procedure to host-read,
+non-personal device facts. `selectProfile()` deterministically maps Camera2
+hardware level, camera count, gyroscope and rotation-vector presence, thermal
+monitoring, intrinsics trust, RAM class and API level to one of four device
+classes and a bounded 1–16 step list; unknown devices get the most
+conservative profile. Fifteen exact metadata keys, five fail-closed
+invariants, strict budgets and a fail-closed `END` reject malformed input.
+`summarize()` reports structural counts only; `profileComplete` is not a
+quality grade. The adapter reads no sensor, infers no intrinsics, extrinsics
+or metric scale, performs no automatic or universal calibration, verifies no
+signature, captures no images or poses, uploads nothing, performs no I/O and
+grants no upgrade. The procedure is portable to every Android device; the
+calibration values are not. The grade stays `unverified`; real independent
+targets and per-device validation remain host work.
+
+## Bounded systematic portable campaign plans
+
+`ArKernelCampaignPlanAdapter` adds a bounded canonical `ARKCAMPAIGN1` text
+contract: seventeen exact metadata keys, eight fail-closed invariants, 1–16
+unique scenes across nine fixed kinds, repeat budgets and ten canonical
+questions with fixed evidence depths. `canonicalPlan()` uses the device class
+from `ARKADAPT1`; the protocol is portable across Android devices, while
+calibration values are not. Weaker devices get fewer scenes and explicit
+`unsupportedQuestionCount`; they never get different questions or a weaker
+quality rule. `summarize()` reports structural counts only;
+`campaignEvidenceComplete` is a completeness pre-check, not an assessment.
+The adapter reads no sensor, measures no target, captures no images or poses,
+performs no automatic/universal calibration, verifies no signature, uploads
+nothing, performs no I/O and grants no upgrade. The grade stays `unverified`.
+
+## Bounded fail-closed session binding
+
+`ArKernelSessionBindingAdapter` adds a bounded canonical `ARKBIND1` envelope
+that joins one `ARKADAPT1` profile, one `ARKCALIB1` evidence file and one
+`ARKCAMPAIGN1` plan. Nineteen exact metadata keys, six fail-closed invariants,
+canonical-source SHA-256 digests, bounded counts and fail-closed `END` parsing
+reject malformed envelopes deterministically. `create()` and `verify()` check
+device-token, device-class, campaign-ID, digest and count consistency and
+report structural facts only; `bindingConsistent` is not an assessment. The
+adapter reads no sensor, measures no target, verifies no signature, uploads
+nothing, performs no file I/O and grants no upgrade. The grade stays
+`unverified`; independent targets, manual redaction/upload, signature
+verification and physical validation remain host work.
+
+## Bounded cross-device comparison
+
+`ArKernelCrossDeviceComparisonAdapter` adds a bounded canonical `ARKCROSS1`
+text contract with fourteen exact metadata keys, eight fail-closed
+invariants and 1–16 unique rows, each binding one canonical `ARKBIND1`
+envelope by lowercase SHA-256 digest. `create()` requires unique device
+tokens and digests; `verify()` recomputes them; `summarize()` reports only
+structural counts. The protocol is portable to every Android device; the
+calibration values are not. This contract explicitly does not re-verify the
+three source texts behind each binding. The adapter reads no sensor,
+measures no target, verifies no signature, uploads nothing, performs no file
+I/O and grants no upgrade. The grade stays `unverified`.
+
+## Bounded retention run ledger
+
+`ArKernelRetentionRunLedgerAdapter` adds a bounded canonical `ARKRETENT1`
+text contract with fourteen exact metadata keys, three fail-closed invariants,
+three modes and three preview action kinds. It records host-reported structural
+facts only; explicit confirmation, a dry run and disabled physical-device
+validation are mandatory. The adapter shows no dialog, deletes no frame or
+key, controls no storage, verifies no signature, uploads nothing, performs no
+file I/O and grants no upgrade. The grade stays `unverified`.
+
+## Bounded guided measurement execution ledger
+
+`ArKernelMeasurementAdapter` adds a bounded canonical `ARKMEAS1` contract with
+twenty exact metadata keys, eleven fail-closed invariants, nine canonical scene
+kinds and SHA-256 digest binding of canonical `ARKCALIB1` texts. It records
+host-executed physical measurement scenes, not accuracy. It performs no
+inference, includes no AI model, controls no storage, verifies no signature,
+uploads nothing, performs no automatic or universal calibration and grants no
+quality grade. `verify()` does not re-parse source texts. The grade stays
+`unverified`.
+
+## Bounded live camera capture record
+
+`ArKernelMeasurementFeedAdapter` adds a bounded canonical `ARKFEED1`
+contract with twenty-seven exact metadata keys, eleven fail-closed
+invariants, four ordered marker rows and derived screen-ratio geometry. It
+records user-placed overlay markers and one independently measured
+reference length, not accuracy. Frames are counted but never exported;
+`metric_accuracy_claimed=false`. It includes no AI model and no inference,
+controls no camera or storage, verifies no signature, uploads nothing,
+performs no automatic or universal calibration and grants no quality
+grade. The grade stays `unverified`.
+
+## Bounded folding-ruler tick detection
+
+`ArKernelRulerScaleAdapter` and `ArKernelRulerTickDetector` add a bounded
+canonical `ARKSCALE1` contract with thirty-five exact metadata keys, thirteen
+fail-closed invariants, four marker rows and 2–200 ordered tick rows. The
+detector is pure and deterministic: it uses integer luma thresholds only, no
+AI model, no inference, no weights and no network. Frames are analysed in
+memory and never persisted. It records detected tick structure and a
+screen-ratio scale, not accuracy; `metric_accuracy_claimed=false`. No
+automatic or universal calibration, no signature verification, no upload and
+no quality grade. The grade stays `unverified`.

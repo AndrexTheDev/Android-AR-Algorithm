@@ -33,6 +33,7 @@ import android.provider.MediaStore
 import android.text.InputFilter
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -48,13 +49,14 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Single installed, plan-driven host diagnostic app. It writes an opted-in
  * ARKFDPOL1 policy, an ARKFDPLAN1 test plan and a bounded ARKFDLOG1 run log as
- * text files, never images, poses, trajectories, calibration arrays or pixels.
- * A host-pasted ARKFDPLAN1 plan selects implemented structural test operators;
- * it cannot add new low-level capabilities. The app performs no automatic
- * upload, signature verification or physical ground-truth measurement and
- * stays explicitly unverified.
+ * text files, never images, pixels or dense geometry. A separate opted-in
+ * CalibrationCaptureActivity records bounded ARKCALIB1 scale evidence and
+ * orientation samples only. A host-pasted ARKFDPLAN1 plan selects implemented
+ * structural test operators; it cannot add new low-level capabilities. The app
+ * performs no automatic upload, automatic calibration, signature verification
+ * or physical ground-truth measurement and stays explicitly unverified.
  */
-class MainActivity : android.app.Activity() {
+class MainActivity : DiagnosticsActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var logPreview: TextView
@@ -67,6 +69,27 @@ class MainActivity : android.app.Activity() {
     private lateinit var writeButton: Button
     private lateinit var shareButton: Button
     private lateinit var copyButton: Button
+    private lateinit var calibrationButton: Button
+    private lateinit var adaptiveButton: Button
+    private lateinit var campaignButton: Button
+    private lateinit var bindingButton: Button
+    private lateinit var crossButton: Button
+    private lateinit var retentionButton: Button
+    private lateinit var measurementButton: Button
+    private lateinit var feedButton: Button
+    private lateinit var rulerButton: Button
+    private lateinit var validationButton: Button
+    private lateinit var signatureButton: Button
+    private lateinit var redactionButton: Button
+    private lateinit var targetsButton: Button
+    private lateinit var conditionsButton: Button
+    private lateinit var corpusButton: Button
+    private lateinit var imuCalButton: Button
+    private lateinit var guideButton: Button
+    private lateinit var hubButton: Button
+    private lateinit var cameraTimingButton: Button
+    private lateinit var deviceHardwareButton: Button
+    private lateinit var guideText: TextView
 
     private val diagnosticsPolicy = ArKernelFieldDiagnosticsPolicy(
         policyId = "diagnostics.apk.v1",
@@ -100,6 +123,16 @@ class MainActivity : android.app.Activity() {
             setTypeface(null, Typeface.BOLD)
         }
 
+        val versionText = TextView(this).apply {
+            text = "Version 2.21-devhw · Gerät & Laufzeit " +
+                "(Knopf 23). Wenn dieser Text fehlt, ist noch die " +
+                "alte APK installiert."
+            textSize = 11f
+            gravity = Gravity.CENTER_HORIZONTAL
+            setTextColor(Color.parseColor("#B45309"))
+            contentDescription = "Versionskennung der installierten APK"
+        }
+
         val intro = TextView(this).apply {
             text = "Eine installierte App, viele zukünftige Testläufe: unten steht ein " +
                 "ARKFDPLAN1-Textplan. Dauer, Reihenfolge, Wiederholungen und Parameter " +
@@ -115,9 +148,61 @@ class MainActivity : android.app.Activity() {
                 "Sensoren, IMU-Stillstand, Camera2-Lifecycle, Storage-Roundtrip, " +
                 "Kern-Selbsttest, Thermal-Zeitreihe und Snapshots. Neue Android-APIs " +
                 "würden ein Update derselben App erfordern, keine neue App. Nur opake " +
-                "Skalare; keine Bilder, Posen, Trajektorien, Kalibrierarrays oder Pixel; " +
-                "Nutzerbestätigungen sind host-reported. Keine externen Targets, kein " +
-                "Bodentruth, kein Upload, Qualität: unverified."
+                "Skalare; keine Bilder, Pixel oder dichte Geometrie. Der separate " +
+                "Kalibrierungs-Bildschirm erfasst mit eigenem Opt-in Maßstabs-Evidenz " +
+                "und Orientierungs-Proben, aber keine metrische Position. Der " +
+                "geräteadaptive Bildschirm wählt automatisch ein Profil, aber " +
+                "kalibriert nicht automatisch. Der Kampagnen-Bildschirm " +
+                "liefert nur einen festen Messplan, keine Auswertung. Die " +
+                "Sitzungsbindung prüft nur digestgenaue Zusammengehörigkeit. " +
+                "Der Gerätevergleich bindet nur deklarierte Sitzungen, keine " +
+                "Kalibrierwerte. Der Retention-Bildschirm ist ein trockener " +
+                "UX-Lauf ohne Löschung. Die Messdurchführung bindet deine " +
+                "ARKCALIB1-Texte pro Szene, misst aber nichts selbst. " +
+                "Der Live-Kamerafeed (Knopf 12) zeigt die Rückkamera und " +
+                "erlaubt vier Messmarken; Bilder werden nicht gespeichert. " +
+                "Knopf 13 erkennt die Zentimeter-Marken eines " +
+                "ausgeklappten Zollstocks selbst im Bild. " +
+                "Knopf 14 rechnet pro Szene die Abweichung gegen " +
+                "dein Maßband aus – als gemessene Abweichung in " +
+                "Millimetern, nicht als Genauigkeitsversprechen. " +
+                "Knopf 15 bindet deine Artefakte per SHA-256 in ein " +
+                "signiertes Manifest (ARKSIGN1) und prüft fremde " +
+                "Manifeste – Unversehrtheit, nicht Identität. " +
+                "Knopf 16 entfernt MAC, IPv4, Hex-Kennungen, " +
+                "Gerätenummern, Pfade und E-Mails aus deinen " +
+                "Artefakten, bevor du sie hochlädst – manuell, " +
+                "nie automatisch. Knopf 17 führt Buch darüber, " +
+                "welches deiner physischen Targets den Maßstab " +
+                "gesetzt hat und welche wirklich unabhängig geprüft " +
+                "werden dürfen. Knopf 18 liest Thermik und " +
+                "Umgebungslicht vom Gerät und belegt, dass Tag und " +
+                "Nacht wirklich gemessen wurden. Knopf 19 prüft, ob " +
+                "dein Korpus überhaupt einen Gerätevergleich trägt: " +
+                "wie viele Zellen auf mindestens zwei Geräten liegen " +
+                "und ob ein Gerät alles dominiert. " +
+                "Knopf 20 misst die Trägheitssensoren selbst: Kadenz " +
+                "und Zeitbasis, Bias und Rauschen im Stillstand, Bias, " +
+                "Maßstab und Fehlstellung des Beschleunigers aus sechs " +
+                "Lagen sowie den Maßstabsfehler des Gyroskops gegen " +
+                "einen Winkel, den du mit einer Lehre vorgibst. " +
+                "Knopf 21 sieht nach, was von alledem schon auf dem " +
+                "Gerät liegt, prüft jede Datei gegen ihren eigenen " +
+                "Vertrag und bindet sie mit SHA-256 in ein Manifest. " +
+                "Knopf 22 misst die Kamera, ohne ein Bild zu behalten: " +
+                "Bildrate und Löcher, auf welcher Uhr die " +
+                "Bildzeitstempel liegen, Belichtung und wie stark das " +
+                "Bild bei einer Schwenkbewegung verschmiert. " +
+                                "Knopf 23 prüft das Gerät darunter: welche " +
+                "Sensoren es überhaupt meldet, wie viel " +
+                "Speicher und Platz frei sind, ob der Takt " +
+                "unter Dauerlast einbricht und ob die beiden " +
+                "Uhren während eines Laufs auseinanderdriften – " +
+                "denn eine 60-Sekunden-Messung auf einem " +
+                "drosselnden Gerät misst das Drosseln, nicht " +
+                "den Sensor. " +
+"Kein Bodentruth im Log, kein Upload, " +
+                "Qualität: unverified."
             textSize = 12f
             setTextColor(Color.parseColor("#555555"))
         }
@@ -192,6 +277,120 @@ class MainActivity : android.app.Activity() {
             textSize = 15f
             setAllCaps(false)
         }
+        calibrationButton = Button(this).apply {
+            text = "5. Physische Kalibrierung öffnen (ARKCALIB1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        adaptiveButton = Button(this).apply {
+            text = "6. Geräteadaptive Kalibrierung (ARKADAPT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        campaignButton = Button(this).apply {
+            text = "7. Systematische Messkampagne (ARKCAMPAIGN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        bindingButton = Button(this).apply {
+            text = "8. Sitzungsbindung (ARKBIND1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        crossButton = Button(this).apply {
+            text = "9. Gerätevergleich (ARKCROSS1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        retentionButton = Button(this).apply {
+            text = "10. Retention-UX (ARKRETENT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        measurementButton = Button(this).apply {
+            text = "11. Geführte Messdurchführung (ARKMEAS1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+
+        feedButton = Button(this).apply {
+            text = "12. Live-Kamerafeed & Messung (ARKFEED1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        cameraTimingButton = Button(this).apply {
+            text = "22. Kamera-Takt & Fähigkeiten (ARKCAMT1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        deviceHardwareButton = Button(this).apply {
+            text = "23. Gerät & Laufzeit (ARKDEVHW1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        rulerButton = Button(this).apply {
+            text = "13. Zollstock automatisch erkennen (ARKSCALE1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        validationButton = Button(this).apply {
+            text = "14. Metrische Validierung in mm (ARKVALID1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        signatureButton = Button(this).apply {
+            text = "15. Signatur & Prüfung (ARKSIGN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        redactionButton = Button(this).apply {
+            text = "16. Redaktion & Upload (ARKREDRUN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        targetsButton = Button(this).apply {
+            text = "17. Unabhängige Targets (ARKTARGET1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        conditionsButton = Button(this).apply {
+            text = "18. Bedingungen: Rig, Thermik, Tag/Nacht (ARKCOND1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        corpusButton = Button(this).apply {
+            text = "19. Device-Farm-Korpus (ARKCORPUS1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        imuCalButton = Button(this).apply {
+            text = "20. IMU-Kalibrierung: Kadenz, Statik, " +
+                "Lagen, Drehung (ARKIMUCAL1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+
+        hubButton = Button(this).apply {
+            text = "21. Zentrale: Bestand & Manifest (ARKDSMAN1)"
+            textSize = 15f
+            setAllCaps(false)
+        }
+        guideButton = Button(this).apply {
+            text = "Checkliste: alles testen (anklopfen)"
+            textSize = 14f
+            setAllCaps(false)
+            contentDescription = "Zeigt oder versteckt die Test-Checkliste"
+        }
+        guideText = TextView(this).apply {
+            text = GUIDE_TEXT
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            visibility = View.GONE
+            setTextIsSelectable(true)
+            setBackgroundColor(Color.parseColor("#FFF7ED"))
+            setPadding(12, 12, 12, 12)
+            contentDescription = "Checkliste aller benötigten Testartefakte"
+        }
 
         logPreview = TextView(this).apply {
             text = "Noch kein Log erzeugt."
@@ -213,6 +412,7 @@ class MainActivity : android.app.Activity() {
         }
 
         root.addView(title, fullWidthParams())
+        root.addView(versionText, fullWidthParams())
         root.addView(intro, fullWidthParams())
         root.addView(safetyText, fullWidthParams())
         root.addView(optIn, fullWidthParams())
@@ -226,12 +426,49 @@ class MainActivity : android.app.Activity() {
             ),
         )
         root.addView(resetPlanButton, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 1 · Log & Plan"),
+            fullWidthParams(),
+        )
+        root.addView(hubButton, fullWidthParams())
         root.addView(createButton, fullWidthParams())
         root.addView(physicalButton, fullWidthParams())
         root.addView(writeButton, fullWidthParams())
         root.addView(shareButton, fullWidthParams())
         root.addView(sharePlanButton, fullWidthParams())
         root.addView(copyButton, fullWidthParams())
+        root.addView(guideButton, fullWidthParams())
+        root.addView(guideText, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 2 · Kalibrierung & Sitzungen"),
+            fullWidthParams(),
+        )
+        root.addView(calibrationButton, fullWidthParams())
+        root.addView(adaptiveButton, fullWidthParams())
+        root.addView(campaignButton, fullWidthParams())
+        root.addView(bindingButton, fullWidthParams())
+        root.addView(crossButton, fullWidthParams())
+        root.addView(corpusButton, fullWidthParams())
+        root.addView(imuCalButton, fullWidthParams())
+        root.addView(retentionButton, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 3 · Messung mit Kamera & Zollstock"),
+            fullWidthParams(),
+        )
+        root.addView(cameraTimingButton, fullWidthParams())
+        root.addView(deviceHardwareButton, fullWidthParams())
+        root.addView(measurementButton, fullWidthParams())
+        root.addView(feedButton, fullWidthParams())
+        root.addView(rulerButton, fullWidthParams())
+        root.addView(validationButton, fullWidthParams())
+        root.addView(targetsButton, fullWidthParams())
+        root.addView(conditionsButton, fullWidthParams())
+        root.addView(
+            sectionLabel("SCHRITT 4 · Vertrauen & Upload"),
+            fullWidthParams(),
+        )
+        root.addView(signatureButton, fullWidthParams())
+        root.addView(redactionButton, fullWidthParams())
         root.addView(
             scroll,
             LinearLayout.LayoutParams(
@@ -243,6 +480,20 @@ class MainActivity : android.app.Activity() {
         setContentView(root)
 
         optIn.setOnCheckedChangeListener { _, _ -> updateButtons() }
+        hubButton.setOnClickListener {
+            startActivity(
+                Intent(this, ArtifactHubActivity::class.java),
+            )
+        }
+        guideButton.setOnClickListener {
+            val visible = guideText.visibility == View.VISIBLE
+            guideText.visibility = if (visible) View.GONE else View.VISIBLE
+            guideButton.text = if (visible) {
+                "Checkliste: alles testen (anklopfen)"
+            } else {
+                "Checkliste ausblenden"
+            }
+        }
         resetPlanButton.setOnClickListener {
             planInput.setText(defaultPlanText)
             currentPlanText = defaultPlanText
@@ -259,10 +510,111 @@ class MainActivity : android.app.Activity() {
         shareButton.setOnClickListener { shareLog() }
         sharePlanButton.setOnClickListener { sharePlan() }
         copyButton.setOnClickListener { copyLog() }
+        calibrationButton.setOnClickListener {
+            startActivity(
+                Intent(this, CalibrationCaptureActivity::class.java),
+            )
+        }
+        adaptiveButton.setOnClickListener {
+            startActivity(
+                Intent(this, AdaptiveCalibrationActivity::class.java),
+            )
+        }
+        campaignButton.setOnClickListener {
+            startActivity(
+                Intent(this, CampaignPlanActivity::class.java),
+            )
+        }
+        bindingButton.setOnClickListener {
+            startActivity(
+                Intent(this, SessionBindingActivity::class.java),
+            )
+        }
+        crossButton.setOnClickListener {
+            startActivity(
+                Intent(this, CrossDeviceActivity::class.java),
+            )
+        }
+        retentionButton.setOnClickListener {
+            startActivity(
+                Intent(this, RetentionActivity::class.java),
+            )
+        }
+        cameraTimingButton.setOnClickListener {
+            startActivity(
+                Intent(this, CameraTimingActivity::class.java),
+            )
+        }
+        deviceHardwareButton.setOnClickListener {
+            startActivity(
+                Intent(this, DeviceHardwareActivity::class.java),
+            )
+        }
+        measurementButton.setOnClickListener {
+            startActivity(
+                Intent(this, MeasurementActivity::class.java),
+            )
+        }
+        feedButton.setOnClickListener {
+            startActivity(
+                Intent(this, MeasurementFeedActivity::class.java),
+            )
+        }
+        rulerButton.setOnClickListener {
+            startActivity(
+                Intent(this, RulerScaleActivity::class.java),
+            )
+        }
+        validationButton.setOnClickListener {
+            startActivity(
+                Intent(this, MetricValidationActivity::class.java),
+            )
+        }
+        signatureButton.setOnClickListener {
+            startActivity(
+                Intent(this, SignatureActivity::class.java),
+            )
+        }
+        redactionButton.setOnClickListener {
+            startActivity(
+                Intent(this, RedactionActivity::class.java),
+            )
+        }
+        targetsButton.setOnClickListener {
+            startActivity(
+                Intent(this, IndependentTargetsActivity::class.java),
+            )
+        }
+        conditionsButton.setOnClickListener {
+            startActivity(
+                Intent(this, ConditionEvidenceActivity::class.java),
+            )
+        }
+        corpusButton.setOnClickListener {
+            startActivity(
+                Intent(this, DeviceFarmCorpusActivity::class.java),
+            )
+        }
+        imuCalButton.setOnClickListener {
+            startActivity(
+                Intent(this, ImuCalibrationActivity::class.java),
+            )
+        }
 
         updateButtons()
         ensureCameraPermission()
     }
+
+    /** Bold section header that groups the numbered action buttons. */
+    private fun sectionLabel(text: String): TextView =
+        TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1D4ED8"))
+            setPadding(0, 14, 0, 2)
+            contentDescription = "Abschnitt " + text
+        }
 
     private fun fullWidthParams(): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(
@@ -789,5 +1141,59 @@ class MainActivity : android.app.Activity() {
 
     private companion object {
         const val REQUEST_CAMERA = 1001
+        val GUIDE_TEXT = listOf(
+            "CHECKLISTE – in dieser Reihenfolge testen.",
+            "Die App prüft NICHT selbst, was schon vorliegt; das",
+            "ist eine manuelle Anleitung, keine Verifikation.",
+            "",
+            "0. Knopf 21 -> ARKDSMAN1 (Bestand & Manifest)",
+            "   Zeigt, was schon vorliegt und was als Nächstes",
+            "   fehlt. Am Anfang und am Ende jedes Geräts.",
+            "1. Knopf 1 (Log) + 3 (speichern) + 4 (teilen)",
+            "   -> ARKFDPOL1, ARKFDPLAN1, ARKFDLOG1",
+            "2. Knopf 2  -> ultimativer Planlauf, danach 3 + 4",
+            "3. Knopf 6  -> ARKADAPT1  (Geräteprofil wählen)",
+            "4. Knopf 7  -> ARKCAMPAIGN1 (Messplan, 9 Szenen)",
+            "5. Knopf 5  -> ARKCALIB1 je Szene (dein Maßband)",
+            "6. Knopf 13 -> ARKSCALE1 (Zollstock-Autoerkennung)",
+            "   Zollstock auf 1 m oder 2 m ausklappen!",
+            "7. Knopf 12 -> ARKFEED1 (Kamerafeed, 4 Marken)",
+            "8. Knopf 11 -> ARKMEAS1 (alle 9 Szenen binden)",
+            "9. Knopf 8  -> ARKBIND1 (Sitzungsbindung)",
+            "10. Knopf 10 -> ARKRETENT1 (Aufbewahrung)",
+            "11. Knopf 9 -> ARKCROSS1 (Vergleich, ab 2. Gerät)",
+            "12. Knopf 14 -> ARKVALID1 (Maßband je Szene in mm)",
+            "   Erst mit 12/13 messen und teilen, dann hier",
+            "   einfügen und Referenz eintragen.",
+            "13. Knopf 16 -> ARKREDRUN1 (Redaktion + Freigabe)",
+            "   Zuerst redigieren: die Redaktion schreibt NEUE",
+            "   Dateien, und nur diese lädst du hoch.",
+            "14. Knopf 15 -> ARKSIGN1 (Manifest signieren + prüfen)",
+            "   Erst Schlüssel erzeugen und öffentlichen Schlüssel",
+            "   einmal hochladen, dann die redigierten Dateien",
+            "   binden. Umgekehrt deckte die Signatur Bytes ab,",
+            "   die niemand hochlädt.",
+            "15. Knopf 17 -> ARKTARGET1 (Target + Rolle)",
+            "   Erst danach ist eine Prüfung nicht zirkulär.",
+            "16. Knopf 18 -> ARKCOND1 (Rig, Thermik, Tag/Nacht)",
+            "   Belegt die Bedingungen hinter der Messung.",
+            "6b. Knopf 22 -> ARKCAMT1 (Kameratakt, Zeitbasis)",
+            "   Pro Gerät einmal, direkt nach der IMU-Messung.",
+            "6c. Knopf 23 -> ARKDEVHW1 (Gerät & Laufzeit)",
+            "   Pro Gerät VOR 18 und 22: erst wenn das Gerät "
+            + "nicht drosselt und die Uhren halten, "
+            + "bedeuten die IMU- und Kameramessungen "
+            + "überhaupt etwas.",
+            "17. Knopf 19 -> ARKCORPUS1 (Korpus-Abdeckung)",
+            "   Erst danach ist ein Gerätevergleich möglich.",
+            "18. Knopf 20 -> ARKIMUCAL1 (Trägheitssensoren)",
+            "   Erst Kadenz, dann Statik, dann sechs Lagen",
+            "   (zweimal!), dann Drehungen gegen eine Lehre.",
+            "   Neu pro Gerät, nach Firmware-Wechsel erneut.",
+            "",
+            "Alle Dateien liegen in Downloads/ARKernelDiagnostics.",
+            "Bitte die .txt-Dateien hier im Chat hochladen.",
+            "Kein automatischer Upload. Qualität: unverified.",
+        ).joinToString("\n")
     }
 }

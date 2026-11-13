@@ -27,7 +27,9 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon --stacktrace :android:arkernel:assembleDebug \
+          gradle --no-daemon --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs=-Xmx3g \
+            :android:arkernel:assembleDebug \
             :android:arkernel:testDebugUnitTest :android:arkernel:lintDebug \
             2>&1 | tee android-library-gradle.log
           status=${PIPESTATUS[0]}
@@ -38,8 +40,8 @@ jobs:
               tail -n 160 android-library-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            detail=$(grep -E 'FAILURE:|What went wrong|^> |Caused by:|Could not|[Ee]rror:|^e: |FAILED' \
-              android-library-gradle.log | tail -n 120)
+            detail=$(awk '/FAILURE: Build failed/{f=1} f' \
+              android-library-gradle.log | head -n 40)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\r'/'%0D'}
             detail=${detail//$'\n'/'%0A'}
@@ -133,7 +135,9 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon --stacktrace :android:diagnostics-app:assembleDebug \
+          gradle --no-daemon --stacktrace --max-workers=2 \
+            -Dorg.gradle.jvmargs=-Xmx2g \
+            :android:diagnostics-app:assembleDebug \
             2>&1 | tee diagnostics-apk-gradle.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -143,6 +147,16 @@ jobs:
               tail -n 160 diagnostics-apk-gradle.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            detail=$(grep -E \
+              '^e: |FAILURE:|What went wrong|Execution failed for task|daemon|error:' \
+              diagnostics-apk-gradle.log | tail -n 40)
+            block=$(awk '/FAILURE: Build failed/{f=1} f' \
+              diagnostics-apk-gradle.log | head -n 20)
+            if [ -n "$block" ]; then detail="$block"; fi
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\r'/'%0D'}
+            detail=${detail//$'\n'/'%0A'}
+            echo "::error title=Diagnostics APK build failure::$detail"
           fi
           exit "$status"
       - name: Prepare named diagnostics APK
@@ -157,6 +171,11 @@ jobs:
             android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
           ls -lh \
             android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk
+          VERSION=$(awk -F'"' '/versionName/ { print $2; exit }' \
+            android/diagnostics-app/build.gradle.kts)
+          test -n "$VERSION"
+          cp "$SRC" \
+            "android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug-$VERSION.apk"
       - name: Upload diagnostics APK
         uses: actions/upload-artifact@v4
         with:
@@ -171,10 +190,13 @@ jobs:
           set -e
           TAG="diagnostics-apk-latest"
           APK="android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug.apk"
+          VERSION=$(awk -F'"' '/versionName/ { print $2; exit }' \
+            android/diagnostics-app/build.gradle.kts)
+          VERSIONED="android/diagnostics-app/build/outputs/apk/debug/arkernel-diagnostics-debug-$VERSION.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --clobber
+            gh release upload "$TAG" "$APK" "$VERSIONED" --clobber
           else
-            gh release create "$TAG" "$APK" \
+            gh release create "$TAG" "$APK" "$VERSIONED" \
               --target "$GITHUB_SHA" \
               --title "AR-Kern Diagnose APK (latest)" \
               --notes "Single installed ARKFDPLAN1 plan-driven diagnostics app for sideloading on a physical device. Writes opted-in ARKFDPOL1, ARKFDPLAN1 and ARKFDLOG1 text files; declares HIGH_SAMPLING_RATE_SENSORS for SENSOR_DELAY_FASTEST sensor tests. Debug build, quality unverified; no images, poses, trajectories, automatic upload or physical accuracy claims. See android/diagnostics-app/README.md."

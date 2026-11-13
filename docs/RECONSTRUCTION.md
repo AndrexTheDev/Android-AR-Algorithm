@@ -14,7 +14,7 @@ The default policy requires calibrated intrinsics and camera/IMU extrinsics, ind
 
 For a 2 m object, 0.5% scale uncertainty alone is 1 cm. `assessed_extent_m * scale_stddev_ratio` is therefore also gated against a 1 cm absolute limit. Larger rooms automatically need a stricter relative-scale result.
 
-`evaluateHeldOutDimensions` now supplies the required direct dimensional check. It computes reconstructed distances itself from bounded 3D point pairs and compares them with independent reference distances. The same evaluator is exposed through additive versioned C structs in `ark_evaluate_held_out_dimensions` and through Android's `ArKernelDimensionalValidator`; both return stable reason flags/enums plus the complete scalar report rather than parsing diagnostic strings. Every observation carries a unique bounded evidence ID, explicit scale-bar/survey/sensor-ground-truth provenance, reference uncertainty, and an assertion that the pair influenced neither calibration nor optimization. Unknown provenance, reused IDs, non-finite points, excessive uncertainty, non-held-out data, budget overflow, insufficient observations or insufficient dimension diversity fail the report. Default acceptance requires at least three observations across at least two 0.25 m dimension bins, raw mean absolute error <= 1 cm, uncertainty-adjusted maximum absolute error <= 1 cm, and maximum relative error <= 2%. The largest reference dimension must also cover the asset extent being assessed. `assessReconstructionQuality` always runs this evaluator and cannot emit `centimeter-validated` without a passing report; missing evidence yields at most `approximate` when export remains otherwise safe. `ArKernelSurveyMeasurementCsv` is a bounded transport adapter for this evidence: a canonical header, strict input/line/row budgets, unique bounded IDs, exact provenance enums, finite numeric fields and explicit held-out flags fail closed on malformed input and can be encoded/parsed deterministically. It neither measures a survey nor runs the evaluator or grants a quality grade. `ArKernelSurveyMeasurementJsonl` adds a bounded canonical JSON Lines transport adapter with fixed key order, no whitespace/nesting/escaping, one optional final line separator, strict budgets, unique IDs, exact provenance, finite JSON numbers and fail-closed deterministic encode/parse; it likewise neither measures evidence, runs the evaluator nor grants a quality grade. `ArKernelSurveyMeasurementTsv` adds a third bounded canonical transport adapter with an `ARKSURVEYTSV1` marker, an exact tab-separated header, strict budgets, unique IDs, exact provenance, finite numbers and fail-closed deterministic encode/parse; it likewise measures no evidence, runs no evaluator and grants no quality grade. USDZ and other binary survey formats remain open.
+`evaluateHeldOutDimensions` now supplies the required direct dimensional check. It computes reconstructed distances itself from bounded 3D point pairs and compares them with independent reference distances. The same evaluator is exposed through additive versioned C structs in `ark_evaluate_held_out_dimensions` and through Android's `ArKernelDimensionalValidator`; both return stable reason flags/enums plus the complete scalar report rather than parsing diagnostic strings. Every observation carries a unique bounded evidence ID, explicit scale-bar/survey/sensor-ground-truth provenance, reference uncertainty, and an assertion that the pair influenced neither calibration nor optimization. Unknown provenance, reused IDs, non-finite points, excessive uncertainty, non-held-out data, budget overflow, insufficient observations or insufficient dimension diversity fail the report. Default acceptance requires at least three observations across at least two 0.25 m dimension bins, raw mean absolute error <= 1 cm, uncertainty-adjusted maximum absolute error <= 1 cm, and maximum relative error <= 2%. The largest reference dimension must also cover the asset extent being assessed. `assessReconstructionQuality` always runs this evaluator and cannot emit `centimeter-validated` without a passing report; missing evidence yields at most `approximate` when export remains otherwise safe. `ArKernelSurveyMeasurementCsv` is a bounded transport adapter for this evidence: a canonical header, strict input/line/row budgets, unique bounded IDs, exact provenance enums, finite numeric fields and explicit held-out flags fail closed on malformed input and can be encoded/parsed deterministically. It neither measures a survey nor runs the evaluator or grants a quality grade. `ArKernelSurveyMeasurementJsonl` adds a bounded canonical JSON Lines transport adapter with fixed key order, no whitespace/nesting/escaping, one optional final line separator, strict budgets, unique IDs, exact provenance, finite JSON numbers and fail-closed deterministic encode/parse; it likewise neither measures evidence, runs the evaluator nor grants a quality grade. `ArKernelSurveyMeasurementTsv` adds a third bounded canonical transport adapter with an `ARKSURVEYTSV1` marker, an exact tab-separated header, strict budgets, unique IDs, exact provenance, finite numbers and fail-closed deterministic encode/parse; it likewise measures no evidence, runs no evaluator and grants no quality grade. A bounded canonical `ARKSURVEYBIN1` transport adapter is now implemented as a fixed 24-byte header, 1–64 fixed 200-byte records and a little-endian CRC-32 trailer; it has exact magic/version, strict byte/row budgets, zero-padded ASCII IDs, exact reference-kind/held-out bytes, finite little-endian doubles, deterministic encode/parse and stable fail-closed rejections. CRC-32 detects accidental corruption, not tampering; the adapter measures no evidence, runs no evaluator, performs no I/O and grants no quality grade. USDZ, other external survey formats, real survey evidence, physical validation and the Filament viewer remain open.
 
 ## Two capture modes
 
@@ -43,7 +43,7 @@ The Camera2 bridge now associates exposure time and ISO by exact `SENSOR_TIMESTA
 1. **Calibrate and synchronize**: versioned intrinsics, distortion, rolling shutter/readout, camera/IMU transform and hardware timestamps.
 2. **Capture**: retain full-resolution YUV/RGB keyframes, exposure metadata, exact pose and uncertainty. Never texture from inference-resized frames.
 3. **Quality selection**: reject blur, clipping, low texture, repeated poses and excessive covariance; retain useful baseline and view angle.
-4. **Global geometry**: bounded appearance place recognition proposes temporally separated weighted keyframe candidates. Metric loop verification requires descriptor uniqueness, robust non-degenerate 3D–3D geometry, inlier/ratio/RMSE gates and bounded disagreement from the VIO relative pose. Only final geometric inlier pairs can drive deterministic complete-link landmark merging. A bounded transactional SE(3) pose graph distributes accepted loop corrections across uncertainty-weighted odometry while fixing the world gauge. Bounded joint bundle adjustment then refines poses and multi-view landmarks against robust distortion-aware reprojection while retaining metric pose priors. VIO and appearance similarity are priors, not final geometry. `ArKernelLoopClosureCandidateBundle` adds only a bounded canonical `ARKLOOP1` text ledger for host-proposed candidates: opaque keyframe IDs, finite non-negative residual/uncertainty scalars, bounded inlier counts and the fixed state `proposed`. It performs no descriptor matching, geometric verification, pose-graph optimization, global bundle adjustment, map mutation or quality upgrade and stays `unverified`.
+4. **Global geometry**: bounded appearance place recognition proposes temporally separated weighted keyframe candidates. Metric loop verification requires descriptor uniqueness, robust non-degenerate 3D–3D geometry, inlier/ratio/RMSE gates and bounded disagreement from the VIO relative pose. Only final geometric inlier pairs can drive deterministic complete-link landmark merging. A bounded transactional SE(3) pose graph distributes accepted loop corrections across uncertainty-weighted odometry while fixing the world gauge. Bounded joint bundle adjustment then refines poses and multi-view landmarks against robust distortion-aware reprojection while retaining metric pose priors. VIO and appearance similarity are priors, not final geometry. `ArKernelLoopClosureCandidateBundle` adds only a bounded canonical `ARKLOOP1` text ledger for host-proposed candidates: opaque keyframe IDs, finite non-negative residual/uncertainty scalars, bounded inlier counts and the fixed state `proposed`. It performs no descriptor matching, geometric verification, pose-graph optimization, global bundle adjustment, map mutation or quality upgrade and stays `unverified`. `ArKernelLoopClosureGeometricGate` adds a separate bounded host-owned `ARKLOOPGC1` consistency envelope for one `ARKLOOP1` candidate: canonical nineteen-key metadata, 1–64 opaque 3D–3D correspondences, a unit quaternion/finite translation transform and an explicit policy gate residuals, RMSE, inlier count/ratio, prior disagreement and spatial spread. It can cross-check the candidate's exact ID/keyframe pair, inlier budget and conservative residual/uncertainty bound, but carries no descriptors or images, does not itself run RANSAC, produces no verified loop, optimizes no pose graph, mutates no map, performs no I/O and stays `unverified`.
 5. **Optimized archive view**: globally optimized keyframe poses are atomically published as a versioned CRC-protected `ARKPOS01` manifest. Immutable frame envelopes remain the audit/fallback source; dense consumers resolve entries only by matching frame ID and timestamp. Generation rollback, duplicate identities, missing frames and partial manifests are rejected, while frame eviction or deletion invalidates the manifest.
 6. **Dense depth**: the portable fallback now performs bounded calibrated inverse-depth plane sweeping over globally posed grayscale keyframes. Distortion-aware fronto-parallel patch reprojection, baseline gates, minimum supporting views, winner margin and hypothesis-spacing uncertainty produce sparse valid metric depth while leaving ambiguity as NaN. Matching is explicitly selectable as ZNCC, ternary Census or a weighted hybrid (the default). Census compares each warped patch sample against its patch centre, tolerates bounded intensity ties and requires a configurable minimum number of informative comparisons in both images; this adds robustness to monotonic camera-response and exposure changes without accepting textureless patches. All three costs share a normalized `[-1, 1]` score gate; the historical `min_zncc` field name is retained for source compatibility. A bounded coarse-to-fine stage refines each accepted coarse inverse-depth mode for up to three local levels with at most 33 hypotheses per level. It preserves the coarse non-neighbour peak for ambiguity gating, because adjacent fine samples belong to the same mode, and derives final sampling uncertainty from the refined spacing. A separate bounded consistency pass consumes cached source-view depth maps rather than recursively recomputing them. It rejects a reference sample unless enough baseline-qualified views agree in source-camera depth and return within a configured reprojection radius. The depth tolerance is the maximum of absolute, relative and uncertainty-propagated bounds; low-confidence or malformed source samples cannot vote. Surviving confidence is reduced by the consistent/evaluated-view ratio, while tested and rejected counts remain observable. This synthetic coverage is not a substitute for physical multi-camera/exposure testing. Sensor or learned depth is fused only with uncertainty; learned monocular depth cannot establish absolute scale alone.
 7. **Fusion and meshing**: the portable core includes a bounded narrow-band sparse TSDF with fixed 8×8×8 blocks, calibrated projective integration, confidence/uncertainty weighting, deterministic voxel snapshots and explicit pixel, ray-sample, voxel-visit, block and snapshot budgets. It allocates only near observed surfaces and deliberately does not claim complete free-space carving. Block-capacity or work-budget exhaustion is reported as truncation rather than silently growing memory. `SurfelMap` remains the live mapping representation, while TSDF input is intended for globally optimized, consistency-filtered depth. Deterministic bounded Marching Tetrahedra extracts shared indexed metric vertices and area-weighted normals only from fully observed, sufficiently weighted cells; missing evidence remains a hole and cell/vertex/triangle exhaustion remains explicit. A bounded edge-connected component pass removes small triangle/area islands, compacts all indexed attributes, supports deterministic largest-only selection, and reports boundary/manifold/non-manifold edge counts. A conservative deterministic clustering fallback now reduces smooth interiors within metric position, normal and UV error bounds while locking boundary, sharp, non-manifold and topologically ambiguous vertices. An optional measured quadric-error-guided clustering LOD additionally chooses plane-optimal cluster representatives under an explicit squared-distance budget and reports initial/final quadric error and maximum displacement; it is not an unconstrained dynamic edge-collapse QEM topology optimizer. Both clustering stages remove duplicate/degenerate triangles and recompute normals, but do not guarantee a target ratio, watertightness or the quality of a full edge-collapse QEM. A separate bounded deterministic edge-collapse QEM delivery simplifier now changes topology: after each accepted collapse it rebuilds plane quadrics, adjacency, feature locks and candidate priorities from the current triangles. Only manifold interior edges with the exact two-vertex link condition may collapse, under measured quadric, cumulative displacement/UV, normal, area and topology bounds. It is opt-in through the native pipeline and JNI/Kotlin, reports separate telemetry including maximum cumulative UV error and stays `unverified`; it is not an unconstrained topology optimizer, a benchmark or a quality upgrade. This is still not a final watertight mesh.
@@ -108,7 +108,7 @@ Planned adapters include GLB, USDZ, untextured STL, LAS/LAZ/E57 and 3D Tiles. ST
 
 `tools/viewer/index.html` is a dependency-free WebGL 2 viewer for the generated glTF subset. Select one `.glb`, or select `.gltf`, referenced `.bin` and optional texture together. It supports orbit, zoom, normals, indexed triangles and base-colour textures without uploads or network access. It also displays the embedded accuracy grade plus held-out observation count and maximum validated dimension; it does not infer or upgrade quality when metadata is absent. Unsupported component encodings are rejected.
 
-An Android product viewer should be a separate optional module and load glTF/GLB through Filament `gltfio`; this keeps a renderer out of the headless core AAR.
+An Android product viewer should be a separate optional module and load glTF/GLB through Filament `gltfio`; this keeps a renderer out of the headless core AAR. `ArKernelAssetViewerPlanBundle` adds only a bounded host-owned canonical `ARKVIEW1` inspection-plan envelope for such a future module: fixed metadata order, 1–16 views, opaque internal `arkglb://` references, exact view/color modes, bounded camera/frame values, four fail-closed safety flags and a pure structural summarizer. It loads no asset, initializes no renderer, imports no USDZ or external format, uploads nothing, performs no I/O, infers no quality and stays `unverified`; the viewer module itself remains host work.
 
 ## Research basis
 
@@ -121,3 +121,600 @@ An Android product viewer should be a separate optional module and load glTF/GLB
 - Neural radiance fields help novel-view rendering but do not replace metric geometry and scale validation.
 
 Every adopted dependency and transitive license requires review. The current exporter and browser viewer add no third-party runtime dependency.
+
+## Physical calibration capture and the quality-upgrade pathway
+
+A quality upgrade cannot be granted by a flag. `unverified`, `approximate` and
+`centimeter-validated` remain outcomes of `assessReconstructionQuality`, which
+always runs `evaluateHeldOutDimensions` and requires calibrated intrinsics and
+camera/IMU extrinsics, independent metric scale, converged global optimization,
+reprojection RMSE <= 1 px, metric-depth RMSE <= 0.01 m, scale standard deviation
+<= 0.5%, observed coverage >= 70% for environments or 85% for objects, at least
+three held-out observations across at least two 0.25 m dimension bins, raw mean
+absolute error <= 1 cm, uncertainty-adjusted maximum absolute error <= 1 cm,
+maximum relative error <= 2% and a largest reference dimension covering the
+asset extent. These gates are not metrology certification.
+
+`ArKernelCalibrationEvidenceAdapter` adds a bounded canonical `ARKCALIB1`
+transport contract for the evidence that must feed those gates: twelve exact
+metadata keys in order, six fail-closed invariants (explicit capture and pose
+opt-in, no images, no automatic calibration, no automatic upload, permanent
+`unverified`), 1–16 unique held-out independent scale observations with exact
+`scale_bar` / `survey` / `sensor_ground_truth` provenance, canonical finite
+decimals and bounded uncertainty, plus 0–32 bounded pose or orientation-only
+samples with strictly increasing timestamps and unit quaternions. Strict
+input/line budgets, BOM/CRLF tolerance, one optional final separator and a
+fail-closed `END` reject malformed evidence deterministically. `summarize()`
+computes only arithmetic on host-supplied numbers and a readiness pre-check;
+`evaluationReady` is a transport sanity filter over a strict subset of the
+gates above, **not** an assessment, **not** a measurement and **not** an
+upgrade. `qualityGrade` stays `unverified` in every report.
+
+The diagnostics app version `2.2-calibration` provides a separate, explicitly
+opted-in calibration screen: the user performs the physical measurement,
+enters an independently known reference length, the reconstruction-measured
+length, reference uncertainty, provenance, held-out status and asset extent,
+and may record a real device rotation-vector orientation sample. It writes a
+bounded `ARKCALIB1_<run>.txt` text file and shares it for host-side evaluation.
+Orientation samples carry no metric world position and cannot establish scale;
+an orientation-only sample must assert zero translation. There is no universal
+calibration valid for every device: calibration is per device and per capture
+and needs real independent targets. The app captures no image, pixel, frame or
+dense geometry, infers no intrinsics or extrinsics, performs no automatic
+calibration, verifies no signature, uploads nothing and grants no quality
+grade. No upgrade was performed or claimed here; real field evidence,
+independent targets and centimetre validation remain open.
+
+## Device-adaptive onboarding, not universal calibration
+
+`ArKernelDeviceAdaptiveProfileAdapter` adds a bounded canonical `ARKADAPT1`
+profile that adapts a **systematic procedure** to host-read device facts:
+Camera2 hardware level, camera count, gyroscope and rotation-vector presence,
+thermal monitoring availability, intrinsics trust, RAM class and API level.
+`selectProfile()` is deterministic and repeatable; unknown or weak devices
+receive the most conservative step list with fewer scale-bar checks. Fifteen
+exact metadata keys in order, five fail-closed invariants (no images,
+automatic profile selection, metric calibration requires the user, physical
+target required, no automatic upload), 1–16 unique contiguous steps with exact
+operators and host-reported statuses, strict input/line budgets, BOM/CRLF
+tolerance and a fail-closed `END` reject malformed profiles deterministically.
+`summarize()` reports structural counts only; `profileComplete` is a
+completeness pre-check, **not** an assessment, **not** a measurement and
+**not** an upgrade. `qualityGrade` stays `unverified`.
+
+Diagnostics app version `2.3-adaptive` adds an onboarding screen that reads
+those facts on every start, selects the profile automatically and guides the
+user through the steps with explicit confirmations, writing an
+`ARKADAPT1_<run>.txt` file. Android provides no install-time calibration
+hook, no calibration can be derived without independent physical targets, and
+there is no universal calibration valid for every device model: the portable
+part is the protocol, while calibration values remain per device and per
+capture. A present `LENS_INTRINSIC_CALIBRATION` field is deliberately not
+treated as a trusted profile because the screen verifies no signature. The
+screen captures no images, pixels, poses or trajectories, infers no
+intrinsics, extrinsics or metric scale, performs no automatic calibration,
+verifies no signature, uploads nothing, performs no I/O in the kernel and
+grants no quality grade. The authoritative grade remains
+`assessReconstructionQuality` with `evaluateHeldOutDimensions`. No upgrade was
+performed or claimed here; real field evidence, independent targets and
+centimetre validation remain open.
+
+## Systematic portable measurement campaign, not a universal calibration
+
+`ArKernelCampaignPlanAdapter` adds a bounded canonical `ARKCAMPAIGN1` plan
+with seventeen exact metadata keys, eight fail-closed invariants, 1–16 unique
+scenes across nine fixed scene kinds, repeat budgets and exactly ten canonical
+systematic questions with fixed evidence depths. `canonicalPlan()` derives the
+scene list from the `ARKADAPT1` device class: the portable protocol is
+identical on every Android device, while weaker or unknown devices receive
+fewer scenes and explicitly report unsupported questions. `summarize()`
+computes structural counts only; `campaignEvidenceComplete` means a host
+reported completed scenes of the required kinds and depths plus confirmed
+questions. It is **not** an answer, **not** accuracy, **not** centimetre
+validation and **not** an upgrade. `qualityGrade` stays `unverified`.
+
+Diagnostics app version `2.4-campaign` adds a campaign screen that reads the
+device class, builds the canonical plan, guides explicit scene completions and
+question confirmations and writes an `ARKCAMPAIGN1_<run>.txt` file. The screen
+captures no images, pixels, poses or trajectories, measures no physical
+target, infers no intrinsics, extrinsics or metric scale, performs no
+automatic or universal calibration, verifies no signature, uploads nothing,
+performs no I/O in the kernel and grants no quality grade. A tape measure, an
+independent held-out target and real field measurements remain host work. The
+authoritative grade remains `assessReconstructionQuality` with
+`evaluateHeldOutDimensions`. No upgrade was performed or claimed here.
+
+## Fail-closed session binding across the three field artifacts
+
+`ArKernelSessionBindingAdapter` adds a bounded canonical `ARKBIND1` envelope
+with nineteen exact metadata keys, six fail-closed invariants and three
+lowercase 64-character SHA-256 digests. `create()` parses host-supplied
+`ARKADAPT1`, `ARKCALIB1` and `ARKCAMPAIGN1` texts, re-encodes each to its
+canonical form before hashing (so BOM/CRLF presentation variants bind
+identically), requires one identical device token and one identical device
+class and records bounded scene/question/observation/pose counts. `verify()`
+recomputes digests, tokens, campaign ID, counts and class, then reports only
+structural consistency plus the existing `evaluationReady` and
+`campaignEvidenceComplete` pre-checks. `bindingConsistent` is **not** an
+answer, **not** accuracy, **not** centimetre validation and **not** an
+upgrade. `qualityGrade` stays `unverified`.
+
+Diagnostics app version `2.5-binding` adds an opt-in screen that pastes the
+three text files, binds them and writes an `ARKBIND1_<run>.txt` file. Nothing
+is uploaded automatically, no signature is verified, no image, pixel, pose or
+trajectory is captured, no physical target is measured, no intrinsic,
+extrinsic or metric scale is inferred, no automatic/universal calibration is
+performed, no I/O occurs in the kernel and no quality grade is granted. Real
+independent targets, manual redaction/upload, cryptographic signature
+verification and physical validation remain host work. The authoritative grade
+remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No
+upgrade was performed or claimed here.
+
+## Bounded cross-device comparison of declared sessions
+
+`ArKernelCrossDeviceComparisonAdapter` adds a bounded canonical `ARKCROSS1`
+envelope with fourteen exact metadata keys, eight fail-closed invariants and
+1–16 unique session rows. `create()` parses host-supplied `ARKBIND1` envelopes,
+re-encodes each to its canonical form, hashes those bytes with SHA-256 and
+requires unique device tokens and unique binding digests. `verify()` recomputes
+digests and counts; `summarize()` reports only structural counts such as
+distinct devices, device classes, campaigns and scene/observation ranges.
+`comparisonConsistent` is **not** an answer, **not** accuracy, **not**
+centimetre validation and **not** an upgrade. `qualityGrade` stays
+`unverified`.
+
+Crucially this contract binds **declared** session envelopes; it does not
+re-run `ARKBIND1.verify()` against the three underlying source texts, which is
+reported explicitly as `sourceReverificationPerformed=false`. The portable
+part is the ten-question protocol, not a calibration value:
+`per_device_calibration` and `universal_calibration_disabled` are mandatory.
+Diagnostics app version `2.6-cross` pastes 1–16 binding texts opt-in and
+writes an `ARKCROSS1_<run>.txt` file. Nothing is uploaded automatically, no
+signature is verified, no image, pixel, pose or trajectory is captured, no
+physical target is measured, no automatic/universal calibration is performed,
+no file I/O occurs in the kernel and no quality grade is granted. Real
+independent targets, manual redaction/upload, cryptographic signature
+verification and physical validation remain host work. The authoritative grade
+remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`. No
+upgrade was performed or claimed here.
+
+## Bounded real-View retention UX record
+
+`ArKernelRetentionRunLedgerAdapter` adds a bounded canonical `ARKRETENT1`
+envelope with fourteen exact metadata keys, three fail-closed invariants
+(explicit confirmation required, dry run, physical-device validation disabled),
+three retention modes, three preview action kinds, strict input/line budgets,
+BOM/CRLF tolerance and fail-closed `END` parsing. `summarize()` reports only
+structural facts; the grade stays `unverified`.
+
+Diagnostics app version `2.7-retention` adds a real Android View screen around
+the existing `ArKernelRetentionUiComposition`: one localized `AlertDialog`,
+explicit publication/release previews, a dry-run sink that deletes nothing,
+lifecycle state restoration, navigation back to the overview,
+`contentDescription` labels and `announceForAccessibility` announcements. It
+writes an opted-in `ARKRETENT1_<run>.txt` file. No frame, key or storage is
+touched, no image, pixel, pose or trajectory is captured, no physical target is
+measured, no automatic/universal calibration is performed, no signature is
+verified, nothing is uploaded automatically and no quality grade is granted.
+Physical encrypted keyframe lifecycle validation on real devices remains open.
+The authoritative grade remains `assessReconstructionQuality` with
+`evaluateHeldOutDimensions`. No upgrade was performed or claimed here.
+
+## Bounded host-side structural review of field diagnostics triples
+
+`tools/field_review/verify_arkfd_triple.py` adds a bounded canonical
+`ARKFDREVIEW1` envelope. It re-parses one `ARKFDPOL1` policy, one
+`ARKFDPLAN1` plan and one `ARKFDLOG1` run log through an independent replica of
+the shipped Kotlin contracts, canonicalizes all three texts, recomputes their
+SHA-256 digests and the plan CRC-32, and checks structural bindings only:
+policy ID equality, plan CRC binding (`crc_bound`, `crc_mismatch` or
+`unbound`), plan step/event counts and the opaque host-reported plan result
+token. Twenty-six exact metadata keys and six mandatory invariant flags keep
+the result fail-closed; `source_reverification_performed=true` means the three
+source texts were re-parsed, not that any signature was checked.
+
+The tool reads three host-supplied files, writes nothing unless `--out` is
+given explicitly. A deterministic `--batch DIR` mode groups 1–16 complete
+triples by opaque filename suffix and emits a structural comparison as
+JSON (digests, binding states, counts, result tokens, uniqueness flags),
+rejecting incomplete groups fail-closed and emitting no device identifiers,
+session IDs or raw event details. It performs no upload, no redaction, no
+signature verification, no physical target measurement, no calibration, no
+encrypted keyframe lifecycle validation and no quality assessment. Raw logs
+are never copied into the repository; `docs/FIELD_RUN_REVIEW.md` records
+digests only. The grade
+stays `unverified`. The authoritative quality path remains
+`assessReconstructionQuality` with `evaluateHeldOutDimensions`; no upgrade was
+performed or claimed here.
+
+## Bounded guided measurement execution
+
+`ArKernelMeasurementAdapter` adds a bounded canonical `ARKMEAS1` ledger with
+twenty exact metadata keys, eleven mandatory fail-closed invariants and 1–16
+unique scene rows. Each row binds one host-supplied `ARKCALIB1` envelope by the
+lowercase SHA-256 digest of its canonical re-encoding, carries one of the nine
+canonical campaign scene kinds, one of six environmental conditions, an
+explicit user confirmation and an optional held-out flag. `create()` requires
+unique scene IDs, unique digests, confirmation of every scene and at least one
+held-out scene. `summarize()` reports structural counts only and
+`evidenceComplete` is a completeness fact, not an answer, accuracy judgement or
+grade. `verify()` is structural and deliberately does not re-parse the source
+texts (`sourceReverificationPerformed=false`).
+
+Diagnostics app version `2.8-measure` adds a guided nine-scene screen that
+takes 1–9 physical `ARKCALIB1` texts opt-in and writes `ARKMEAS1_<run>.txt`.
+It performs no measurement itself, captures no image, pixel, frame, pose or
+trajectory, computes no accuracy, performs no automatic or universal
+calibration, verifies no signature, uploads nothing and grants no quality
+grade. **No real AI model, no inference, no weights and no network are
+included**: a model could only serve as a versioned conformance admission
+test, never as a substitute for an independent physical reference. Physical
+validation and centimetre accuracy remain open host work. The authoritative
+grade remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`;
+no upgrade was performed or claimed here.
+
+## Bounded live camera measurement feed
+
+`ArKernelMeasurementFeedAdapter` adds a bounded canonical `ARKFEED1` record
+with twenty-seven exact metadata keys, eleven mandatory fail-closed
+invariants, four ordered marker rows and a self-consistent screen-ratio
+geometry. Each capture binds four user-placed overlay markers, one
+independently measured reference length and the counted preview frames to a
+single record. `frames_exported` is always zero and
+`metric_accuracy_claimed` is always false: `estimated_target_m` is a
+screen-ratio estimate that assumes a fronto-parallel plane at equal depth,
+not a metric measurement. `parse()` re-checks derived distances, scale and
+estimate with a small numeric tolerance; `summarize()` reports structural
+completeness only.
+
+Diagnostics app version `2.9-feed` adds an opt-in Camera2 rear preview with
+a marker overlay and writes `ARKFEED1_<run>_<index>.txt`. It exports no
+frame, image, pixel, pose or trajectory, computes no metric accuracy,
+performs no automatic or universal calibration, verifies no signature,
+uploads nothing and grants no quality grade. **No real AI model, inference,
+weights or network are included**: a model could only act as a versioned
+conformance admission test, never as a substitute for an independent
+physical reference. Physical validation, centimetre accuracy and a real
+depth/ARCore-equivalent measurement remain open. The authoritative grade
+remains `assessReconstructionQuality` with `evaluateHeldOutDimensions`; no
+upgrade was performed or claimed here.
+
+## Bounded automatic folding-ruler recognition
+
+`ArKernelRulerScaleAdapter` adds a bounded canonical `ARKSCALE1` record and
+`ArKernelRulerTickDetector` a pure, deterministic tick detector. The app
+samples luma along the roughly indicated reference line from a preview frame
+held in memory, finds the dark centimetre marks with integer thresholds and
+snaps the reference endpoints onto the nearest detected tick. The frame is
+discarded immediately: `frames_exported=0` and
+`frame_persistence_disabled=true`.
+
+Thirty-five exact metadata keys, thirteen fail-closed invariants, four marker
+rows and 2–200 ordered tick rows are enforced. `expected_tick_count` is
+derived from the length the user states they folded out (100 per metre), so
+`tick_count_consistent` exposes a wrong ruler, poor illumination or a wrongly
+entered length. `tick_regularity` is a structural property of the detected
+pattern, not an accuracy judgement.
+
+This improves **endpoint repeatability**, not metric accuracy: depth,
+parallax, perspective, rolling shutter and lens distortion are not modelled,
+so `metric_accuracy_claimed=false` and `estimated_target_m` remains a
+screen-ratio estimate assuming ruler and target share one fronto-parallel
+plane at equal depth. Diagnostics app version `2.10-ruler` adds button 13 and
+also fixes the missing rotation transform on the `2.9-feed` preview. **No real
+AI model, inference, weights or network are included**: only fixed,
+deterministic luma thresholds. Physical validation and centimetre accuracy
+remain open. The authoritative grade remains `assessReconstructionQuality`
+with `evaluateHeldOutDimensions`; no upgrade was performed or claimed here.
+
+## Usability pass: system bars, sections and a test checklist
+
+Diagnostics app version `2.11-guide` is a usability-only change: no contract,
+no measurement path, no inference and no quality claim were added or altered.
+
+Android 15 enforces edge-to-edge for apps targeting API 35, so the navigation
+bar (Home / Back / Recents) covered the last button on every screen and the
+status bar covered the first. `DiagnosticsActivity` opts into drawing behind
+the system bars and then re-applies the system-bar insets as padding on the
+content view, capturing each screen's original padding once so the insets are
+recomputed rather than accumulated on rotation, keyboard or navigation-mode
+changes. All ten activities inherit it.
+
+The main screen now groups its thirteen buttons into three named sections and
+adds a collapsible checklist giving the full test order across
+`ARKFDPOL1`/`ARKFDPLAN1`/`ARKFDLOG1`, `ARKADAPT1`, `ARKCAMPAIGN1`,
+`ARKCALIB1`, `ARKSCALE1`, `ARKFEED1`, `ARKMEAS1`, `ARKBIND1`, `ARKRETENT1`
+and `ARKCROSS1`. The checklist is a manual guide, not a verification: the app
+does not inspect which files exist, evaluates no measurement and grants no
+approval. The grade stays `unverified`.
+
+## Metric validation: measured deviation in millimetres (`ARKVALID1`)
+
+Diagnostics app version `2.12-valid` adds button 14 and a new contract that
+finally reports *how far off* a measurement is, instead of only refusing to
+claim accuracy. `ARKVALID1` pairs one operator-measured tape-measure reference
+(whole millimetres) with the `estimated_target_m` of one pasted `ARKFEED1` or
+`ARKSCALE1` artefact, and binds each row to the SHA-256 digest of that
+artefact's text so a measurement can never be counted twice. The app computes
+mean absolute error, signed bias, maximum error, an interpolated p95 and the
+number of scenes inside a user-declared threshold; `parse()` recomputes all of
+them and rejects a ledger whose declared statistics disagree.
+
+This is a **measurement of the deviation, not a claim of accuracy**. The
+ground truth is typed in by the user and is never re-verified, no depth,
+parallax, rolling shutter or lens distortion is modelled, and
+`metric_accuracy_claimed=false` remains a hard invariant. Nine fail-closed
+invariants and a required held-out scene are unchanged in spirit from the
+earlier contracts; no calibration value is produced and no quality is
+assessed. The grade stays `unverified`.
+
+## Signature verification without a trust chain (`ARKSIGN1`)
+
+Diagnostics app version `2.13-sign` adds button 15. An EC P-256 key — held in
+the Android keystore where available, otherwise a software key in the app's
+private storage, with the origin recorded in every manifest — signs a canonical
+`ARKSIGN1` manifest that binds the SHA-256 digests of up to 32 artefacts. The
+digest pre-image leaves `manifest_digest=` and `signature=` empty, so the
+digest is not circular; the public-key fingerprint is inside the signed text,
+so a manifest cannot be re-attributed to another key.
+
+The contract is deliberately honest about its scope: it proves that the bound
+entries were not changed and that the same key keeps signing. It does **not**
+prove who owns that key — there is no certificate authority, no attestation and
+no trust chain, so a rooted device or a copied software key file still yields a
+valid signature. The public key lives outside the manifest and has to be pinned
+by whoever verifies, and verification reports `keyFingerprintMatches` and
+`signatureValid` separately. Nothing here says anything about measurement
+quality; `metric_accuracy_claimed` stays false and the grade stays
+`unverified`.
+
+## Redaction and upload workflow (`ARKREDRUN1`)
+
+Diagnostics app version `2.14-redact` adds button 16 and closes the gap left
+by `ARKREDACT1`: that contract was a bounded *plan* format which performed no
+redaction by design. `ARKREDRUN1` applies such a plan to real artefact texts.
+
+Every rule has to name one of six built-in detectors — MAC address, IPv4, a
+sixteen-character hexadecimal identifier, a fifteen-digit device identifier, an
+absolute storage path and an e-mail address; anything else is rejected with
+`UNKNOWN_DETECTOR` instead of being silently skipped. `drop` replaces a match
+with an opaque token, `hash` with a token plus a truncated SHA-256 so linkage
+survives without the value. Afterwards every detector *without* a rule is
+scanned again over the redacted text: anything still matching becomes a
+residual row and blocks `upload_admitted`, so a two-rule plan cannot quietly
+pass a file that still holds an e-mail address.
+
+`upload_admitted` is a filter, not a promise — it means none of the six
+detectors matches any more, not that the file is free of identifying content.
+The redacted texts never enter the ledger, four fail-closed invariants keep the
+upload manual, and the grade stays `unverified`.
+
+## Independent physical targets (`ARKTARGET1`)
+
+Diagnostics app version `2.15-target` adds button 17 and gives the word
+"independent" a mechanical meaning. Every physical reference target now
+declares whether its value fed the scale estimate and whether it was withheld
+from calibration. A target claiming both is rejected with `ROLE_CONFLICT`,
+because a value that set the scale was by definition not withheld. Only
+consistent, independent and held-out targets count towards
+`usable_check_count`, and `independence_sufficient` gates on that number.
+
+Each row also records the nominal dimension, the dimension the operator
+actually measured on the real object, and a tolerance. That is what catches a
+printed reference that came out of the printer at the wrong scale — a failure
+that otherwise propagates into every measurement taken against it with nothing
+downstream able to tell a bad reconstruction from a bad sheet.
+
+`independence_sufficient` says a later check would not be circular; it does not
+say the reconstruction is accurate, and `targets_consistent` describes the
+physical objects rather than the app, which never measures a target here.
+
+## Controlled-condition evidence (`ARKCOND1`)
+
+Diagnostics app version `2.16-cond` adds button 18 and records what stands
+behind a condition label. `ARKMEAS1` captures the label — indoor, outdoor, day,
+night, thermal, still — but nothing about the rig, the thermal state or the
+light level, so a night scene under a streetlight and one in a pitch-black room
+look identical in the record.
+
+Each `ARKCOND1` sample carries the rig, the pose, the repetition, the device
+thermal status and headroom, and the ambient light. Thermal status and ambient
+light are read from the device; both are readings from this device at this
+moment, not calibrated measurements of the scene.
+
+The label itself cannot be verified against reality, only against two lux
+thresholds the operator declared: a sample labelled `day` below the day
+threshold, or `night` above the night threshold, is reported as a conflict.
+That catches a mislabelled run rather than proving a correctly labelled one.
+
+Five verdicts are recomputed on parse: day/night coverage, label coherence,
+thermal stability, repeatability (a repeat must be on the same rig and
+condition) and overall evidence sufficiency. Sufficiency is a completeness
+gate, not a quality grade.
+
+## Device-farm corpora (`ARKCORPUS1`)
+
+Diagnostics app version `2.17-corpus` adds button 19, the last of the six
+requested items. It asks the two questions that decide whether a cross-device
+comparison is possible at all, before anyone runs one.
+
+A corpus can hold thousands of samples and still compare nothing, because every
+cell in it was captured on a single phone. So the corpus is indexed into cells
+— distinct (condition, scene kind) pairs — and a cell counts as *matched* only
+when at least two different devices captured it. `matchedCells` is the number
+nobody writes down: a corpus with one device and a hundred thousand samples has
+`matchedCells = 0`. `unmatchedCells()` names exactly which combination to go and
+capture on a second device.
+
+The second question is dominance. `observed_max_device_share_permille` is the
+largest share any single device contributes, checked against a declared
+ceiling; a "farm" where one phone supplies nine samples in ten is a
+single-device corpus with extra steps.
+
+`corpus_sufficient` is a precondition check, not a quality grade: it says a
+cross-device comparison is possible, not that it would mean anything. The index
+holds no captures — `captureId` is an opaque host label, and `ARKDSMAN1` remains
+the place for the files and their digests.
+
+
+## Inertial intrinsic calibration (`ARKIMUCAL1`)
+
+Diagnostics app version `2.18-imucal` adds button 20. It is the one part of a
+camera calibration that is genuinely measurable without capturing an image.
+
+Four series, in a fixed order: **cadence** (three seconds of raw delivery —
+rate, gaps, duplicate timestamps and which clock the timestamps use),
+**static** (the device at rest — gyroscope bias, noise of both triads, bias
+stability), **tumble** (six orientations, each axis up and down — the
+accelerometer's bias, scale and misalignment in closed form), and **turn**
+(rotations through an angle a jig imposed — the gyroscope's scale factor per
+axis and its cross-axis coupling).
+
+The accelerometer model comes out of the tumble without a solver: with
+`a = M · gAxis + b`, the mean of two opposite poses gives `b` and their
+difference gives one column of `M`, so six poses determine all twelve
+parameters. Two checks survive the fit — the *length* of each column has to
+come out equal to the declared `g`, and repeated poses have to agree — and
+`accel_repeat_checked` exists precisely because a single cycle makes the fit
+exact and the residual zero, which tells you the arithmetic worked and nothing
+about whether the tumble is repeatable.
+
+The gyroscope is never asked how large its own angle was: the ratio of the
+integrated angle to the angle the jig imposed is its scale factor.
+
+Two derived numbers bound what the kernel may attempt without correction —
+`angle_drift_deg_per_min` from the bias and the noise in quadrature, and
+`position_drift_m_per_min` from the residual acceleration (`t²/2`) and the
+accelerometer's white noise (`t^1.5 / √3`).
+
+Nothing here touches the camera. No image is captured, no extrinsic is
+estimated, no time offset is searched, and no distortion is fitted — the
+device's own report about its camera is a manufacturer's claim, not a
+measurement, and this contract does not repeat it. `calibration_sufficient` is
+a completeness gate; the grade stays `unverified`.
+
+
+## Artifact inventory and digest manifest (`ARKDSMAN1`)
+
+Diagnostics app version `2.19-hub` adds button 21. It measures nothing. It
+answers a question none of the twenty screens that do measure could answer,
+and which the app's own checklist used to admit it could not: *what is already
+here?*
+
+Every other screen writes one file and forgets it. The hub lists the files,
+digests each one, and — the part that matters — hands **every file back to its
+own contract's parser**. A truncated or edited file is therefore reported as
+unreadable rather than counted as present, which is the difference between an
+inventory and a directory listing.
+
+It then reads the verdicts each file reports as `false`, and names the first
+contract missing in campaign order.
+
+Three limits are stated on the screen rather than buried here:
+
+- **An inventory is not an assessment.** A present, accepted file has been
+  *collected*; nothing here says it is any good, and the grade stays
+  `unverified`.
+- **The verdict scan is textual.** It finds lines of the form `key=false` and
+  cannot distinguish a failed check from work that was never done.
+  `accel_repeat_checked=false` means "not repeated", not "wrong" — and it is
+  reported either way, because both are reasons to look again.
+- **The manifest binds digests, not authorship.** `ARKDSMAN1` detects that a
+  file changed afterwards. Tying the bytes to a key is what signing the
+  manifest with `ARKSIGN1` is for.
+
+Files that are not contract blocks are listed as what they are. The signature
+screen exports a public key under the same `ARKSIGN1_` prefix as its
+manifests; parsing it as a manifest would reject it on every device, forever,
+on the one screen that exists to establish trust. It is listed and left alone.
+
+Manifest entries are capped below the contract's own ceiling of 64, because
+the `ARKDSMAN1` size budget of 8,192 characters does not fit 64 entries once
+file names are long: 48 is kept, newest first, and the omitted ones are named
+rather than quietly dropped.
+
+
+## Camera cadence, clock and exposure (`ARKCAMT1`)
+
+Diagnostics app version `2.20-camtim` adds button 22. Three things about a
+camera decide whether a visual-inertial kernel can fuse its frames at all,
+and none of them needs a single image to be kept.
+
+**Cadence.** Does the stream deliver the rate it promises, or does it arrive
+with holes? A hole is a stretch the kernel has to bridge by integrating the
+gyroscope instead of seeing. A gap wider than three median intervals is where
+interpolation stops and extrapolation begins.
+
+**Clock domain.** Which of the Android clocks are the frame timestamps on? A
+frame stamped in uptime and an inertial sample stamped in elapsedRealtime
+differ by every second the device spent in deep sleep - orders of magnitude
+more than an exposure. `CameraTimestampNormalizer` decides the domain by
+observation: it collects eight residuals against both clocks and takes the one
+that fits, refusing to choose when both fit equally badly. Assuming it wrong
+is the kind of error that produces a plausible-looking trajectory that is
+quietly wrong, which is why this is measured rather than configured.
+
+**Exposure.** At 90 deg/s a 33 ms exposure smears the whole frame by three
+degrees, more than most feature trackers tolerate. The record reports the
+smear at the **median** exposure, not the worst: the worst is one bad frame,
+the median is what the tracker lives with.
+
+A fourth property is stability. If the crop region or a stabilisation mode
+changes mid-run, every intrinsic number collected during that run describes a
+camera that no longer exists. `CameraCalibrationRuntimeMonitor` is the
+library's terminal monitor for exactly this, and the screen builds its binding
+from the first frame so the monitor reports a *change* rather than a missing
+expectation. When a camera never reports its stabilisation mode, the monitor
+would report MISSING on the very first frame - which is not instability but an
+untestable camera - so the screen leaves it unmonitored and says so instead of
+manufacturing a finding.
+
+A preview surface is required to run a capture session, because Camera2
+demands a target, but no frame is read, decoded, stored or displayed. No
+intrinsics are fitted, and the manufacturer's focal length is recorded as a
+reported value rather than trusted: `manufacturer_intrinsics_trusted` is
+written as `false`. `camera_sufficient` is a precondition gate, not a
+judgement of image quality, and the grade stays `unverified`.
+
+## Device hardware, sustained load and clocks (`ARKDEVHW1`)
+
+Diagnostics app version `2.21-devhw` adds button 23. Until this layer, every
+series in the app assumed something nobody had checked: that the device running
+it is the same device at the end of the run as at the start.
+
+**Inventory.** The kernel integrates an accelerometer and a gyroscope. A device
+without either cannot run it at all, and that is worth knowing before a
+campaign rather than after one. The screen lists every sensor the platform
+reports, with range, resolution, delay bounds, power and reporting mode. This
+is what the platform *says* about its sensors, not a measurement of them - a
+device can advertise a gyroscope and deliver nothing, which is why the record
+reports the advertisement and leaves the measurement to `ARKIMUCAL1`. The two
+are deliberately not conflated.
+
+**Headroom.** Memory and free storage are read once, before the load. A capture
+that dies because a disk filled up is a bookkeeping failure, not a
+reconstruction one, and the difference matters when the log is interpreted.
+
+**Sustained load.** The screen runs a CPU-bound chain back-to-back for ten to
+sixty seconds and compares the work rate in the first quarter of the window
+against the last. Thermal throttling appears as the late rate collapsing. This
+is measured before the inertial and camera series rather than after them,
+because a sixty-second static run on a throttling phone measures the
+throttling and reports it as sensor noise - plausibly, and with nothing in the
+resulting log to tell the two apart. The rate is a ratio, not a benchmark:
+comparing absolute rates between two devices would compare cores, charge state
+and ambient temperature.
+
+**Clocks.** Both monotonic clocks are sampled in every work slice, not just at
+the ends. `elapsedRealtime` and `uptimeMillis` differ by everything the device
+slept through; a constant offset is expected and harmless. What is not
+harmless is that offset *growing during a run*, which means the device slept
+mid-capture, or either clock moving backwards, which violates the monotonicity
+that sensor fusion assumes and corrupts quietly when it does not hold. Drift
+is therefore reported in ppm over the window, and every backwards step is
+counted and fails the verdict.
+
+No sensor sample, no frame and no pixel is retained. The only output is a
+bounded `ARKDEVHW1` text record written to `Downloads` on demand.
+`device_sufficient` is a precondition gate over six independent verdicts, not a
+judgement of the device, and the grade stays `unverified`.

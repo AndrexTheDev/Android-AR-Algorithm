@@ -1,0 +1,4 @@
+# ARKSIGN1 public key (base64, SPKI, EC P-256)
+fingerprint=801e799a4788a4cb4e93d0470c63d72c1363a39c17dcbf02bc836dbcd661a338
+key_origin=android_keystore
+public_key=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAENEB6iUmB1ajkdQyigv6etYWI/8jBrGG8astAVygkkn2R08ruHALiSv/WOo1vljG/8eBVBsZtOVhg3tVXtftz2g==

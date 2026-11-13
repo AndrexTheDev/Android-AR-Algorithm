@@ -56,3 +56,7 @@ jobs:
             core/src/*.cpp tools/evaluation/main.cpp -pthread \
             -o /tmp/arkernel-build/arkernel_trajectory_eval
           cat /tmp/result-1.json
+      - name: Verify field review tool
+        run: |
+          cd tools/field_review
+          python3 test_verify_arkfd_triple.py

@@ -1,0 +1,13 @@
+ARKFAULT1
+version=1
+catalog_id=synthetic.example.v1
+revision=1
+scenario_count=2
+framework_injection_disabled=true
+binder_service_death_disabled=true
+coverage_guided_fuzzing_disabled=true
+device_farm_corpora_disabled=true
+quality_grade=unverified
+scenario=0|pair-camera_timestamp_regression-camera_frame_gaps|CAMERA_TIMESTAMP_REGRESSION|CAMERA_FRAME_GAPS|60|200|1|1
+scenario=1|pair-camera_timestamp_regression-capture_result_dropout|CAMERA_TIMESTAMP_REGRESSION|CAPTURE_RESULT_DROPOUT|60|200|1|1
+END

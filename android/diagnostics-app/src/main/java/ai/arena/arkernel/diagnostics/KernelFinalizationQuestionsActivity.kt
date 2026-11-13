@@ -1,9 +1,16 @@
 package ai.arena.arkernel.diagnostics
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import java.io.File
+import java.util.Locale
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
@@ -14,6 +21,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import ai.arena.arkernel.diagnostics.DiagnosticsActivity
+import java.io.IOException
 
 /**
  * Fragen-Sammlung für die Finalisierung des AR-Kerns.
@@ -235,14 +243,72 @@ class KernelFinalizationQuestionsActivity : DiagnosticsActivity() {
 
         val text = sb.toString()
 
+        // Als Datei speichern und teilen
+        val fileName = "ARKFINAL_${currentRunId()}.txt"
+        val saveResult = writeAnswersToDownloads(fileName, text)
+
         // Als Intent zum Teilen anbieten
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "AR-Kernel Finalisierung – Nutzer-Antworten")
-            putExtra(Intent.EXTRA_TEXT, text)
+            putExtra(Intent.EXTRA_TEXT, "$text\n\n$saveResult")
         }
 
         startActivity(Intent.createChooser(shareIntent, "Antworten teilen/exportieren"))
+    }
+
+    /** Eindeutige Lauf-ID für die Antwortdatei (opak, gerätegebunden). */
+    private fun currentRunId(): String {
+        val raw = "${android.os.Build.MANUFACTURER}|${android.os.Build.MODEL}|${android.os.Build.VERSION.RELEASE}"
+        return raw.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]"), "_").take(64)
+    }
+
+    private fun writeAnswersToDownloads(fileName: String, text: String): String {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS + "/ARKernelDiagnostics",
+                )
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                values,
+            ) ?: return "Downloads: Einfügen fehlgeschlagen"
+            try {
+                val stream = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Kein Ausgabestream")
+                stream.use { it.write(bytes) }
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                "Downloads/ARKernelDiagnostics/$fileName (MediaStore)"
+            } catch (error: Exception) {
+                try {
+                    contentResolver.delete(uri, null, null)
+                } catch (ignored: Exception) {
+                }
+                "Downloads: ${error.javaClass.simpleName}: ${error.message}"
+            }
+        } else {
+            try {
+                val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+                    ?: getExternalFilesDir(null)
+                    ?: filesDir
+                if (!dir.exists() && !dir.mkdirs() && !dir.isDirectory) {
+                    return "App-Dateien: Verzeichnis nicht verfügbar"
+                }
+                val file = File(dir, fileName)
+                file.writeText(text, Charsets.UTF_8)
+                file.absolutePath
+            } catch (error: Exception) {
+                "App-Dateien: ${error.javaClass.simpleName}: ${error.message}"
+            }
+        }
     }
 
     companion object {

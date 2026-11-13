@@ -31,7 +31,7 @@ package ai.arena.arkernel
 enum class ArKernelWizardProp(val label: String, val optional: Boolean = false) {
     NOTHING("Nichts"),
     RULER("Zollstock oder Lineal"),
-    TAPE("Massband, mindestens 3 m"),
+    TAPE("Maßband, mindestens 3 m"),
     TARGET("Ein Gegenstand mit deutlichen Ecken"),
     TEXTURED_TARGET("Strukturiertes Ziel: Buchregal, Tapete, Pflaster"),
     SECOND_DEVICE("Ein zweites Gerät", optional = true),
@@ -184,7 +184,7 @@ object ArKernelWizard {
             prepare = listOf(
                 "Nicht am Ladegerät.",
                 "Hülle ab.",
-                "Andere Apps schliessen.",
+                "Andere Apps schließen.",
                 "Das Gerät soll kühl sein. Fühlt es sich warm an, " +
                     "zehn Minuten warten.",
             ),
@@ -214,7 +214,7 @@ object ArKernelWizard {
             prepare = listOf(
                 "Ein fester Tisch, der nicht wackelt.",
                 "Nicht am Ladegerät.",
-                "Nichts, das den Tisch anstossen könnte.",
+                "Nichts, das den Tisch anstoßen könnte.",
             ),
             action = "Knopf 20 öffnen und die vier Abschnitte der Reihe " +
                 "nach durchlaufen: Kadenz, Statik, sechs Lagen, Drehung. " +
@@ -223,10 +223,10 @@ object ArKernelWizard {
             mistakes = listOf(
                 "Bei den sechs Lagen das Gerät nur kippen statt wirklich " +
                     "auf eine andere Seite legen.",
-                "In der Statik das Gerät berühren oder den Tisch anstossen.",
+                "In der Statik das Gerät berühren oder den Tisch anstoßen.",
                 "Die Drehung aus der Hand statt sauber und gleichmäßig.",
             ),
-            whyHere = "Bias und Massstab des Gyroskops gehen in jede " +
+            whyHere = "Bias und Maßstab des Gyroskops gehen in jede " +
                 "Rechnung danach ein. Wer sie nicht kennt, kann später " +
                 "nicht unterscheiden, was das Gerät getan hat und was " +
                 "die Szene.",
@@ -315,7 +315,7 @@ object ArKernelWizard {
 
         ArKernelCampaignStep.RULER_SCALE -> ArKernelWizardEntry(
             step = step,
-            title = "Massstab am Zollstock",
+            title = "Maßstab am Zollstock",
             props = listOf(ArKernelWizardProp.RULER),
             minutes = 8,
             prepare = listOf(
@@ -332,73 +332,73 @@ object ArKernelWizard {
                     "verschwinden dann.",
                 "Nur in einem einzigen Abstand messen.",
             ),
-            whyHere = "Ohne einen Massstab gibt es keine Länge, nur " +
+            whyHere = "Ohne einen Maßstab gibt es keine Länge, nur " +
                 "Verhältnisse.",
         )
 
         ArKernelCampaignStep.SCALE_LADDER -> ArKernelWizardEntry(
             step = step,
-            title = "Massstab über die Entfernung",
+            title = "Maßstab über die Entfernung",
             props = listOf(ArKernelWizardProp.RULER, ArKernelWizardProp.TAPE),
             minutes = 15,
             prepare = listOf(
-                "Zollstock und Massband.",
+                "Zollstock und Maßband.",
                 "Mindestens 3 m freie Strecke.",
                 "Ebener Boden.",
             ),
             action = "Knopf 25 öffnen und dieselbe Strecke in mehreren " +
-                "Abständen messen, die du mit dem Massband wirklich " +
-                "nachmisst. Die Leiter prüft, ob ein einziger Massstab " +
+                "Abständen messen, die du mit dem Maßband wirklich " +
+                "nachmisst. Die Leiter prüft, ob ein einziger Maßstab " +
                 "für alle Abstände gilt.",
             accept = "Eine Datei mit ARKLADDER1 im Namen.",
             mistakes = listOf(
-                "Die Abstände schätzen statt mit dem Massband zu messen.",
+                "Die Abstände schätzen statt mit dem Maßband zu messen.",
                 "Nur zwei Abstände.",
                 "Bei wechselndem Licht messen.",
             ),
             whyHere = "Die Validierung nennt eine Abweichung in " +
                 "Millimetern. Die ist erst zu deuten, wenn feststeht, ob " +
-                "ein Massstab überhaupt über die Entfernung gilt.",
+                "ein Maßstab überhaupt über die Entfernung gilt.",
         )
 
         ArKernelCampaignStep.METRIC_VALIDATION -> ArKernelWizardEntry(
             step = step,
-            title = "Abweichung gegen dein Mass",
+            title = "Abweichung gegen dein Maß",
             props = listOf(ArKernelWizardProp.TAPE, ArKernelWizardProp.TARGET),
             minutes = 15,
             prepare = listOf(
-                "Massband.",
+                "Maßband.",
                 "Eine Strecke, die du unabhängig nachmessen kannst.",
                 "Gutes Licht.",
             ),
             action = "Knopf 14 öffnen, die Strecke messen und danach mit " +
-                "dem Massband nachmessen. Beides gehört in die Datei.",
+                "dem Maßband nachmessen. Beides gehört in die Datei.",
             accept = "Eine Datei mit ARKVALID1 im Namen.",
             mistakes = listOf(
-                "Das Nachmass später und aus dem Gedächtnis eintragen.",
+                "Das Nachmaß später und aus dem Gedächtnis eintragen.",
                 "Ueber eine unebene Strecke messen.",
             ),
-            whyHere = "Erst hier wird aus dem Massstab eine überprüfbare " +
+            whyHere = "Erst hier wird aus dem Maßstab eine überprüfbare " +
                 "Zahl.",
         )
 
         ArKernelCampaignStep.INDEPENDENT_TARGETS -> ArKernelWizardEntry(
             step = step,
-            title = "Masse, die niemand kennen konnte",
+            title = "Maße, die niemand kennen konnte",
             props = listOf(ArKernelWizardProp.TAPE, ArKernelWizardProp.TARGET),
             minutes = 15,
             prepare = listOf(
-                "Ein Mass, das du erst festlegst, nachdem die Kalibrierung " +
+                "Ein Maß, das du erst festlegst, nachdem die Kalibrierung " +
                     "abgeschlossen ist.",
-                "Massband.",
+                "Maßband.",
             ),
-            action = "Knopf 17 öffnen und dieses Mass aufnehmen; danach " +
-                "mit dem Massband nachmessen.",
+            action = "Knopf 17 öffnen und dieses Maß aufnehmen; danach " +
+                "mit dem Maßband nachmessen.",
             accept = "Eine Datei mit ARKTARGET1 im Namen.",
             mistakes = listOf(
-                "Dasselbe Mass verwenden, das schon in die Kalibrierung " +
+                "Dasselbe Maß verwenden, das schon in die Kalibrierung " +
                     "eingegangen ist: dann prüft es nichts.",
-                "Das Mass vorher selbst ausrechnen.",
+                "Das Maß vorher selbst ausrechnen.",
             ),
             whyHere = "Eine Kalibrierung an ihren eigenen Eingaben zu " +
                 "prüfen bestätigt nur, dass die Rechnung aufgeht.",
